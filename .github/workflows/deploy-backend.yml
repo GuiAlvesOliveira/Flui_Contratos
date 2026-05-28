@@ -47,4 +47,4 @@ jobs:
             --name ${{ secrets.AZURE_WEBAPP_NAME }} \
             --src-path deploy.zip \
             --type zip \
-            --async false
+            --async true
