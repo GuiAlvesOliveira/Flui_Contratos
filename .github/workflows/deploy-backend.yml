@@ -33,7 +33,7 @@ jobs:
       - name: Create deployment zip
         run: |
           cd backend
-          zip -r ../deploy.zip . -x "*.git*" -x "node_modules/.cache/*" -x "src/*" -x "test/*"
+          zip -r ../deploy.zip dist package.json package-lock.json
 
       - name: Azure Login
         uses: azure/login@v2
