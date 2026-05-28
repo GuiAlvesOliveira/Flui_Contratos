@@ -1,0 +1,30 @@
+# Local environment variables — never commit
+.env.local
+.env.azure
+.env.*.local
+
+# Node
+node_modules/
+dist/
+build/
+.cache/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.suo
+*.user
+
+# TypeScript
+*.tsbuildinfo
+
+# Claude Code local memory
+.claude/
