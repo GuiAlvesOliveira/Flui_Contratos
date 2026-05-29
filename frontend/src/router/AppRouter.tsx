@@ -66,7 +66,7 @@ export function AppRouter() {
         <Route path="/cliente/onboarding" element={<ClienteOnboardingPage />} />
         <Route path="/dono" element={<RoleRoute allowed="dono"><AppShell /></RoleRoute>} />
         <Route path="/analista" element={<RoleRoute allowed="analista"><AppShell /></RoleRoute>} />
-        <Route path="/cliente" element={<RoleRoute allowed="cliente"><ClientePortalPage /></RoleRoute>} />
+        <Route path="/cliente" element={<RoleRoute allowed="cliente"><AppShell /></RoleRoute>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
