@@ -38,17 +38,42 @@ jobs:
         run: |
           cd backend
           zip -r ../deploy.zip dist node_modules package.json
+          echo "Zip size: $(du -sh ../deploy.zip | cut -f1)"
 
       - name: Azure Login
         uses: azure/login@v2
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Deploy to Azure App Service
+      - name: Upload zip and update WEBSITE_RUN_FROM_PACKAGE
         run: |
-          az webapp deploy \
+          STORAGE_KEY=$(az storage account keys list \
+            --account-name fluigj2026dev \
+            --resource-group flui-dev \
+            --query "[0].value" -o tsv)
+
+          az storage blob upload \
+            --account-name fluigj2026dev \
+            --container-name deployments \
+            --name backend/deploy.zip \
+            --file deploy.zip \
+            --overwrite \
+            --account-key "$STORAGE_KEY"
+
+          EXPIRY=$(date -u -d "+1 year" +"%Y-%m-%dT%H:%MZ")
+          SAS_URL=$(az storage blob generate-sas \
+            --account-name fluigj2026dev \
+            --container-name deployments \
+            --name backend/deploy.zip \
+            --permissions r \
+            --expiry "$EXPIRY" \
+            --account-key "$STORAGE_KEY" \
+            --full-uri \
+            --output tsv)
+
+          az webapp config appsettings set \
             --resource-group flui-dev \
             --name ${{ secrets.AZURE_WEBAPP_NAME }} \
-            --src-path deploy.zip \
-            --type zip \
-            --async true
+            --settings "WEBSITE_RUN_FROM_PACKAGE=$SAS_URL"
+
+          echo "Deployed. Package URL updated."
