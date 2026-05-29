@@ -7,6 +7,7 @@ import { Forbidden } from '../pages/Forbidden';
 import { LoginPage } from '../pages/LoginPage';
 import { SetPasswordPage } from '../pages/SetPasswordPage';
 import { AppShell } from '../components/layout/AppShell';
+import { ClientePortalPage } from '../pages/ClientePortalPage';
 
 const Loading = () => (
   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', color: 'var(--text-muted)', fontSize: 13, fontFamily: 'var(--font)' }}>
@@ -65,7 +66,7 @@ export function AppRouter() {
         <Route path="/cliente/onboarding" element={<ClienteOnboardingPage />} />
         <Route path="/dono" element={<RoleRoute allowed="dono"><AppShell /></RoleRoute>} />
         <Route path="/analista" element={<RoleRoute allowed="analista"><AppShell /></RoleRoute>} />
-        <Route path="/cliente" element={<RoleRoute allowed="cliente"><AppShell /></RoleRoute>} />
+        <Route path="/cliente" element={<RoleRoute allowed="cliente"><ClientePortalPage /></RoleRoute>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
