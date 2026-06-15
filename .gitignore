@@ -28,3 +28,7 @@ Thumbs.db
 
 # Claude Code local memory
 .claude/
+
+# Documentos privados do TCC
+documents/
+MERCADO.md
