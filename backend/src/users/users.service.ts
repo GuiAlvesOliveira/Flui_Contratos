@@ -14,6 +14,7 @@ import { SupabaseAdminService } from '../common/services/supabase-admin.service'
 import { EmailService } from '../email/email.service';
 import { User } from './user.entity';
 import { CreateUserDto } from './dto/create-user.dto';
+import { UpdateProfileDto } from './dto/update-profile.dto';
 import { UpdateUserStatusDto } from './dto/update-user-status.dto';
 
 const ALLOWED_CREATION: Record<string, string[]> = {
@@ -174,7 +175,7 @@ export class UsersService {
 
   async updateProfile(
     id: string,
-    dto: Partial<{ name: string; surname: string; cpf: string; telefone: string }> & { processId?: string },
+    dto: UpdateProfileDto,
     caller: RequestUserFull,
   ) {
     const user = await this.userRepo.findOne({ where: { id } });
