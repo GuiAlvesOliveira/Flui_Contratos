@@ -9,6 +9,7 @@ import { Reflector } from '@nestjs/core';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
+import { PASSWORD_CHANGE_EXEMPT_KEY } from '../decorators/password-change-exempt.decorator';
 import { RequestUser, RequestUserFull } from '../../auth/supabase.guard';
 import { User } from '../../users/user.entity';
 
@@ -32,6 +33,11 @@ export class TenantGuard implements CanActivate {
     ]);
     if (isPublic) return true;
 
+    const passwordChangeExempt = this.reflector.getAllAndOverride<boolean>(
+      PASSWORD_CHANGE_EXEMPT_KEY,
+      [context.getHandler(), context.getClass()],
+    );
+
     const request = context.switchToHttp().getRequest<{ user?: RequestUser }>();
     const user = request.user;
 
@@ -43,6 +49,7 @@ export class TenantGuard implements CanActivate {
     const cached = this.cache.get(user.externalId);
 
     if (cached && cached.expiresAt > now) {
+      this.enforcePasswordChange(cached.data, passwordChangeExempt);
       (request as { user: RequestUserFull }).user = cached.data;
       return true;
     }
@@ -79,8 +86,11 @@ export class TenantGuard implements CanActivate {
     if (!found) {
       throw new ForbiddenException('Usuário não provisionado');
     }
-    // Auto-activate on first real login if user accepted the invite but active is still false
-    if (!found.active && found.externalId) {
+    // Auto-activate on first login ONLY while the user is still onboarding
+    // (invite accepted but account not yet activated). A user who already
+    // completed onboarding and was later deactivated on purpose must STAY
+    // inactive — otherwise disabling an account would be silently reverted (SEC-02).
+    if (!found.active && found.externalId && !found.onboardingCompleted) {
       await this.userRepo.update(found.id, { active: true });
       found.active = true;
     }
@@ -109,7 +119,17 @@ export class TenantGuard implements CanActivate {
         expiresAt: now + this.TTL_MS,
       });
     }
+    this.enforcePasswordChange(fullUser, passwordChangeExempt);
     (request as { user: RequestUserFull }).user = fullUser;
     return true;
+  }
+
+  private enforcePasswordChange(user: RequestUserFull, exempt: boolean): void {
+    if (user.mustChangePassword && !exempt) {
+      throw new ForbiddenException({
+        code: 'PASSWORD_CHANGE_REQUIRED',
+        message: 'Troca de senha obrigatória antes de acessar a API',
+      });
+    }
   }
 }
