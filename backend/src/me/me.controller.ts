@@ -1,5 +1,6 @@
 import { Body, Controller, Get, Patch, Request } from '@nestjs/common';
 import { RequestUserFull } from '../auth/supabase.guard';
+import { PasswordChangeExempt } from '../common/decorators/password-change-exempt.decorator';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { OnboardingDto } from './dto/onboarding.dto';
 import { MeService } from './me.service';
@@ -9,6 +10,7 @@ export class MeController {
   constructor(private readonly meService: MeService) {}
 
   @Get()
+  @PasswordChangeExempt()
   getMe(@Request() req: { user: RequestUserFull }) {
     const user = req.user;
     return {
@@ -23,6 +25,7 @@ export class MeController {
   }
 
   @Patch('change-password')
+  @PasswordChangeExempt()
   async changePassword(
     @Body() dto: ChangePasswordDto,
     @Request() req: { user: RequestUserFull },
