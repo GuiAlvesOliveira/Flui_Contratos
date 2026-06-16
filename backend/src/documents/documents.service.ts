@@ -41,6 +41,23 @@ const DOCS_NAO_ASSALARIADO = [
   { docType: 'irpf', label: 'Declaração de IRPF' },
 ];
 
+// ── Upload content validation (magic numbers) ─────────────────────────────────
+
+// Validates the real bytes of an upload instead of trusting the client-declared
+// Content-Type. A file disguised as image/png but containing HTML/script is
+// rejected here (SEC-06). Only PDF/JPEG/PNG are accepted (see fileFilter).
+function isAllowedFileContent(buffer: Buffer | undefined): boolean {
+  if (!buffer || buffer.length < 4) return false;
+  const isPdf =
+    buffer[0] === 0x25 && buffer[1] === 0x50 && buffer[2] === 0x44 && buffer[3] === 0x46; // %PDF
+  const isPng =
+    buffer.length >= 8 &&
+    buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e && buffer[3] === 0x47 &&
+    buffer[4] === 0x0d && buffer[5] === 0x0a && buffer[6] === 0x1a && buffer[7] === 0x0a;
+  const isJpeg = buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
+  return isPdf || isPng || isJpeg;
+}
+
 // ── Service ───────────────────────────────────────────────────────────────────
 
 @Injectable()
@@ -180,6 +197,9 @@ export class DocumentsService {
 
   async uploadFile(docId: string, file: Express.Multer.File, caller: RequestUserFull) {
     if (!file) throw new BadRequestException('Nenhum arquivo enviado');
+    if (!isAllowedFileContent(file.buffer)) {
+      throw new BadRequestException('Arquivo inválido: conteúdo não é um PDF, JPEG ou PNG válido');
+    }
 
     const doc = await this.repo.findOne({ where: { id: docId, tenantId: caller.tenantId! } });
     if (!doc) throw new NotFoundException('Documento não encontrado');

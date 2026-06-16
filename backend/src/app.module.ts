@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuditModule } from './audit/audit.module';
@@ -27,6 +28,9 @@ import { User } from './users/user.entity';
 
 @Module({
   imports: [
+    // Global rate limit (per IP). Generous ceiling — blocks floods/brute force
+    // without tripping normal use; tune as needed (SEC-04).
+    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 300 }]),
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: ['../.env.local', '.env.local'],
@@ -65,6 +69,7 @@ import { User } from './users/user.entity';
     UsersModule,
   ],
   providers: [
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: SupabaseGuard },
     { provide: APP_GUARD, useClass: TenantGuard },
     { provide: APP_GUARD, useClass: RolesGuard },

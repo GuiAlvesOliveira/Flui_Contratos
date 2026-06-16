@@ -4,6 +4,7 @@ import {
   ForbiddenException,
   Injectable,
   InternalServerErrorException,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -25,6 +26,8 @@ const ALLOWED_CREATION: Record<string, string[]> = {
 
 @Injectable()
 export class UsersService {
+  private readonly logger = new Logger(UsersService.name);
+
   constructor(
     @InjectRepository(User) private readonly userRepo: Repository<User>,
     @InjectRepository(Tenant) private readonly tenantRepo: Repository<Tenant>,
@@ -87,7 +90,7 @@ export class UsersService {
     } catch (err: unknown) {
       await this.userRepo.delete(saved.id);
       const msg = err instanceof Error ? err.message : String(err);
-      console.error('[UsersService] Supabase createUser failed:', msg);
+      this.logger.error(`Supabase createUser failed: ${msg}`);
       throw new InternalServerErrorException(`Supabase: ${msg}`);
     }
 
@@ -124,7 +127,7 @@ export class UsersService {
     } catch (err: unknown) {
       await this.userRepo.delete(saved.id);
       const msg = err instanceof Error ? err.message : String(err);
-      console.error('[UsersService] Supabase generateInviteLink failed:', msg);
+      this.logger.error(`Supabase generateInviteLink failed: ${msg}`);
       throw new InternalServerErrorException(`Supabase: ${msg}`);
     }
 
@@ -134,6 +137,12 @@ export class UsersService {
   }
 
   async createBulk(dtos: CreateUserDto[], caller: RequestUserFull) {
+    if (!Array.isArray(dtos) || dtos.length === 0) {
+      throw new BadRequestException('Lista de usuários vazia');
+    }
+    if (dtos.length > 100) {
+      throw new BadRequestException('Máximo de 100 usuários por requisição');
+    }
     const results: { index: number; success: boolean; result?: object; error?: string }[] = [];
     for (let i = 0; i < dtos.length; i++) {
       try {
@@ -234,7 +243,7 @@ export class UsersService {
       try {
         await this.supabaseAdmin.deleteUser(user.externalId);
       } catch (err) {
-        console.warn('[UsersService] Supabase deleteUser failed (non-fatal):', err);
+        this.logger.warn(`Supabase deleteUser failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`);
       }
     }
 

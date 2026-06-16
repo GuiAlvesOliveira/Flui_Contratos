@@ -7,6 +7,9 @@ export class AuditService {
   constructor(private readonly dataSource: DataSource) {}
 
   async findAll(caller: RequestUserFull, limit = 50, offset = 0) {
+    // Clamp pagination so a caller can't request an unbounded page (SEC-07).
+    const safeLimit = Math.min(Math.max(Math.trunc(limit) || 50, 1), 100);
+    const safeOffset = Math.max(Math.trunc(offset) || 0, 0);
     return this.dataSource.query<unknown[]>(
       `SELECT al.*,
               u.name   AS actor_name,
@@ -21,7 +24,7 @@ export class AuditService {
        WHERE al.tenant_id = $1
        ORDER BY al.created_at DESC
        LIMIT $2 OFFSET $3`,
-      [caller.tenantId, limit, offset],
+      [caller.tenantId, safeLimit, safeOffset],
     );
   }
 

@@ -68,8 +68,18 @@ export class DocumentsController {
   ): Promise<StreamableFile> {
     const { stream, contentType, contentLength, fileName } =
       await this.service.downloadFile(docId, req.user);
+    // nosniff impede que um upload rotulado errado (ex.: HTML enviado como
+    // image/png) seja "sniffed" e executado pelo browser; tipos que não sejam
+    // imagem/pdf são forçados a download em vez de inline (SEC-06).
+    const inlineSafe =
+      !!contentType &&
+      (contentType === 'application/pdf' || contentType.startsWith('image/'));
     res.setHeader('Content-Type', contentType);
-    res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(fileName)}"`);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader(
+      'Content-Disposition',
+      `${inlineSafe ? 'inline' : 'attachment'}; filename="${encodeURIComponent(fileName)}"`,
+    );
     if (contentLength !== undefined) {
       res.setHeader('Content-Length', contentLength);
     }
