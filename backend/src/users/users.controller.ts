@@ -13,6 +13,7 @@ import {
 import { RequestUserFull } from '../auth/supabase.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CreateUserDto } from './dto/create-user.dto';
+import { UpdateProfileDto } from './dto/update-profile.dto';
 import { UpdateUserStatusDto } from './dto/update-user-status.dto';
 import { UsersService } from './users.service';
 
@@ -61,7 +62,7 @@ export class UsersController {
   @Roles('admin', 'dono', 'analista', 'cliente')
   updateProfile(
     @Param('id', ParseUUIDPipe) id: string,
-    @Body() dto: Partial<{ name: string; surname: string; cpf: string; telefone: string }>,
+    @Body() dto: UpdateProfileDto,
     @Request() req: { user: RequestUserFull },
   ) {
     return this.usersService.updateProfile(id, dto, req.user);

@@ -2,6 +2,7 @@ import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Reque
 import { RequestUserFull } from '../auth/supabase.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CreateEmpreendimentoDto } from './dto/create-empreendimento.dto';
+import { UpdateEmpreendimentoDto } from './dto/update-empreendimento.dto';
 import { EmpreendimentosService } from './empreendimentos.service';
 
 @Controller('empreendimentos')
@@ -30,7 +31,7 @@ export class EmpreendimentosController {
   @Roles('dono', 'analista')
   update(
     @Param('id', ParseUUIDPipe) id: string,
-    @Body() dto: Partial<CreateEmpreendimentoDto>,
+    @Body() dto: UpdateEmpreendimentoDto,
     @Request() req: { user: RequestUserFull },
   ) {
     return this.service.update(id, dto, req.user);

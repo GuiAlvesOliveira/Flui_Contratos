@@ -14,6 +14,7 @@ import { WebhookService } from '../common/services/webhook.service';
 import { User } from '../users/user.entity';
 import { AdvanceStageDto } from './dto/advance-stage.dto';
 import { CreateProcessDto } from './dto/create-process.dto';
+import { UpdateProcessDto } from './dto/update-process.dto';
 import { Process, ProcessStage } from './process.entity';
 
 // Ordered linear progression — side stages (cliente_inativo, credito_recusado,
@@ -108,7 +109,7 @@ export class ProcessesService {
     return process;
   }
 
-  async updateFields(id: string, dto: Partial<{ analistaId: string | null; unidadeId: string | null; valorUnidade: number | null; valorEmAberto: number | null; mipValue: number | null; dfiValue: number | null; fonteRenda: string | null; estadoCivil: string | null }>, caller: RequestUserFull) {
+  async updateFields(id: string, dto: UpdateProcessDto, caller: RequestUserFull) {
     const process = await this.repo.findOne({ where: { id, tenantId: caller.tenantId! } });
     if (!process) throw new NotFoundException('Processo não encontrado');
 

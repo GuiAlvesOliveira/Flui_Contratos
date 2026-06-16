@@ -4,6 +4,7 @@ import { DataSource, Repository } from 'typeorm';
 import { RequestUserFull } from '../auth/supabase.guard';
 import { Empreendimento } from './empreendimento.entity';
 import { CreateEmpreendimentoDto } from './dto/create-empreendimento.dto';
+import { UpdateEmpreendimentoDto } from './dto/update-empreendimento.dto';
 
 @Injectable()
 export class EmpreendimentosService {
@@ -37,7 +38,7 @@ export class EmpreendimentosService {
     return emp;
   }
 
-  async update(id: string, dto: Partial<CreateEmpreendimentoDto>, caller: RequestUserFull) {
+  async update(id: string, dto: UpdateEmpreendimentoDto, caller: RequestUserFull) {
     const emp = await this.repo.findOne({ where: { id, tenantId: caller.tenantId! } });
     if (!emp) throw new NotFoundException('Empreendimento não encontrado');
     Object.assign(emp, dto);

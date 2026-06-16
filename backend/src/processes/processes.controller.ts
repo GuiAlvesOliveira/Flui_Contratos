@@ -3,6 +3,7 @@ import { RequestUserFull } from '../auth/supabase.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { AdvanceStageDto } from './dto/advance-stage.dto';
 import { CreateProcessDto } from './dto/create-process.dto';
+import { UpdateProcessDto } from './dto/update-process.dto';
 import type { ProcessStage } from './process.entity';
 import { ProcessesService } from './processes.service';
 
@@ -36,10 +37,10 @@ export class ProcessesController {
   @Roles('dono', 'analista')
   updateFields(
     @Param('id', ParseUUIDPipe) id: string,
-    @Body() dto: Record<string, unknown>,
+    @Body() dto: UpdateProcessDto,
     @Request() req: { user: RequestUserFull },
   ) {
-    return this.service.updateFields(id, dto as Parameters<typeof this.service.updateFields>[1], req.user);
+    return this.service.updateFields(id, dto, req.user);
   }
 
   @Patch(':id/stage')
