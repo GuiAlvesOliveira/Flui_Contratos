@@ -47,6 +47,12 @@ export class ProcessesService {
     });
     if (!client) throw new NotFoundException('Cliente não encontrado no tenant');
 
+    await this.assertAssociationsInTenant(
+      caller.tenantId!,
+      caller.role === 'analista' ? null : dto.analistaId,
+      dto.unidadeId,
+    );
+
     const analistaId =
       caller.role === 'analista' ? caller.userId : (dto.analistaId ?? null);
 
@@ -112,6 +118,8 @@ export class ProcessesService {
   async updateFields(id: string, dto: UpdateProcessDto, caller: RequestUserFull) {
     const process = await this.repo.findOne({ where: { id, tenantId: caller.tenantId! } });
     if (!process) throw new NotFoundException('Processo não encontrado');
+
+    await this.assertAssociationsInTenant(caller.tenantId!, dto.analistaId, dto.unidadeId);
 
     const wasNoFonteRenda = !process.fonteRenda;
     Object.assign(process, dto);
@@ -230,5 +238,28 @@ export class ProcessesService {
        ORDER BY al.created_at DESC`,
       [id],
     );
+  }
+
+  // Ensures analista/unidade referenced by a process belong to the caller's
+  // tenant (and that analista has the right role) before they are linked — a
+  // `dono` must not attach another tenant's analista/unidade (SEC-08, RN-01).
+  private async assertAssociationsInTenant(
+    tenantId: string,
+    analistaId?: string | null,
+    unidadeId?: string | null,
+  ): Promise<void> {
+    if (analistaId) {
+      const analista = await this.userRepo.findOne({
+        where: { id: analistaId, tenantId, role: 'analista' },
+      });
+      if (!analista) throw new NotFoundException('Analista não encontrado no tenant');
+    }
+    if (unidadeId) {
+      const [unidade] = await this.dataSource.query<{ id: string }[]>(
+        `SELECT id FROM unidades WHERE id = $1 AND tenant_id = $2 LIMIT 1`,
+        [unidadeId, tenantId],
+      );
+      if (!unidade) throw new NotFoundException('Unidade não encontrada no tenant');
+    }
   }
 }

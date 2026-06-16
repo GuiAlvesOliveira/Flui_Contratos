@@ -60,7 +60,7 @@ jobs:
             --overwrite \
             --account-key "$STORAGE_KEY"
 
-          EXPIRY=$(date -u -d "+1 year" +"%Y-%m-%dT%H:%MZ")
+          EXPIRY=$(date -u -d "+7 days" +"%Y-%m-%dT%H:%MZ")
           SAS_URL=$(az storage blob generate-sas \
             --account-name fluigj2026dev \
             --container-name deployments \

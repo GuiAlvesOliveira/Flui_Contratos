@@ -390,7 +390,7 @@ export function AppShell() {
         </div>
       </div>
 
-      {role === 'dono' && <DevApiMenu />}
+      {import.meta.env.DEV && role === 'dono' && <DevApiMenu />}
     </div>
   );
 }

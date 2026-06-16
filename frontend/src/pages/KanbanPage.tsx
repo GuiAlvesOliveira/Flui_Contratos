@@ -298,7 +298,7 @@ export function KanbanPage() {
         </div>
       </div>
 
-      {role === 'dono' && <DevApiMenu />}
+      {import.meta.env.DEV && role === 'dono' && <DevApiMenu />}
     </div>
   );
 }

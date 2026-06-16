@@ -15,12 +15,18 @@ export class WebhookService {
     const isDev = this.config.get<string>('NODE_ENV') === 'development';
     const prefix = isDev ? 'webhook-test' : 'webhook';
     const url = `${this.baseUrl}/${prefix}/${event}`;
+    // Bound the request so a slow/unreachable n8n can't hold a socket open (REL-01).
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
     fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
-    }).catch((err: unknown) => {
-      this.logger.warn(`Webhook ${event} failed: ${err instanceof Error ? err.message : String(err)}`);
-    });
+      signal: controller.signal,
+    })
+      .catch((err: unknown) => {
+        this.logger.warn(`Webhook ${event} failed: ${err instanceof Error ? err.message : String(err)}`);
+      })
+      .finally(() => clearTimeout(timeout));
   }
 }
