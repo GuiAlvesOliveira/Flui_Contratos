@@ -25,6 +25,8 @@ import { Process } from './processes/process.entity';
 import { Tenant } from './tenants/tenant.entity';
 import { Unidade } from './unidades/unidade.entity';
 import { User } from './users/user.entity';
+import { InitialSchema1718500000000 } from './database/migrations/1718500000000-InitialSchema';
+import { UnifyProcessStages1718500100000 } from './database/migrations/1718500100000-UnifyProcessStages';
 
 @Module({
   imports: [
@@ -46,6 +48,8 @@ import { User } from './users/user.entity';
         username: config.get<string>('DATABASE_USER'),
         password: config.get<string>('DATABASE_PASSWORD'),
         entities: [Tenant, User, Empreendimento, Unidade, Process, Document, ProcessParticipant],
+        migrations: [InitialSchema1718500000000, UnifyProcessStages1718500100000],
+        migrationsRun: true,
         synchronize: false,
         ssl:
           config.get('NODE_ENV') === 'production'

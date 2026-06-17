@@ -38,18 +38,24 @@ export const STAGE_LABELS: Record<ProcessStage, string> = {
   processo_pendencia: 'Pendência',
 };
 
+// Complete state machine (BR-01). Linear path is single-step forward; every
+// active stage can be put on hold (processo_pendencia) or dropped
+// (cliente_inativo); side stages can be reopened/resumed. assinatura is terminal.
 export const ALLOWED_TRANSITIONS: Record<ProcessStage, ProcessStage[]> = {
   inicial: ['cadastro', 'cliente_inativo'],
-  cadastro: ['analise_credito', 'cliente_inativo'],
-  analise_credito: ['credito_aprovado', 'credito_recusado'],
-  credito_aprovado: ['analise_juridica'],
-  analise_juridica: ['juridico_aprovado'],
-  juridico_aprovado: ['cartorio'],
-  cartorio: ['assinatura'],
+  cadastro: ['analise_credito', 'cliente_inativo', 'processo_pendencia'],
+  analise_credito: ['credito_aprovado', 'credito_recusado', 'cliente_inativo', 'processo_pendencia'],
+  credito_aprovado: ['analise_juridica', 'cliente_inativo', 'processo_pendencia'],
+  analise_juridica: ['juridico_aprovado', 'cliente_inativo', 'processo_pendencia'],
+  juridico_aprovado: ['cartorio', 'cliente_inativo', 'processo_pendencia'],
+  cartorio: ['assinatura', 'cliente_inativo', 'processo_pendencia'],
   assinatura: [],
-  cliente_inativo: [],
-  credito_recusado: [],
-  processo_pendencia: ['analise_credito', 'credito_aprovado', 'analise_juridica'],
+  cliente_inativo: ['inicial'],
+  credito_recusado: ['analise_credito'],
+  processo_pendencia: [
+    'analise_credito', 'credito_aprovado', 'analise_juridica',
+    'juridico_aprovado', 'cartorio', 'cliente_inativo',
+  ],
 };
 
 @Entity('processes')

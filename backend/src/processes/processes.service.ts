@@ -15,7 +15,7 @@ import { User } from '../users/user.entity';
 import { AdvanceStageDto } from './dto/advance-stage.dto';
 import { CreateProcessDto } from './dto/create-process.dto';
 import { UpdateProcessDto } from './dto/update-process.dto';
-import { Process, ProcessStage } from './process.entity';
+import { ALLOWED_TRANSITIONS, Process, ProcessStage } from './process.entity';
 
 // Ordered linear progression — side stages (cliente_inativo, credito_recusado,
 // processo_pendencia) are excluded; moving to them never triggers the doc gate.
@@ -147,6 +147,26 @@ export class ProcessesService {
 
     const fromStage = process.stage;
 
+    // BR-01: only allow transitions declared in the state machine.
+    if (fromStage === dto.toStage) {
+      throw new BadRequestException('O processo já está nesta etapa');
+    }
+    if (!ALLOWED_TRANSITIONS[fromStage].includes(dto.toStage)) {
+      throw new UnprocessableEntityException(
+        `Transição inválida de "${fromStage}" para "${dto.toStage}"`,
+      );
+    }
+
+    // BR-02 (RN-05): MIP and DFI are mandatory before the contract/registry phase.
+    if (
+      (dto.toStage === 'cartorio' || dto.toStage === 'assinatura') &&
+      (process.mipValue == null || process.dfiValue == null)
+    ) {
+      throw new UnprocessableEntityException(
+        'Informe os valores de MIP e DFI antes de avançar para cartório/assinatura (RN-05)',
+      );
+    }
+
     // RN-04: gate only for forward moves starting from analise_credito onward.
     // inicial → cadastro is always allowed (no docs required yet).
     const fromIdx = LINEAR_STAGES.indexOf(fromStage);
@@ -162,7 +182,14 @@ export class ProcessesService {
         [id, caller.tenantId],
       );
 
-      if (Number(counts.total) > 0 && Number(counts.pending) > 0) {
+      // RN-04 fail-closed: an uninitialised checklist (total = 0) blocks the
+      // advance instead of letting it through.
+      if (Number(counts.total) === 0) {
+        throw new UnprocessableEntityException(
+          'Checklist de documentos não inicializado — defina a fonte de renda do processo antes de avançar (RN-04)',
+        );
+      }
+      if (Number(counts.pending) > 0) {
         const pendingDocs = await this.dataSource.query<{ label: string; status: string }[]>(
           `SELECT COALESCE(label, name) AS label, status
            FROM documents
