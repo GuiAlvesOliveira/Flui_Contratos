@@ -566,7 +566,16 @@ function ParticipantesCard({ processId, isAnalista }: { processId: string; isAna
     queryFn: () => api.get(`/processes/${processId}/participants`).then(r => r.data),
   });
 
-  const totalRenda = participants.reduce((s, p) => s + Number(p.declaredIncome), 0);
+  // RN-06: the income composition is summed authoritatively on the backend.
+  // Keyed under ['participants', processId, ...] so the add/remove mutations
+  // below (which fuzzy-invalidate ['participants', processId]) also refresh it.
+  const { data: composition } = useQuery<{ composedIncome: number; participantCount: number }>({
+    queryKey: ['participants', processId, 'composition'],
+    queryFn: () => api.get(`/processes/${processId}/income-composition`).then(r => r.data),
+  });
+
+  // Use the server total; fall back to a local sum only while it is loading.
+  const totalRenda = composition?.composedIncome ?? participants.reduce((s, p) => s + Number(p.declaredIncome), 0);
 
   const addMut = useMutation({
     mutationFn: () => api.post(`/processes/${processId}/participants`, {

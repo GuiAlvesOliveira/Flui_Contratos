@@ -112,7 +112,44 @@ export class ProcessesService {
 
     const process = await qb.getOne();
     if (!process) throw new NotFoundException('Processo não encontrado');
-    return process;
+
+    // RN-06: surface the server-computed income composition alongside the
+    // process so the UI never has to re-sum participants client-side.
+    const composition = await this.computeIncomeComposition(id, caller.tenantId!);
+    return { ...process, ...composition };
+  }
+
+  // RN-06: income composition = sum of every participant's declared income.
+  // Validates tenant/cliente access, then returns the authoritative aggregate.
+  async getIncomeComposition(id: string, caller: RequestUserFull) {
+    const where: { id: string; tenantId: string; clientId?: string } = {
+      id,
+      tenantId: caller.tenantId!,
+    };
+    if (caller.role === 'cliente') where.clientId = caller.userId!;
+
+    const process = await this.repo.findOne({ where });
+    if (!process) throw new NotFoundException('Processo não encontrado');
+
+    return this.computeIncomeComposition(id, caller.tenantId!);
+  }
+
+  // RN-06: aggregate declared income in the database (exact numeric SUM) to
+  // avoid client-side float drift; rounds the final cast to cents.
+  private async computeIncomeComposition(
+    processId: string,
+    tenantId: string,
+  ): Promise<{ composedIncome: number; participantCount: number }> {
+    const [row] = await this.dataSource.query<[{ total: string; count: string }]>(
+      `SELECT COALESCE(SUM(declared_income), 0) AS total, COUNT(*) AS count
+       FROM process_participants
+       WHERE process_id = $1 AND tenant_id = $2`,
+      [processId, tenantId],
+    );
+    return {
+      composedIncome: Math.round(Number(row.total) * 100) / 100,
+      participantCount: Number(row.count),
+    };
   }
 
   async updateFields(id: string, dto: UpdateProcessDto, caller: RequestUserFull) {
