@@ -93,3 +93,5 @@ distribuído (Redis) ou reduzir o TTL; adicionar limite de tamanho ao `Map`.
 - [ ] **Cache distribuído**, se houver mais de 1 instância (item 4)
 - [ ] Variáveis de ambiente de produção conferidas (`FRONTEND_URL`, segredos no Key Vault)
 - [ ] Assinatura HMAC no webhook do n8n (carrega PII — ver REL-01 no `DIAGNOSTICO.md`)
+- [ ] Migrações: hoje `migrationsRun` aplica no boot (ok p/ instância única). Ao escalar
+      para múltiplas instâncias, rodar as migrações como passo de deploy (evita corrida de boot)
