@@ -8,6 +8,7 @@ node_modules/
 dist/
 build/
 .cache/
+coverage/
 
 # Logs
 *.log
@@ -29,6 +30,6 @@ Thumbs.db
 # Claude Code local memory
 .claude/
 
-# Documentos privados do TCC
-documents/
+# Documentos privados do TCC (pasta na raiz — ancorada para não pegar backend/src/documents/)
+/documents/
 MERCADO.md
