@@ -84,9 +84,21 @@
       "^.+\\.(t|j)s$": "ts-jest"
     },
     "collectCoverageFrom": [
-      "**/*.(t|j)s"
+      "**/*.service.ts",
+      "**/guards/*.guard.ts",
+      "!**/*.spec.ts",
+      "!common/services/azure-storage.service.ts",
+      "!common/services/supabase-admin.service.ts"
     ],
     "coverageDirectory": "../coverage",
+    "coverageThreshold": {
+      "global": {
+        "statements": 55,
+        "branches": 45,
+        "functions": 55,
+        "lines": 55
+      }
+    },
     "testEnvironment": "node"
   }
 }

@@ -9,7 +9,34 @@ on:
   workflow_dispatch:
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: backend
+        run: npm ci
+
+      - name: Unit tests + coverage gate
+        working-directory: backend
+        run: npm run test:cov
+
+      - name: E2E tests
+        working-directory: backend
+        run: npm run test:e2e
+
   build-and-deploy:
+    # Gate the deploy on the test job: no green tests + coverage floor, no deploy.
+    needs: test
     runs-on: ubuntu-latest
 
     steps:
