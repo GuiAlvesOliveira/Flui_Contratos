@@ -33,6 +33,15 @@ export class ProcessesController {
     return this.service.findOne(id, req.user);
   }
 
+  @Get(':id/income-composition')
+  @Roles('dono', 'analista', 'cliente')
+  getIncomeComposition(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Request() req: { user: RequestUserFull },
+  ) {
+    return this.service.getIncomeComposition(id, req.user);
+  }
+
   @Patch(':id')
   @Roles('dono', 'analista')
   updateFields(

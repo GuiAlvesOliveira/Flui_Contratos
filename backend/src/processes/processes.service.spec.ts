@@ -1,4 +1,4 @@
-import { BadRequestException, UnprocessableEntityException } from '@nestjs/common';
+import { BadRequestException, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
 import { DataSource, Repository } from 'typeorm';
 import { ProcessesService } from './processes.service';
 import { Process } from './process.entity';
@@ -88,5 +88,42 @@ describe('ProcessesService.advanceStage', () => {
     const res = await service.advanceStage('p1', dto('cadastro'), caller);
     expect(res).toEqual({ id: 'p1', fromStage: 'inicial', toStage: 'cadastro' });
     expect(webhook.fireAndForget).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('ProcessesService.getIncomeComposition (RN-06)', () => {
+  it('sums every participant declared income from the database', async () => {
+    const { service, dataSource } = makeService({ id: 'p1', tenantId: 't1' });
+    dataSource.query.mockResolvedValueOnce([{ total: '7500.50', count: '3' }]);
+    await expect(service.getIncomeComposition('p1', caller)).resolves.toEqual({
+      composedIncome: 7500.5,
+      participantCount: 3,
+    });
+  });
+
+  it('returns zero composition when the process has no participants', async () => {
+    const { service, dataSource } = makeService({ id: 'p1', tenantId: 't1' });
+    dataSource.query.mockResolvedValueOnce([{ total: '0', count: '0' }]);
+    await expect(service.getIncomeComposition('p1', caller)).resolves.toEqual({
+      composedIncome: 0,
+      participantCount: 0,
+    });
+  });
+
+  it('scopes a cliente caller to their own process (RN-01)', async () => {
+    const { service, repo, dataSource } = makeService({ id: 'p1', tenantId: 't1' });
+    dataSource.query.mockResolvedValueOnce([{ total: '0', count: '0' }]);
+    const cliente = { tenantId: 't1', userId: 'c1', role: 'cliente' } as RequestUserFull;
+    await service.getIncomeComposition('p1', cliente);
+    expect(repo.findOne).toHaveBeenCalledWith({
+      where: { id: 'p1', tenantId: 't1', clientId: 'c1' },
+    });
+  });
+
+  it('404s when the process is absent from the caller tenant', async () => {
+    const { service } = makeService(null);
+    await expect(service.getIncomeComposition('p1', caller)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
   });
 });
