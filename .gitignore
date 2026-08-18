@@ -33,3 +33,6 @@ Thumbs.db
 # Documentos privados do TCC (pasta na raiz — ancorada para não pegar backend/src/documents/)
 /documents/
 MERCADO.md
+
+# Backlog local (visualização HTML + dados — não versionado)
+/BACKLOG/

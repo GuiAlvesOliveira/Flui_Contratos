@@ -27,11 +27,14 @@ async function bootstrap() {
       transform: true,
     }),
   );
-  app.enableCors({
-    origin: process.env.FRONTEND_URL
-      ? process.env.FRONTEND_URL
-      : /^http:\/\/localhost:\d+$/,
-  });
+  const allowedOrigins: (string | RegExp)[] = [
+    /^http:\/\/localhost:\d+$/,
+    /^https:\/\/[\w-]+\.vercel\.app$/,
+  ];
+  if (process.env.FRONTEND_URL) {
+    process.env.FRONTEND_URL.split(',').map((u) => u.trim()).forEach((u) => allowedOrigins.push(u));
+  }
+  app.enableCors({ origin: allowedOrigins });
 
   await app.listen(process.env.PORT ?? 3000);
 }
