@@ -11,13 +11,12 @@ function makeService(process: Partial<Process> | null) {
   const userRepo = {
     findOne: jest.fn().mockResolvedValue({ email: 'c@x.com', name: 'Cli', telefone: null }),
   };
+  const manager = { update: jest.fn(), query: jest.fn() };
   const dataSource = {
     query: jest.fn(),
     transaction: jest
       .fn()
-      .mockImplementation(async (cb: (m: unknown) => unknown) =>
-        cb({ update: jest.fn(), query: jest.fn() }),
-      ),
+      .mockImplementation(async (cb: (m: unknown) => unknown) => cb(manager)),
   };
   const webhook = { fireAndForget: jest.fn() };
   const email = { sendStageChange: jest.fn() };
@@ -30,7 +29,7 @@ function makeService(process: Partial<Process> | null) {
     email as never,
     documents as never,
   );
-  return { service, repo, userRepo, dataSource, webhook, email };
+  return { service, repo, userRepo, dataSource, manager, webhook, email };
 }
 
 const caller = { tenantId: 't1', userId: 'u1', role: 'analista' } as RequestUserFull;
@@ -75,6 +74,78 @@ describe('ProcessesService.advanceStage', () => {
     await expect(service.advanceStage('p1', dto('credito_aprovado'), caller)).rejects.toBeInstanceOf(
       UnprocessableEntityException,
     );
+  });
+
+  it('RN-04: the gate also counts the client personal docs (process_id NULL)', async () => {
+    const { service, dataSource } = makeService({
+      id: 'p1', stage: 'analise_credito', clientId: 'c1', mipValue: 1, dfiValue: 1,
+    });
+    dataSource.query
+      .mockResolvedValueOnce([{ total: '4', pending: '1' }])
+      .mockResolvedValueOnce([{ label: 'RG ou CNH', status: 'recebido' }]);
+    await expect(service.advanceStage('p1', dto('credito_aprovado'), caller)).rejects.toBeInstanceOf(
+      UnprocessableEntityException,
+    );
+    const [sql, params] = dataSource.query.mock.calls[0] as [string, unknown[]];
+    expect(sql).toContain('process_id IS NULL AND user_id = $3');
+    expect(params).toEqual(['p1', 't1', 'c1']);
+  });
+
+  it('records the stage a process is parked from when it goes on hold', async () => {
+    const { service, manager } = makeService({
+      id: 'p1', stage: 'analise_juridica', clientId: 'c1', mipValue: null, dfiValue: null,
+    });
+    await service.advanceStage('p1', dto('processo_pendencia'), caller);
+    expect(manager.update).toHaveBeenCalledWith(Process, 'p1', {
+      stage: 'processo_pendencia',
+      stageBeforePendencia: 'analise_juridica',
+    });
+  });
+
+  it('BR-01/RN-04: a hold cannot be used to jump past the stage it was parked from', async () => {
+    const { service, dataSource } = makeService({
+      id: 'p1', stage: 'processo_pendencia', stageBeforePendencia: 'cadastro', mipValue: 1, dfiValue: 1,
+    });
+    await expect(service.advanceStage('p1', dto('juridico_aprovado'), caller)).rejects.toBeInstanceOf(
+      UnprocessableEntityException,
+    );
+    expect(dataSource.query).not.toHaveBeenCalled();
+  });
+
+  it('resumes a hold at the stage it was parked from', async () => {
+    const { service } = makeService({
+      id: 'p1', stage: 'processo_pendencia', stageBeforePendencia: 'cadastro', clientId: 'c1',
+      mipValue: null, dfiValue: null,
+    });
+    await expect(service.advanceStage('p1', dto('cadastro'), caller)).resolves.toEqual({
+      id: 'p1', fromStage: 'processo_pendencia', toStage: 'cadastro',
+    });
+  });
+
+  it('RN-04: resuming a hold beyond analise_credito still requires validated docs', async () => {
+    const { service, dataSource } = makeService({
+      id: 'p1', stage: 'processo_pendencia', stageBeforePendencia: 'cartorio', clientId: 'c1',
+      mipValue: 1, dfiValue: 1,
+    });
+    dataSource.query
+      .mockResolvedValueOnce([{ total: '4', pending: '1' }])
+      .mockResolvedValueOnce([{ label: 'Holerite (mês 1)', status: 'rejeitado' }]);
+    await expect(service.advanceStage('p1', dto('cartorio'), caller)).rejects.toBeInstanceOf(
+      UnprocessableEntityException,
+    );
+  });
+
+  it('RN-04: a legacy hold (no recorded stage) is gated when resuming ahead', async () => {
+    const { service, dataSource } = makeService({
+      id: 'p1', stage: 'processo_pendencia', stageBeforePendencia: null, clientId: 'c1',
+      mipValue: 1, dfiValue: 1,
+    });
+    dataSource.query.mockResolvedValueOnce([{ total: '0', pending: '3' }]);
+    await expect(service.advanceStage('p1', dto('juridico_aprovado'), caller)).rejects.toBeInstanceOf(
+      UnprocessableEntityException,
+    );
+    // Blocked by the document gate, not by the transition check.
+    expect(dataSource.query).toHaveBeenCalledTimes(1);
   });
 
   it('advances on a valid move and fires the n8n webhook', async () => {

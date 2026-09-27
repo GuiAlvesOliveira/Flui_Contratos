@@ -4,6 +4,7 @@ import { ValidationPipe } from '@nestjs/common';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
+import { frontendOrigins } from './common/frontend-url';
 
 async function bootstrap() {
   // Application Insights — only when wired in the environment (prod). Started
@@ -30,10 +31,8 @@ async function bootstrap() {
   const allowedOrigins: (string | RegExp)[] = [
     /^http:\/\/localhost:\d+$/,
     /^https:\/\/[\w-]+\.vercel\.app$/,
+    ...frontendOrigins(process.env.FRONTEND_URL),
   ];
-  if (process.env.FRONTEND_URL) {
-    process.env.FRONTEND_URL.split(',').map((u) => u.trim()).forEach((u) => allowedOrigins.push(u));
-  }
   app.enableCors({ origin: allowedOrigins });
 
   await app.listen(process.env.PORT ?? 3000);

@@ -1,6 +1,7 @@
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { primaryFrontendUrl } from '../frontend-url';
 
 @Injectable()
 export class SupabaseAdminService {
@@ -18,7 +19,8 @@ export class SupabaseAdminService {
     email: string,
     role: string,
   ): Promise<{ externalId: string; inviteLink: string }> {
-    const frontendUrl = this.config.get<string>('FRONTEND_URL') ?? 'http://localhost:5173';
+    // FRONTEND_URL can be a CORS list — the redirect must be a single URL.
+    const frontendUrl = primaryFrontendUrl(this.config.get<string>('FRONTEND_URL'));
     const { data, error } = await this.supabase.auth.admin.generateLink({
       type: 'invite',
       email,

@@ -38,9 +38,18 @@ export const STAGE_LABELS: Record<ProcessStage, string> = {
   processo_pendencia: 'Pendência',
 };
 
+// Ordered linear progression — side stages (cliente_inativo, credito_recusado,
+// processo_pendencia) are not part of it.
+export const LINEAR_STAGES: ProcessStage[] = [
+  'inicial', 'cadastro', 'analise_credito', 'credito_aprovado',
+  'analise_juridica', 'juridico_aprovado', 'cartorio', 'assinatura',
+];
+
 // Complete state machine (BR-01). Linear path is single-step forward; every
 // active stage can be put on hold (processo_pendencia) or dropped
 // (cliente_inativo); side stages can be reopened/resumed. assinatura is terminal.
+// processo_pendencia lists every stage a hold can come from; allowedTransitions()
+// narrows it to the stage the process was actually parked from.
 export const ALLOWED_TRANSITIONS: Record<ProcessStage, ProcessStage[]> = {
   inicial: ['cadastro', 'cliente_inativo'],
   cadastro: ['analise_credito', 'cliente_inativo', 'processo_pendencia'],
@@ -53,10 +62,27 @@ export const ALLOWED_TRANSITIONS: Record<ProcessStage, ProcessStage[]> = {
   cliente_inativo: ['inicial'],
   credito_recusado: ['analise_credito'],
   processo_pendencia: [
-    'analise_credito', 'credito_aprovado', 'analise_juridica',
+    'cadastro', 'analise_credito', 'credito_aprovado', 'analise_juridica',
     'juridico_aprovado', 'cartorio', 'cliente_inativo',
   ],
 };
+
+// Targets reachable from `stage`. A process on hold may only resume at (or
+// before) the stage it was parked from, so the hold can't be used to skip
+// stages or the RN-04 document gate. Rows parked without a recorded stage
+// (legacy data) keep the full list — the document gate still applies to them.
+export function allowedTransitions(
+  stage: ProcessStage,
+  stageBeforePendencia: ProcessStage | null,
+): ProcessStage[] {
+  const targets = ALLOWED_TRANSITIONS[stage];
+  if (stage !== 'processo_pendencia' || !stageBeforePendencia) return targets;
+  const limit = LINEAR_STAGES.indexOf(stageBeforePendencia);
+  if (limit < 0) return targets;
+  return targets.filter(
+    (s) => s === 'cliente_inativo' || LINEAR_STAGES.indexOf(s) <= limit,
+  );
+}
 
 @Entity('processes')
 export class Process {
@@ -101,6 +127,11 @@ export class Process {
 
   @Column({ name: 'motivo_recusa', type: 'text', nullable: true })
   motivoRecusa: string | null;
+
+  // Stage the process was in when it was put on hold (processo_pendencia);
+  // bounds where it may resume. Set only by advanceStage, never by the client.
+  @Column({ type: 'varchar', name: 'stage_before_pendencia', length: 50, nullable: true })
+  stageBeforePendencia: ProcessStage | null;
 
   @Column({ default: true })
   active: boolean;
