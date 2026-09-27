@@ -27,6 +27,7 @@ import { Unidade } from './unidades/unidade.entity';
 import { User } from './users/user.entity';
 import { InitialSchema1718500000000 } from './database/migrations/1718500000000-InitialSchema';
 import { UnifyProcessStages1718500100000 } from './database/migrations/1718500100000-UnifyProcessStages';
+import { AddStageBeforePendencia1718500200000 } from './database/migrations/1718500200000-AddStageBeforePendencia';
 
 @Module({
   imports: [
@@ -48,7 +49,11 @@ import { UnifyProcessStages1718500100000 } from './database/migrations/171850010
         username: config.get<string>('DATABASE_USER'),
         password: config.get<string>('DATABASE_PASSWORD'),
         entities: [Tenant, User, Empreendimento, Unidade, Process, Document, ProcessParticipant],
-        migrations: [InitialSchema1718500000000, UnifyProcessStages1718500100000],
+        migrations: [
+          InitialSchema1718500000000,
+          UnifyProcessStages1718500100000,
+          AddStageBeforePendencia1718500200000,
+        ],
         migrationsRun: true,
         synchronize: false,
         ssl:

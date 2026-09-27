@@ -21,6 +21,7 @@ interface ProcessCard {
   analista: ProcessUser | null;
   valorUnidade: number | null;
   valorEmAberto: number | null;
+  stageBeforePendencia: ProcessStage | null;
   updatedAt: string;
 }
 
@@ -89,10 +90,20 @@ const ALLOWED_TRANSITIONS: Record<ProcessStage, ProcessStage[]> = {
   cliente_inativo: ['inicial'],
   credito_recusado: ['analise_credito'],
   processo_pendencia: [
-    'analise_credito', 'credito_aprovado', 'analise_juridica',
+    'cadastro', 'analise_credito', 'credito_aprovado', 'analise_juridica',
     'juridico_aprovado', 'cartorio', 'cliente_inativo',
   ],
 };
+
+// Mirrors backend allowedTransitions(): a process on hold only resumes at (or
+// before) the stage it was parked from.
+function allowedTransitions(process: ProcessCard): ProcessStage[] {
+  const targets = ALLOWED_TRANSITIONS[process.stage];
+  if (process.stage !== 'processo_pendencia' || !process.stageBeforePendencia) return targets;
+  const limit = MAIN_STAGES.indexOf(process.stageBeforePendencia);
+  if (limit < 0) return targets;
+  return targets.filter(s => s === 'cliente_inativo' || MAIN_STAGES.indexOf(s) <= limit);
+}
 
 const MOTIVO_INATIVIDADE_OPTIONS = [
   { value: 'recursos_proprios', label: 'Quitará por recursos próprios' },
@@ -117,7 +128,7 @@ interface AdvanceDrawerProps {
 
 function AdvanceDrawer({ process, onClose }: AdvanceDrawerProps) {
   const queryClient = useQueryClient();
-  const otherStages = ALLOWED_TRANSITIONS[process.stage];
+  const otherStages = allowedTransitions(process);
   const [toStage, setToStage] = useState<ProcessStage>(otherStages[0]);
   const [motivoInatividade, setMotivoInatividade] = useState('recursos_proprios');
   const [motivoRecusa, setMotivoRecusa] = useState('');
@@ -320,7 +331,7 @@ function KanbanCard({ process, onOpenProcess, canMoveStage }: KanbanCardProps) {
           <div className="ds-kb-progress">
             <span style={{ width: `${progress}%`, background: stageColor }} />
           </div>
-          {canMoveStage && ALLOWED_TRANSITIONS[process.stage].length > 0 && (
+          {canMoveStage && allowedTransitions(process).length > 0 && (
             <button
               onClick={(e) => { e.stopPropagation(); setShowDrawer(true); }}
               className="ds-btn accent sm"

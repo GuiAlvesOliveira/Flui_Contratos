@@ -10,6 +10,7 @@ import { Document } from '../documents/document.entity';
 import { ProcessParticipant } from '../participants/participant.entity';
 import { InitialSchema1718500000000 } from './migrations/1718500000000-InitialSchema';
 import { UnifyProcessStages1718500100000 } from './migrations/1718500100000-UnifyProcessStages';
+import { AddStageBeforePendencia1718500200000 } from './migrations/1718500200000-AddStageBeforePendencia';
 
 // Standalone DataSource for the `typeorm migration:*` CLI. The running app builds
 // its own connection from ConfigService (app.module) and runs migrations on boot
@@ -25,6 +26,10 @@ export const AppDataSource = new DataSource({
   username: process.env.DATABASE_USER,
   password: process.env.DATABASE_PASSWORD,
   entities: [Tenant, User, Empreendimento, Unidade, Process, Document, ProcessParticipant],
-  migrations: [InitialSchema1718500000000, UnifyProcessStages1718500100000],
+  migrations: [
+    InitialSchema1718500000000,
+    UnifyProcessStages1718500100000,
+    AddStageBeforePendencia1718500200000,
+  ],
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: true } : false,
 });

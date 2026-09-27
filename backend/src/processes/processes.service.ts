@@ -15,19 +15,20 @@ import { User } from '../users/user.entity';
 import { AdvanceStageDto } from './dto/advance-stage.dto';
 import { CreateProcessDto } from './dto/create-process.dto';
 import { UpdateProcessDto } from './dto/update-process.dto';
-import { ALLOWED_TRANSITIONS, Process, ProcessStage } from './process.entity';
+import { allowedTransitions, LINEAR_STAGES, Process, ProcessStage } from './process.entity';
 
-// Ordered linear progression — side stages (cliente_inativo, credito_recusado,
-// processo_pendencia) are excluded; moving to them never triggers the doc gate.
-const LINEAR_STAGES: ProcessStage[] = [
-  'inicial', 'cadastro', 'analise_credito', 'credito_aprovado',
-  'analise_juridica', 'juridico_aprovado', 'cartorio', 'assinatura',
-];
-
-function isForwardMove(from: ProcessStage, to: ProcessStage): boolean {
-  const fi = LINEAR_STAGES.indexOf(from);
+// RN-04: a process may only move past analise_credito with every document
+// validated. Applies to forward moves starting from analise_credito onward
+// (inicial → cadastro → analise_credito need no validated docs yet) and to any
+// resume from processo_pendencia into a stage beyond analise_credito, so the
+// hold can't be used to route around the gate. Moves into side stages never
+// trigger it.
+function requiresDocGate(from: ProcessStage, to: ProcessStage): boolean {
+  const gateFrom = LINEAR_STAGES.indexOf('analise_credito');
   const ti = LINEAR_STAGES.indexOf(to);
-  return fi >= 0 && ti > fi;
+  if (from === 'processo_pendencia') return ti > gateFrom;
+  const fi = LINEAR_STAGES.indexOf(from);
+  return fi >= gateFrom && ti > fi;
 }
 
 @Injectable()
@@ -188,9 +189,11 @@ export class ProcessesService {
     if (fromStage === dto.toStage) {
       throw new BadRequestException('O processo já está nesta etapa');
     }
-    if (!ALLOWED_TRANSITIONS[fromStage].includes(dto.toStage)) {
+    if (!allowedTransitions(fromStage, process.stageBeforePendencia).includes(dto.toStage)) {
       throw new UnprocessableEntityException(
-        `Transição inválida de "${fromStage}" para "${dto.toStage}"`,
+        fromStage === 'processo_pendencia' && process.stageBeforePendencia
+          ? `Processo em pendência só pode ser retomado até a etapa "${process.stageBeforePendencia}"`
+          : `Transição inválida de "${fromStage}" para "${dto.toStage}"`,
       );
     }
 
@@ -204,19 +207,17 @@ export class ProcessesService {
       );
     }
 
-    // RN-04: gate only for forward moves starting from analise_credito onward.
-    // inicial → cadastro is always allowed (no docs required yet).
-    const fromIdx = LINEAR_STAGES.indexOf(fromStage);
-    const gateActive = isForwardMove(fromStage, dto.toStage) &&
-      fromIdx >= LINEAR_STAGES.indexOf('analise_credito');
-
-    if (gateActive) {
+    if (requiresDocGate(fromStage, dto.toStage)) {
+      // The gate covers the process's income docs AND the client's personal
+      // docs, which are stored once per client (process_id NULL) and shared by
+      // all their processes. `total` counts only the process's own checklist.
       const [counts] = await this.dataSource.query<[{ total: string; pending: string }]>(
-        `SELECT COUNT(*) AS total,
+        `SELECT COUNT(*) FILTER (WHERE process_id = $1) AS total,
                 COUNT(*) FILTER (WHERE status != 'validado') AS pending
          FROM documents
-         WHERE process_id = $1 AND tenant_id = $2`,
-        [id, caller.tenantId],
+         WHERE tenant_id = $2
+           AND (process_id = $1 OR (process_id IS NULL AND user_id = $3))`,
+        [id, caller.tenantId, process.clientId],
       );
 
       // RN-04 fail-closed: an uninitialised checklist (total = 0) blocks the
@@ -230,9 +231,11 @@ export class ProcessesService {
         const pendingDocs = await this.dataSource.query<{ label: string; status: string }[]>(
           `SELECT COALESCE(label, name) AS label, status
            FROM documents
-           WHERE process_id = $1 AND tenant_id = $2 AND status != 'validado'
+           WHERE tenant_id = $2
+             AND (process_id = $1 OR (process_id IS NULL AND user_id = $3))
+             AND status != 'validado'
            ORDER BY created_at`,
-          [id, caller.tenantId],
+          [id, caller.tenantId, process.clientId],
         );
         throw new UnprocessableEntityException({
           message: `${Number(counts.pending)} documento(s) pendente(s) de validação`,
@@ -244,6 +247,7 @@ export class ProcessesService {
     const updates: Partial<Process> = { stage: dto.toStage };
     if (dto.motivoInatividade) updates.motivoInatividade = dto.motivoInatividade;
     if (dto.motivoRecusa) updates.motivoRecusa = dto.motivoRecusa;
+    if (dto.toStage === 'processo_pendencia') updates.stageBeforePendencia = fromStage;
 
     await this.dataSource.transaction(async (manager) => {
       await manager.update(Process, id, updates);
