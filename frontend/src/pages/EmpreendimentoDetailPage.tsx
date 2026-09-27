@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/axiosInstance';
 import * as Icon from '../components/icons';
@@ -91,6 +91,13 @@ function AlocarClienteDrawer({
   const [analistaId, setAnalistaId] = useState('');
   const [novoForm, setNovoForm] = useState({ name: '', email: '', cpf: '' });
   const [error, setError] = useState('');
+  // Credentials of a newly created client. The temporary password is random and
+  // shown only once, so it is displayed as soon as the client exists — even if
+  // the process creation that follows fails and has to be retried.
+  const [createdLogin, setCreatedLogin] = useState<{ email: string; password: string } | null>(null);
+  const [createdProcessId, setCreatedProcessId] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const loginShown = useRef(false);
 
   const { data: clientes = [] } = useQuery<UserOpt[]>({
     queryKey: ['users', 'cliente'],
@@ -114,6 +121,11 @@ function AlocarClienteDrawer({
           role: 'cliente',
         });
         finalClienteId = res.data.id;
+        // From here on the client exists: a retry must only create the process.
+        loginShown.current = true;
+        setCreatedLogin({ email: res.data.email, password: res.data.temporaryPassword });
+        setClienteId(finalClienteId);
+        setMode('existente');
         void qc.invalidateQueries({ queryKey: ['users', 'cliente'] });
       }
       const res = await api.post('/processes', {
@@ -127,7 +139,8 @@ function AlocarClienteDrawer({
     onSuccess: (processId) => {
       void qc.invalidateQueries({ queryKey: ['processes'] });
       void qc.invalidateQueries({ queryKey: ['processes', { empreendimentoId: empId }] });
-      onSuccess(processId);
+      if (loginShown.current) setCreatedProcessId(processId);
+      else onSuccess(processId);
     },
     onError: (e: unknown) => {
       const axiosMsg = (e as { response?: { data?: { message?: string | string[] } } })?.response?.data?.message;
@@ -139,6 +152,74 @@ function AlocarClienteDrawer({
   const canSubmit = mode === 'existente'
     ? !!clienteId
     : !!(novoForm.name.trim() && novoForm.email.trim() && novoForm.cpf.trim());
+
+  const copyPassword = () => {
+    if (!createdLogin) return;
+    navigator.clipboard.writeText(createdLogin.password)
+      .then(() => setCopied(true))
+      .catch(() => {/* clipboard blocked — the password is still visible to copy by hand */});
+  };
+
+  if (createdLogin) {
+    return (
+      <>
+        <div className="ds-drawer-backdrop open" />
+        <div className="ds-drawer open" style={{ width: 440 }}>
+          <div className="ds-drawer-hdr">
+            <h2>Cliente cadastrado</h2>
+          </div>
+          <div className="ds-drawer-body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div className="ds-alert info" style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)' }}>
+              <div className="ds-alert-icon"><Icon.Info size={14} /></div>
+              <div>
+                <div className="ds-alert-title">Repasse o acesso ao cliente</div>
+                <div className="ds-alert-desc">
+                  A senha temporária é exibida só agora. No primeiro acesso, o cliente será obrigado a trocá-la.
+                </div>
+              </div>
+            </div>
+            <div className="ds-field" style={{ marginBottom: 0 }}>
+              <label>E-mail de login</label>
+              <div className="ds-input"><span style={{ flex: 1 }}>{createdLogin.email}</span></div>
+            </div>
+            <div className="ds-field" style={{ marginBottom: 0 }}>
+              <label>Senha temporária</label>
+              <div className="ds-input" style={{ gap: 8 }}>
+                <span style={{ flex: 1, fontFamily: 'var(--font-mono)', fontSize: 12.5, userSelect: 'all' }}>
+                  {createdLogin.password}
+                </span>
+                <button className="ds-btn ghost sm" onClick={copyPassword}>
+                  {copied ? <><Icon.Check size={12} /> Copiada</> : 'Copiar'}
+                </button>
+              </div>
+            </div>
+            {error && (
+              <div className="ds-alert urgent">
+                <Icon.AlertTriangle size={14} />
+                <span>O cliente foi cadastrado, mas o processo não foi criado: {error}</span>
+              </div>
+            )}
+          </div>
+          <div className="ds-drawer-foot">
+            {createdProcessId ? (
+              <button className="ds-btn accent" onClick={() => onSuccess(createdProcessId)}>
+                Concluir e abrir processo
+              </button>
+            ) : mut.isPending ? (
+              <button className="ds-btn accent" disabled>Criando processo...</button>
+            ) : (
+              <>
+                <button className="ds-btn ghost" onClick={onClose}>Fechar</button>
+                <button className="ds-btn accent" onClick={() => { setError(''); mut.mutate(); }}>
+                  Tentar criar o processo de novo
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      </>
+    );
+  }
 
   return (
     <>
@@ -190,7 +271,7 @@ function AlocarClienteDrawer({
               {[
                 { key: 'name', label: 'Nome completo', placeholder: 'Nome do cliente', type: 'text' },
                 { key: 'email', label: 'E-mail', placeholder: 'email@exemplo.com', type: 'email' },
-                { key: 'cpf', label: 'CPF (usado como senha)', placeholder: '000.000.000-00', type: 'text' },
+                { key: 'cpf', label: 'CPF', placeholder: '000.000.000-00', type: 'text' },
               ].map(({ key, label, placeholder, type }) => (
                 <div key={key} className="ds-field" style={{ marginBottom: 0 }}>
                   <label>{label} <span style={{ color: 'var(--red)' }}>*</span></label>
@@ -203,7 +284,7 @@ function AlocarClienteDrawer({
                 </div>
               ))}
               <div style={{ fontSize: 11.5, color: 'var(--text-faint)', padding: '8px 10px', background: 'var(--surface-elevated)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
-                Login: e-mail + dígitos do CPF como senha.
+                Login: e-mail + senha temporária gerada automaticamente, exibida após o cadastro.
               </div>
             </>
           )}

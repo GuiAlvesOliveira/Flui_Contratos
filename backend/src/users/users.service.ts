@@ -8,6 +8,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { randomBytes } from 'crypto';
 import { DataSource, In, Repository } from 'typeorm';
 import { RequestUserFull } from '../auth/supabase.guard';
 import { Tenant } from '../tenants/tenant.entity';
@@ -84,9 +85,14 @@ export class UsersService {
     });
     const saved = await this.userRepo.save(user);
 
+    // SEC-01: the temporary password is random, never the CPF — CPF is not a
+    // secret in Brazil, so e-mail + CPF would let anyone log in first and hijack
+    // the account. The user must still change it on first login (mustChangePassword).
+    const temporaryPassword = randomBytes(16).toString('hex');
+
     let externalId: string;
     try {
-      externalId = await this.supabaseAdmin.createUser(dto.email, cpfDigits, dto.role);
+      externalId = await this.supabaseAdmin.createUser(dto.email, temporaryPassword, dto.role);
     } catch (err: unknown) {
       await this.userRepo.delete(saved.id);
       const msg = err instanceof Error ? err.message : String(err);
@@ -95,7 +101,7 @@ export class UsersService {
     }
 
     await this.userRepo.update(saved.id, { externalId });
-    return { ...this.toResponse(saved), temporaryPassword: cpfDigits };
+    return { ...this.toResponse(saved), temporaryPassword };
   }
 
   private async createWithInvite(dto: CreateUserDto, tenantId: string, createdBy: string) {

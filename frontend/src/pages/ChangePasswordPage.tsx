@@ -34,7 +34,7 @@ export function ChangePasswordPage() {
         <div>
           <h1 className="text-xl font-semibold text-gray-900">Criar nova senha</h1>
           <p className="text-sm text-gray-500 mt-1">
-            Sua senha temporária (CPF) precisa ser alterada antes de continuar.
+            Sua senha temporária precisa ser alterada antes de continuar.
           </p>
         </div>
 

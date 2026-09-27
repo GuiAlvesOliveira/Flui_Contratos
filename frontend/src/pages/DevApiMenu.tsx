@@ -159,7 +159,7 @@ export function DevApiMenu() {
                     }))
                   }
                 >
-                  <option value="analista">analista (CPF como senha)</option>
+                  <option value="analista">analista (senha temporária gerada)</option>
                   <option value="cliente">cliente (convite por email)</option>
                   <option value="dono">dono → deve 403 para gestor</option>
                 </select>
@@ -171,7 +171,7 @@ export function DevApiMenu() {
                 />
                 {isAnalista && (
                   <Input
-                    placeholder="CPF — vira a senha inicial (só dígitos ou formatado)"
+                    placeholder="CPF (só dígitos ou formatado)"
                     value={createForm.cpf}
                     onChange={(v) => setCreateForm((f) => ({ ...f, cpf: v }))}
                   />
@@ -208,7 +208,7 @@ export function DevApiMenu() {
 
                 {isAnalista && (
                   <p className="text-xs text-yellow-400">
-                    ↳ Resposta inclui temporaryPassword (= dígitos do CPF)
+                    ↳ Resposta inclui temporaryPassword (senha aleatória gerada)
                   </p>
                 )}
               </div>

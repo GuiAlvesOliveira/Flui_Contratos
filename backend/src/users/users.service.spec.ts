@@ -19,7 +19,7 @@ function makeService() {
     email as never,
     dataSource as unknown as DataSource,
   );
-  return { service, userRepo };
+  return { service, userRepo, supabaseAdmin };
 }
 
 const dto = (role: string) => ({ email: 'x@y.com', name: 'X', role } as CreateUserDto);
@@ -53,6 +53,49 @@ describe('UsersService.create — creation hierarchy (privilege-escalation bound
     const { service } = makeService();
     await expect(service.create(dto('admin'), caller('dono'))).rejects.toBeInstanceOf(
       ForbiddenException,
+    );
+  });
+});
+
+describe('UsersService.create — temporary password (SEC-01)', () => {
+  const cpf = '123.456.789-09';
+  const setup = () => {
+    const ctx = makeService();
+    ctx.userRepo.findOne.mockResolvedValue(null);
+    ctx.userRepo.create.mockImplementation((u: Partial<User>) => u);
+    ctx.userRepo.save.mockImplementation((u: Partial<User>) =>
+      Promise.resolve({ ...u, id: 'new-user' }),
+    );
+    ctx.supabaseAdmin.createUser.mockResolvedValue('ext-1');
+    return ctx;
+  };
+  const create = (service: UsersService) =>
+    service.create({ ...dto('analista'), cpf }, caller('dono'));
+
+  it('creates the Supabase user with a random password, never the CPF', async () => {
+    const { service, supabaseAdmin } = setup();
+    const res = await create(service);
+
+    const [, password] = supabaseAdmin.createUser.mock.calls[0] as [string, string, string];
+    expect(password).toMatch(/^[0-9a-f]{32}$/);
+    expect(password).not.toContain('12345678909');
+    expect(res.temporaryPassword).toBe(password);
+  });
+
+  it('generates a different password for every user', async () => {
+    const { service, supabaseAdmin } = setup();
+    await create(service);
+    await create(service);
+
+    const [first, second] = supabaseAdmin.createUser.mock.calls.map((c: string[]) => c[1]);
+    expect(first).not.toBe(second);
+  });
+
+  it('still forces a password change on first login', async () => {
+    const { service, userRepo } = setup();
+    await create(service);
+    expect(userRepo.create).toHaveBeenCalledWith(
+      expect.objectContaining({ mustChangePassword: true }),
     );
   });
 });
