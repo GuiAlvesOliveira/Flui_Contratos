@@ -1,16 +1,18 @@
-import { useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { Fragment, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/axiosInstance';
 import * as Icon from './icons';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
-type Step = 1 | 2;
+type Step = 1 | 2 | 3;
 
 interface EmpForm {
   nome: string; matriculaMae: string; endereco: string; cep: string;
   bancoFinanciador: string; construtoraInfo: string; incorporadoraContato: string;
 }
+
+interface UnidadeDraft { key: number; identificacao: string; valor: string }
 
 interface Props {
   onClose: () => void;
@@ -21,7 +23,8 @@ interface Props {
 
 const STEPS = [
   { n: 1 as Step, label: 'Empreendimento' },
-  { n: 2 as Step, label: 'Unidade' },
+  { n: 2 as Step, label: 'Unidades' },
+  { n: 3 as Step, label: 'Confirmação' },
 ];
 
 function StepBar({ current }: { current: Step }) {
@@ -57,7 +60,7 @@ function StepBar({ current }: { current: Step }) {
   );
 }
 
-// ── Field helper ───────────────────────────────────────────────────────────────
+// ── Helpers ────────────────────────────────────────────────────────────────────
 
 function Field({ label, required, children }: { label: string; required?: boolean; children: React.ReactNode }) {
   return (
@@ -71,77 +74,141 @@ function Field({ label, required, children }: { label: string; required?: boolea
   );
 }
 
+// "350.000,00" → 350000; empty/invalid → undefined
+function parseVal(s: string): number | undefined {
+  const n = parseFloat(s.replace(/\./g, '').replace(',', '.'));
+  return isNaN(n) ? undefined : n;
+}
+
+function formatCurrency(v: number | undefined) {
+  if (v === undefined) return '—';
+  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v);
+}
+
+function apiError(e: unknown): string {
+  const msg = (e as { response?: { data?: { message?: string | string[] } } })?.response?.data?.message;
+  if (Array.isArray(msg)) return msg.join('; ');
+  return msg ?? (e instanceof Error ? e.message : 'Erro desconhecido');
+}
+
 // ── Main component ─────────────────────────────────────────────────────────────
 
+// Nothing is saved until the confirmation step: the empreendimento and its
+// unidades are only created when the user confirms the summary.
 export function NovoEmpreendimentoWizard({ onClose, onSuccess }: Props) {
   const qc = useQueryClient();
   const [step, setStep] = useState<Step>(1);
-  const [empId, setEmpId] = useState('');
   const [error, setError] = useState('');
 
   const [empForm, setEmpForm] = useState<EmpForm>({
     nome: '', matriculaMae: '', endereco: '', cep: '',
     bancoFinanciador: '', construtoraInfo: '', incorporadoraContato: '',
   });
+  const [unidades, setUnidades] = useState<UnidadeDraft[]>([{ key: 1, identificacao: '', valor: '' }]);
+  const [nextKey, setNextKey] = useState(2);
 
-  const [unidadeForm, setUnidadeForm] = useState({ identificacao: '', valor: '' });
-
-  // ── Mutations ─────────────────────────────────────────────────────────────────
-
-  const empMut = useMutation({
-    mutationFn: () => api.post('/empreendimentos', {
-      nome: empForm.nome.trim(),
-      matriculaMae: empForm.matriculaMae.trim(),
-      endereco: empForm.endereco.trim(),
-      cep: empForm.cep.trim(),
-      bancoFinanciador: empForm.bancoFinanciador.trim(),
-      construtoraInfo: empForm.construtoraInfo.trim() || undefined,
-      incorporadoraContato: empForm.incorporadoraContato.trim() || undefined,
-    }),
-    onSuccess: (res) => {
-      setEmpId(res.data.id);
-      void qc.invalidateQueries({ queryKey: ['empreendimentos'] });
-      setStep(2);
-      setError('');
-    },
-    onError: (e: Error) => setError(e.message),
-  });
-
-  const parseVal = (s: string) => {
-    const n = parseFloat(s.replace(/\./g, '').replace(',', '.'));
-    return isNaN(n) ? undefined : n;
-  };
-
-  const unidadeMut = useMutation({
-    mutationFn: () => api.post('/unidades', {
-      empreendimentoId: empId,
-      identificacao: unidadeForm.identificacao.trim(),
-      valor: parseVal(unidadeForm.valor),
-    }),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['unidades'] });
-      onSuccess(empId);
-    },
-    onError: (e: Error) => setError(e.message),
-  });
+  // Save progress — kept so a retry never creates the empreendimento (or a unidade) twice.
+  const [saving, setSaving] = useState(false);
+  const [empId, setEmpId] = useState('');
+  const [createdKeys, setCreatedKeys] = useState<number[]>([]);
+  const [unitErrors, setUnitErrors] = useState<Record<number, string>>({});
 
   // ── Validation ────────────────────────────────────────────────────────────────
 
-  const canStep1 = !!(empForm.nome && empForm.matriculaMae && empForm.endereco && empForm.cep && empForm.bancoFinanciador);
-  const canStep2 = !!unidadeForm.identificacao.trim();
+  const cepLen = empForm.cep.trim().length;
+  const canStep1 = !!(empForm.nome.trim() && empForm.matriculaMae.trim() && empForm.endereco.trim() &&
+    empForm.bancoFinanciador.trim()) && cepLen >= 8 && cepLen <= 10;
+  // A row is either left blank (ignored) or has an identificação.
+  const incompleteRow = unidades.some(u => !u.identificacao.trim() && u.valor.trim());
+  const filledUnidades = unidades.filter(u => u.identificacao.trim());
 
   const setEmp = (k: keyof EmpForm, v: string) => setEmpForm(f => ({ ...f, [k]: v }));
+  const setUnidade = (key: number, patch: Partial<UnidadeDraft>) =>
+    setUnidades(list => list.map(u => (u.key === key ? { ...u, ...patch } : u)));
+  const addUnidade = () => {
+    setUnidades(list => [...list, { key: nextKey, identificacao: '', valor: '' }]);
+    setNextKey(k => k + 1);
+  };
+  const removeUnidade = (key: number) => setUnidades(list => list.filter(u => u.key !== key));
+
+  // ── Save (confirmation step) ──────────────────────────────────────────────────
+
+  const confirm = async () => {
+    setSaving(true);
+    setError('');
+
+    let id = empId;
+    if (!id) {
+      try {
+        const res = await api.post('/empreendimentos', {
+          nome: empForm.nome.trim(),
+          matriculaMae: empForm.matriculaMae.trim(),
+          endereco: empForm.endereco.trim(),
+          cep: empForm.cep.trim(),
+          bancoFinanciador: empForm.bancoFinanciador.trim(),
+          construtoraInfo: empForm.construtoraInfo.trim() || undefined,
+          incorporadoraContato: empForm.incorporadoraContato.trim() || undefined,
+        });
+        id = res.data.id as string;
+        setEmpId(id);
+        void qc.invalidateQueries({ queryKey: ['empreendimentos'] });
+      } catch (e) {
+        setError(apiError(e));
+        setSaving(false);
+        return;
+      }
+    }
+
+    const created = [...createdKeys];
+    const failed: Record<number, string> = {};
+    for (const u of filledUnidades) {
+      if (created.includes(u.key)) continue;
+      try {
+        await api.post('/unidades', {
+          empreendimentoId: id,
+          identificacao: u.identificacao.trim(),
+          valor: parseVal(u.valor),
+        });
+        created.push(u.key);
+      } catch (e) {
+        failed[u.key] = apiError(e);
+      }
+    }
+    setCreatedKeys(created);
+    setUnitErrors(failed);
+    if (filledUnidades.length > 0) void qc.invalidateQueries({ queryKey: ['unidades'] });
+    setSaving(false);
+
+    const failures = Object.keys(failed).length;
+    if (failures === 0) {
+      onSuccess(id);
+    } else {
+      setError(`O empreendimento foi criado, mas ${failures} unidade(s) não foram salvas.`);
+    }
+  };
 
   // ── Render ────────────────────────────────────────────────────────────────────
 
+  const kvRows = [
+    { label: 'Nome', value: empForm.nome.trim() },
+    { label: 'Matrícula mãe', value: empForm.matriculaMae.trim() },
+    { label: 'Endereço', value: empForm.endereco.trim() },
+    { label: 'CEP', value: empForm.cep.trim() },
+    { label: 'Banco', value: empForm.bancoFinanciador.trim() },
+    { label: 'Construtora', value: empForm.construtoraInfo.trim() || '—' },
+    { label: 'Incorporadora', value: empForm.incorporadoraContato.trim() || '—' },
+  ];
+  const total = filledUnidades.reduce((sum, u) => sum + (parseVal(u.valor) ?? 0), 0);
+  const hasUnitErrors = Object.keys(unitErrors).length > 0;
+
   return (
     <>
-      <div className="ds-drawer-backdrop open" onClick={onClose} />
+      <div className="ds-drawer-backdrop open" onClick={saving ? undefined : onClose} />
       <div className="ds-drawer open" style={{ width: 480 }}>
 
         <div className="ds-drawer-hdr">
           <h2>Novo Empreendimento</h2>
-          <button className="ds-btn ghost sm" onClick={onClose}><Icon.X size={14} /></button>
+          <button className="ds-btn ghost sm" onClick={onClose} disabled={saving}><Icon.X size={14} /></button>
         </div>
 
         <StepBar current={step} />
@@ -183,6 +250,9 @@ export function NovoEmpreendimentoWizard({ onClose, onSuccess }: Props) {
                   </div>
                 </Field>
               </div>
+              {cepLen > 0 && (cepLen < 8 || cepLen > 10) && (
+                <div style={{ fontSize: 11.5, color: 'var(--red)' }}>CEP deve ter 8 dígitos (com ou sem hífen).</div>
+              )}
               <Field label="Construtora">
                 <div className="ds-input">
                   <input placeholder="Opcional" value={empForm.construtoraInfo}
@@ -198,28 +268,99 @@ export function NovoEmpreendimentoWizard({ onClose, onSuccess }: Props) {
             </>
           )}
 
-          {/* ── STEP 2: Unidade ───────────────────────────────────────── */}
+          {/* ── STEP 2: Unidades ──────────────────────────────────────── */}
           {step === 2 && (
             <>
               <div style={{ padding: '10px 12px', background: 'var(--surface-elevated)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', fontSize: 12, color: 'var(--text-muted)' }}>
                 <Icon.Building size={12} style={{ verticalAlign: '-1px', marginRight: 6, color: 'var(--accent)' }} />
-                Empreendimento criado. Adicione a primeira unidade ou pule para concluir.
+                Adicione as unidades agora ou deixe em branco para cadastrar depois.
               </div>
-              <Field label="Identificação da Unidade" required>
-                <div className="ds-input">
-                  <input placeholder="Ex: Apto 101, Casa 5, Lote 12"
-                    value={unidadeForm.identificacao}
-                    onChange={e => setUnidadeForm(f => ({ ...f, identificacao: e.target.value }))}
-                    style={{ flex: 1 }} autoFocus />
+              {unidades.map((u, idx) => (
+                <div key={u.key} style={{ display: 'grid', gridTemplateColumns: '1fr 140px auto', gap: 8, alignItems: 'end' }}>
+                  <Field label={idx === 0 ? 'Identificação' : ''}>
+                    <div className="ds-input">
+                      <input placeholder="Ex: Apto 101, Casa 5, Lote 12" value={u.identificacao}
+                        onChange={e => setUnidade(u.key, { identificacao: e.target.value })}
+                        style={{ flex: 1 }} autoFocus={idx === 0} />
+                    </div>
+                  </Field>
+                  <Field label={idx === 0 ? 'Valor (R$)' : ''}>
+                    <div className="ds-input">
+                      <input placeholder="0,00" value={u.valor}
+                        onChange={e => setUnidade(u.key, { valor: e.target.value })} style={{ flex: 1 }} />
+                    </div>
+                  </Field>
+                  <button className="ds-btn ghost sm" title="Remover unidade"
+                    disabled={unidades.length === 1} onClick={() => removeUnidade(u.key)}>
+                    <Icon.Trash size={13} />
+                  </button>
                 </div>
-              </Field>
-              <Field label="Valor da Unidade (R$)">
-                <div className="ds-input">
-                  <input placeholder="0,00" value={unidadeForm.valor}
-                    onChange={e => setUnidadeForm(f => ({ ...f, valor: e.target.value }))}
-                    style={{ flex: 1 }} />
+              ))}
+              <button className="ds-btn ghost sm" style={{ alignSelf: 'flex-start' }} onClick={addUnidade}>
+                <Icon.Plus size={12} /> Adicionar unidade
+              </button>
+              {incompleteRow && (
+                <div style={{ fontSize: 11.5, color: 'var(--red)' }}>Informe a identificação das unidades com valor preenchido.</div>
+              )}
+            </>
+          )}
+
+          {/* ── STEP 3: Confirmação ───────────────────────────────────── */}
+          {step === 3 && (
+            <>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                Confira os dados antes de criar. Nada foi salvo ainda.
+              </div>
+              <div className="ds-card">
+                <div className="ds-card-hdr">Empreendimento</div>
+                <div className="ds-card-body">
+                  <dl className="ds-kv" style={{ margin: 0 }}>
+                    {kvRows.map(r => (
+                      <Fragment key={r.label}>
+                        <dt>{r.label}</dt>
+                        <dd style={{ margin: 0 }}>{r.value}</dd>
+                      </Fragment>
+                    ))}
+                  </dl>
                 </div>
-              </Field>
+              </div>
+              <div className="ds-card">
+                <div className="ds-card-hdr">
+                  Unidades ({filledUnidades.length})
+                </div>
+                {filledUnidades.length === 0 ? (
+                  <div className="ds-card-body" style={{ fontSize: 12.5, color: 'var(--text-faint)' }}>
+                    Nenhuma unidade — dá para cadastrar depois, na página do empreendimento.
+                  </div>
+                ) : (
+                  <table className="ds-table">
+                    <thead>
+                      <tr><th>Identificação</th><th style={{ textAlign: 'right' }}>Valor</th><th></th></tr>
+                    </thead>
+                    <tbody>
+                      {filledUnidades.map(u => (
+                        <tr key={u.key}>
+                          <td>
+                            {u.identificacao.trim()}
+                            {unitErrors[u.key] && (
+                              <div style={{ fontSize: 11, color: 'var(--red)' }}>{unitErrors[u.key]}</div>
+                            )}
+                          </td>
+                          <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(parseVal(u.valor))}</td>
+                          <td style={{ width: 20 }}>
+                            {createdKeys.includes(u.key) && <Icon.Check size={13} style={{ color: 'var(--green, #16a34a)' }} />}
+                          </td>
+                        </tr>
+                      ))}
+                      <tr>
+                        <td style={{ fontWeight: 500 }}>Total</td>
+                        <td style={{ textAlign: 'right', fontWeight: 500, fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(total)}</td>
+                        <td />
+                      </tr>
+                    </tbody>
+                  </table>
+                )}
+              </div>
             </>
           )}
 
@@ -232,29 +373,42 @@ export function NovoEmpreendimentoWizard({ onClose, onSuccess }: Props) {
         </div>
 
         <div className="ds-drawer-foot">
-          <button className="ds-btn ghost" onClick={onClose}>Cancelar</button>
+          <button className="ds-btn ghost" onClick={onClose} disabled={saving}>
+            {empId ? 'Fechar' : 'Cancelar'}
+          </button>
 
-          {step === 1 && (
-            <button className="ds-btn accent"
-              disabled={!canStep1 || empMut.isPending}
-              onClick={() => { setError(''); empMut.mutate(); }}>
-              {empMut.isPending ? 'Criando...' : 'Próximo →'}
-            </button>
-          )}
+          <div style={{ display: 'flex', gap: 8 }}>
+            {step > 1 && !empId && (
+              <button className="ds-btn ghost" disabled={saving}
+                onClick={() => { setError(''); setStep((step - 1) as Step); }}>
+                ← Voltar
+              </button>
+            )}
 
-          {step === 2 && (
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button className="ds-btn ghost"
-                onClick={() => onSuccess(empId)}>
-                Pular etapa
+            {step === 1 && (
+              <button className="ds-btn accent" disabled={!canStep1} onClick={() => setStep(2)}>
+                Próximo →
               </button>
-              <button className="ds-btn accent"
-                disabled={!canStep2 || unidadeMut.isPending}
-                onClick={() => { setError(''); unidadeMut.mutate(); }}>
-                {unidadeMut.isPending ? 'Criando...' : 'Concluir'}
+            )}
+
+            {step === 2 && (
+              <button className="ds-btn accent" disabled={incompleteRow} onClick={() => setStep(3)}>
+                Próximo →
               </button>
-            </div>
-          )}
+            )}
+
+            {step === 3 && hasUnitErrors && !saving && (
+              <button className="ds-btn ghost" onClick={() => onSuccess(empId)}>
+                Concluir sem essas unidades
+              </button>
+            )}
+
+            {step === 3 && (
+              <button className="ds-btn accent" disabled={saving} onClick={() => void confirm()}>
+                {saving ? 'Criando...' : hasUnitErrors ? 'Tentar de novo' : 'Criar empreendimento'}
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </>
