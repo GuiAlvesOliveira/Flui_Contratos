@@ -28,6 +28,7 @@ import { User } from './users/user.entity';
 import { InitialSchema1718500000000 } from './database/migrations/1718500000000-InitialSchema';
 import { UnifyProcessStages1718500100000 } from './database/migrations/1718500100000-UnifyProcessStages';
 import { AddStageBeforePendencia1718500200000 } from './database/migrations/1718500200000-AddStageBeforePendencia';
+import { AddUserStatus1718500300000 } from './database/migrations/1718500300000-AddUserStatus';
 
 @Module({
   imports: [
@@ -53,6 +54,7 @@ import { AddStageBeforePendencia1718500200000 } from './database/migrations/1718
           InitialSchema1718500000000,
           UnifyProcessStages1718500100000,
           AddStageBeforePendencia1718500200000,
+          AddUserStatus1718500300000,
         ],
         migrationsRun: true,
         synchronize: false,

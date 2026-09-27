@@ -65,37 +65,31 @@ export class TenantGuard implements CanActivate {
       relations: ['tenant'],
     });
 
-    // Lazy binding: first login before external_id is set in DB
+    // Lazy binding: first login before external_id is set in DB. A disabled
+    // account is never bound — it falls through to the "inativo" rejection.
     if (!found && user.email) {
       const byEmail = await this.userRepo.findOne({
         where: { email: user.email },
         relations: ['tenant'],
       });
-      if (byEmail) {
-        // First login after invite: bind external_id and activate the account
-        await this.userRepo.update(byEmail.id, {
-          externalId: user.externalId,
-          active: true,
-        });
+      if (byEmail && byEmail.status !== 'disabled') {
+        await this.userRepo.update(byEmail.id, { externalId: user.externalId });
         byEmail.externalId = user.externalId;
-        byEmail.active = true;
-        found = byEmail;
       }
+      found = byEmail;
     }
 
     if (!found) {
       throw new ForbiddenException('Usuário não provisionado');
     }
-    // Auto-activate on first login ONLY while the user is still onboarding
-    // (invite accepted but account not yet activated). A user who already
-    // completed onboarding and was later deactivated on purpose must STAY
-    // inactive — otherwise disabling an account would be silently reverted (SEC-02).
-    if (!found.active && found.externalId && !found.onboardingCompleted) {
-      await this.userRepo.update(found.id, { active: true });
-      found.active = true;
-    }
-    if (!found.active) {
+    // SEC-02: `disabled` is sticky — only PATCH /users/:id/status re-enables it.
+    if (found.status === 'disabled') {
       throw new ForbiddenException('Usuário inativo');
+    }
+    // First authenticated access of an invited account activates it.
+    if (found.status === 'invited') {
+      await this.userRepo.update(found.id, { status: 'active' });
+      found.status = 'active';
     }
     if (found.tenant && !found.tenant.active) {
       throw new ForbiddenException('Tenant inativo');

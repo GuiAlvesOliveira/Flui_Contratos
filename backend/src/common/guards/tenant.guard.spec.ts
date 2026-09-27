@@ -22,7 +22,7 @@ function makeUser(overrides: Partial<User> = {}): User {
     role: 'analista',
     email: 'a@x.com',
     name: 'Ana',
-    active: true,
+    status: 'active',
     onboardingCompleted: true,
     mustChangePassword: false,
     tenant: { active: true },
@@ -71,20 +71,48 @@ describe('TenantGuard', () => {
     expect(req.user.role).toBe('dono');
   });
 
-  it('SEC-02: a deactivated, onboarded user stays blocked (no auto-reactivation)', async () => {
+  it('SEC-02: a disabled, onboarded user stays blocked (no auto-reactivation)', async () => {
     setReflector();
-    userRepo.findOne.mockResolvedValue(makeUser({ active: false, onboardingCompleted: true }));
+    userRepo.findOne.mockResolvedValue(makeUser({ status: 'disabled', onboardingCompleted: true }));
     const req = { user: { externalId: 'ext1', email: 'a@x.com' } };
     await expect(guard.canActivate(makeContext(req))).rejects.toBeInstanceOf(ForbiddenException);
     expect(userRepo.update).not.toHaveBeenCalled();
   });
 
-  it('auto-activates an invited user still in onboarding on first login', async () => {
+  it('SEC-02: a disabled invitee who never finished onboarding also stays blocked', async () => {
     setReflector();
-    userRepo.findOne.mockResolvedValue(makeUser({ active: false, onboardingCompleted: false }));
+    userRepo.findOne.mockResolvedValue(makeUser({ status: 'disabled', onboardingCompleted: false }));
+    const req = { user: { externalId: 'ext1', email: 'a@x.com' } };
+    await expect(guard.canActivate(makeContext(req))).rejects.toBeInstanceOf(ForbiddenException);
+    expect(userRepo.update).not.toHaveBeenCalled();
+  });
+
+  it('activates an invited user on first login', async () => {
+    setReflector();
+    userRepo.findOne.mockResolvedValue(makeUser({ status: 'invited', onboardingCompleted: false }));
     const req = { user: { externalId: 'ext1', email: 'a@x.com' } };
     await expect(guard.canActivate(makeContext(req))).resolves.toBe(true);
-    expect(userRepo.update).toHaveBeenCalledWith('u1', { active: true });
+    expect(userRepo.update).toHaveBeenCalledWith('u1', { status: 'active' });
+  });
+
+  it('binds an unlinked account by e-mail on first login', async () => {
+    setReflector();
+    userRepo.findOne
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(makeUser({ externalId: null, status: 'active' }));
+    const req = { user: { externalId: 'ext-new', email: 'a@x.com' } };
+    await expect(guard.canActivate(makeContext(req))).resolves.toBe(true);
+    expect(userRepo.update).toHaveBeenCalledWith('u1', { externalId: 'ext-new' });
+  });
+
+  it('SEC-02: never binds a disabled account by e-mail', async () => {
+    setReflector();
+    userRepo.findOne
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(makeUser({ externalId: null, status: 'disabled' }));
+    const req = { user: { externalId: 'ext-new', email: 'a@x.com' } };
+    await expect(guard.canActivate(makeContext(req))).rejects.toBeInstanceOf(ForbiddenException);
+    expect(userRepo.update).not.toHaveBeenCalled();
   });
 
   it('SEC-03: blocks non-exempt routes while mustChangePassword is true', async () => {

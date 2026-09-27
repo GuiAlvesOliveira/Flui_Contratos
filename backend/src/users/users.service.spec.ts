@@ -19,7 +19,7 @@ function makeService() {
     email as never,
     dataSource as unknown as DataSource,
   );
-  return { service, userRepo, supabaseAdmin };
+  return { service, userRepo, supabaseAdmin, dataSource };
 }
 
 const dto = (role: string) => ({ email: 'x@y.com', name: 'X', role } as CreateUserDto);
@@ -91,11 +91,49 @@ describe('UsersService.create — temporary password (SEC-01)', () => {
     expect(first).not.toBe(second);
   });
 
-  it('still forces a password change on first login', async () => {
+  it('starts invited and still forces a password change on first login', async () => {
     const { service, userRepo } = setup();
     await create(service);
     expect(userRepo.create).toHaveBeenCalledWith(
-      expect.objectContaining({ mustChangePassword: true }),
+      expect.objectContaining({ mustChangePassword: true, status: 'invited' }),
     );
+  });
+});
+
+describe('UsersService account status (SEC-02)', () => {
+  const target = (overrides: Partial<User> = {}) =>
+    ({ id: 'u2', tenantId: 't1', role: 'cliente', status: 'active', externalId: 'ext2', ...overrides }) as User;
+
+  it('disables an account through PATCH /users/:id/status', async () => {
+    const { service, userRepo } = makeService();
+    userRepo.findOne.mockResolvedValue(target());
+    await expect(
+      service.updateStatus('u2', { status: 'disabled' }, caller('dono')),
+    ).resolves.toEqual({ id: 'u2', status: 'disabled' });
+    expect(userRepo.update).toHaveBeenCalledWith('u2', { status: 'disabled' });
+  });
+
+  it('re-enables a disabled account explicitly', async () => {
+    const { service, userRepo } = makeService();
+    userRepo.findOne.mockResolvedValue(target({ status: 'disabled' }));
+    await service.updateStatus('u2', { status: 'active' }, caller('dono'));
+    expect(userRepo.update).toHaveBeenCalledWith('u2', { status: 'active' });
+  });
+
+  it('refuses to change the status of a user from another tenant (RN-01)', async () => {
+    const { service, userRepo } = makeService();
+    userRepo.findOne.mockResolvedValue(target({ tenantId: 'other' }));
+    await expect(
+      service.updateStatus('u2', { status: 'disabled' }, caller('dono')),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(userRepo.update).not.toHaveBeenCalled();
+  });
+
+  it('removing a cliente disables the account', async () => {
+    const { service, userRepo, dataSource } = makeService();
+    userRepo.findOne.mockResolvedValue(target());
+    dataSource.query.mockResolvedValue([{ count: '0' }]);
+    await service.remove('u2', caller('dono'));
+    expect(userRepo.update).toHaveBeenCalledWith('u2', { status: 'disabled' });
   });
 });

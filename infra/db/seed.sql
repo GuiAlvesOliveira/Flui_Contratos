@@ -15,35 +15,41 @@ INSERT INTO tenants (id, name, slug)
 VALUES ('a0000000-0000-4000-8000-000000000001', 'Assessoria Flui Dev', 'flui-dev')
 ON CONFLICT (slug) DO NOTHING;
 
-INSERT INTO users (id, tenant_id, role, name, email)
+-- status (SEC-02): dev users are created already 'active'; they are bound to
+-- their Supabase account by e-mail on first login (TenantGuard lazy binding).
+INSERT INTO users (id, tenant_id, role, name, email, status)
 VALUES
   (
     'b0000000-0000-4000-8000-000000000001',
     NULL,
     'admin',
     'Admin Plataforma',
-    'admin@fluicontratos.dev'
+    'admin@fluicontratos.dev',
+    'active'
   ),
   (
     'b0000000-0000-4000-8000-000000000002',
     'a0000000-0000-4000-8000-000000000001',
     'dono',
     'Gestor Dev',
-    'gestor@fluicontratos.dev'
+    'gestor@fluicontratos.dev',
+    'active'
   ),
   (
     'b0000000-0000-4000-8000-000000000003',
     'a0000000-0000-4000-8000-000000000001',
     'analista',
     'Analista Dev',
-    'analista@fluicontratos.dev'
+    'analista@fluicontratos.dev',
+    'active'
   ),
   (
     'b0000000-0000-4000-8000-000000000004',
     'a0000000-0000-4000-8000-000000000001',
     'cliente',
     'Cliente Dev',
-    'cliente@fluicontratos.dev'
+    'cliente@fluicontratos.dev',
+    'active'
   )
 ON CONFLICT (id) DO NOTHING;
 

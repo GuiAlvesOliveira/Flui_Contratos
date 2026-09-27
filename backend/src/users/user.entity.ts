@@ -9,6 +9,8 @@ import {
 } from 'typeorm';
 import { Tenant } from '../tenants/tenant.entity';
 
+export type UserStatus = 'invited' | 'active' | 'disabled';
+
 @Entity('users')
 export class User {
   @PrimaryGeneratedColumn('uuid')
@@ -30,8 +32,11 @@ export class User {
   @Column({ type: 'varchar', length: 255 })
   email: string;
 
-  @Column({ type: 'boolean', default: true })
-  active: boolean;
+  // SEC-02: explicit account state. `invited` = created, awaiting first login
+  // (the TenantGuard turns it into `active`); `disabled` is only ever set and
+  // cleared explicitly (PATCH /users/:id/status) and is never auto-reactivated.
+  @Column({ type: 'varchar', length: 10, default: 'active' })
+  status: UserStatus;
 
   @Column({ type: 'varchar', length: 255, nullable: true })
   surname: string | null;

@@ -77,7 +77,7 @@ export class UsersService {
       cpf: dto.cpf,
       role: dto.role,
       tenantId,
-      active: true,
+      status: 'invited',
       onboardingCompleted: false,
       mustChangePassword: true,
       externalId: null,
@@ -117,7 +117,7 @@ export class UsersService {
       cpf: dto.cpf ?? null,
       role: dto.role,
       tenantId,
-      active: false,
+      status: 'invited',
       onboardingCompleted: false,
       mustChangePassword: true,
       externalId: null,
@@ -226,8 +226,8 @@ export class UsersService {
       throw new ForbiddenException();
     }
 
-    await this.userRepo.update(id, { active: dto.active });
-    return { id, active: dto.active };
+    await this.userRepo.update(id, { status: dto.status });
+    return { id, status: dto.status };
   }
 
   async remove(id: string, caller: RequestUserFull) {
@@ -243,7 +243,7 @@ export class UsersService {
       throw new BadRequestException('Cliente possui processos ativos');
     }
 
-    await this.userRepo.update(id, { active: false });
+    await this.userRepo.update(id, { status: 'disabled' });
 
     if (user.externalId) {
       try {
@@ -286,7 +286,7 @@ export class UsersService {
       rg: user.rg,
       role: user.role,
       tenantId: user.tenantId,
-      active: user.active,
+      status: user.status,
       onboardingCompleted: user.onboardingCompleted,
       mustChangePassword: user.mustChangePassword,
       invitedAt: user.invitedAt,
