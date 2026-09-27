@@ -7,6 +7,20 @@ export type ProcessStage =
   | 'analise_juridica' | 'juridico_aprovado' | 'cartorio' | 'assinatura'
   | 'cliente_inativo' | 'credito_recusado' | 'processo_pendencia';
 
+export const STAGE_LABELS: Record<ProcessStage, string> = {
+  inicial: 'Primeiro Contato',
+  cadastro: 'Cadastro',
+  analise_credito: 'Análise de Crédito',
+  credito_aprovado: 'Crédito Aprovado',
+  analise_juridica: 'Análise Jurídica',
+  juridico_aprovado: 'Jurídico Aprovado',
+  cartorio: 'Cartório',
+  assinatura: 'Assinatura',
+  cliente_inativo: 'Inativo',
+  credito_recusado: 'Crédito Recusado',
+  processo_pendencia: 'Pendência',
+};
+
 export const LINEAR_STAGES: ProcessStage[] = [
   'inicial', 'cadastro', 'analise_credito', 'credito_aprovado',
   'analise_juridica', 'juridico_aprovado', 'cartorio', 'assinatura',

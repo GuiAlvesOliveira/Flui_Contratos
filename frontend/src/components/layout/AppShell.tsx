@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '../../auth/useAuth';
 import { api } from '../../api/axiosInstance';
+import { STAGE_LABELS, type ProcessStage } from '../../lib/processStages';
 import * as Icon from '../icons';
 import { DashboardPage } from '../../pages/DashboardPage';
 import { AnalistaDashboard } from '../AnalistaDashboard';
@@ -120,34 +121,42 @@ function activeNavPage(route: Route): NavPage {
 
 // ── Client process list ────────────────────────────────────────────────────────
 
+interface ClientProcess {
+  id: string;
+  stage: ProcessStage;
+  unidade?: { identificacao: string } | null;
+}
+
 function ClientProcessListPage({
   processes,
+  isLoading,
   onOpen,
 }: {
-  processes: { id: string; stage?: string; unidade?: { identificacao: string } | null; updatedAt?: string }[];
+  processes: ClientProcess[];
+  isLoading: boolean;
   onOpen: (id: string) => void;
 }) {
-  const STAGE_LABELS: Record<string, string> = {
-    inicial: 'Primeiro Contato',
-    cliente_ativo: 'Cliente Ativo',
-    aprovado: 'Aprovado',
-    em_analise_banco: 'Análise Banco',
-    aguardando_assinatura: 'Ag. Assinatura',
-    em_emissao: 'Em Emissão',
-    juridico: 'Jurídico',
-    cliente_inativo: 'Inativo',
-    credito_recusado: 'Crédito Recusado',
-    processo_pendencia: 'Pendência',
-  };
+  const subtitle = isLoading
+    ? 'Carregando...'
+    : processes.length === 0
+      ? 'Nenhum processo por enquanto'
+      : `${processes.length} processo${processes.length !== 1 ? 's' : ''} em andamento`;
 
   return (
     <div className="ds-page">
       <div className="ds-page-hdr">
         <div>
           <h1>Meus Processos</h1>
-          <p>{processes.length} processo{processes.length !== 1 ? 's' : ''} em andamento</p>
+          <p>{subtitle}</p>
         </div>
       </div>
+      {!isLoading && processes.length === 0 ? (
+        <div className="ds-card">
+          <div className="ds-card-body" style={{ textAlign: 'center', padding: 60, color: 'var(--text-faint)', fontSize: 13 }}>
+            Você ainda não tem processos de financiamento. Assim que a assessoria abrir o seu processo, ele aparece aqui.
+          </div>
+        </div>
+      ) : (
       <div className="ds-card">
         <table className="ds-table">
           <thead>
@@ -166,7 +175,7 @@ function ClientProcessListPage({
                 <td>
                   <span className="ds-badge blue">
                     <span className="dot" />
-                    {p.stage ? (STAGE_LABELS[p.stage] ?? p.stage) : '—'}
+                    {STAGE_LABELS[p.stage] ?? p.stage}
                   </span>
                 </td>
                 <td><Icon.ChevronRight size={14} style={{ color: 'var(--text-faint)' }} /></td>
@@ -175,6 +184,7 @@ function ClientProcessListPage({
           </tbody>
         </table>
       </div>
+      )}
     </div>
   );
 }
@@ -222,25 +232,27 @@ export function AppShell() {
     try { sessionStorage.setItem(ROUTE_KEY, JSON.stringify(r)); } catch { /* ignore */ }
   }
 
-  // Clients: auto-navigate — 1 process → direct; multiple → process list
-  const { data: clientProcesses = [] } = useQuery<{ id: string }[]>({
+  const isCliente = role === 'cliente';
+  const { data: clientProcesses = [], isLoading: loadingClientProcesses } = useQuery<ClientProcess[]>({
     queryKey: ['processes'],
-    queryFn: () => api.get<{ id: string }[]>('/processes').then(r => r.data),
-    enabled: role === 'cliente',
+    queryFn: () => api.get<ClientProcess[]>('/processes').then(r => r.data),
+    enabled: isCliente,
   });
 
-  useEffect(() => {
-    if (role === 'cliente' && clientProcesses.length > 0 && route.page === 'dashboard') {
-      if (clientProcesses.length === 1) {
-        navigate({ page: 'proponente-detail', id: clientProcesses[0].id });
-      } else {
-        navigate({ page: 'client-processes' });
-      }
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [role, clientProcesses.length]);
+  // A cliente only ever sees their own portal: the detail of one of their
+  // processes, or their process list — never staff pages, even if the tab's
+  // saved route came from a staff session. Opening the portal with a single
+  // process goes straight to it.
+  const view: Route = !isCliente || route.page === 'proponente-detail'
+    ? route
+    : route.page === 'dashboard' && clientProcesses.length === 1
+      ? { page: 'proponente-detail', id: clientProcesses[0].id }
+      : { page: 'client-processes' };
 
-  const active = activeNavPage(route);
+  const active = activeNavPage(view);
+  const crumb = isCliente
+    ? (view.page === 'proponente-detail' ? 'Meus Processos / Processo' : 'Meus Processos')
+    : breadcrumb(view);
 
   return (
     <div className="ds-app">
@@ -309,7 +321,7 @@ export function AppShell() {
         {/* Topbar */}
         <div className="ds-topbar">
           <div className="ds-crumb">
-            <span className="cur">{breadcrumb(route)}</span>
+            <span className="cur">{crumb}</span>
           </div>
           <div className="ds-tb-spacer" />
           <div className="ds-tb-search">
@@ -327,65 +339,66 @@ export function AppShell() {
 
         {/* Content */}
         <div className="ds-content">
-          {route.page === 'dashboard' && role === 'analista' && (
+          {view.page === 'dashboard' && role === 'analista' && (
             <AnalistaDashboard
               analistaName={name}
               onNavigate={(p) => navigate({ page: p as NavPage })}
             />
           )}
-          {route.page === 'dashboard' && role !== 'analista' && (
+          {view.page === 'dashboard' && role !== 'analista' && (
             <DashboardPage onNavigate={(p) => navigate({ page: p as NavPage })} />
           )}
-          {route.page === 'empreendimentos' && (
+          {view.page === 'empreendimentos' && (
             <EmpreendimentosPage
               onOpen={(id) => navigate({ page: 'empreendimento-detail', id })}
             />
           )}
-          {route.page === 'empreendimento-detail' && (
+          {view.page === 'empreendimento-detail' && (
             <EmpreendimentoDetailPage
-              empId={route.id}
+              empId={view.id}
               onBack={() => navigate({ page: 'empreendimentos' })}
               onOpenProcess={(id) =>
-                navigate({ page: 'proponente-detail', id, back: { page: 'empreendimento-detail', id: route.id } })
+                navigate({ page: 'proponente-detail', id, back: { page: 'empreendimento-detail', id: view.id } })
               }
             />
           )}
-          {route.page === 'proponentes' && (
+          {view.page === 'proponentes' && (
             <ProponentesPage
               onOpenProcess={(id) =>
                 navigate({ page: 'proponente-detail', id, back: { page: 'proponentes' } })
               }
             />
           )}
-          {route.page === 'proponente-detail' && (
+          {view.page === 'proponente-detail' && (
             <ProponenteDetailPage
-              processId={route.id}
-              onBack={() => navigate(route.back ?? { page: 'workflow' })}
+              processId={view.id}
+              onBack={() => navigate(view.back ?? (isCliente ? { page: 'client-processes' } : { page: 'workflow' }))}
               role={role}
             />
           )}
-          {route.page === 'workflow' && (
+          {view.page === 'workflow' && (
             <WorkflowPage
               onOpenProcess={(id) =>
                 navigate({ page: 'proponente-detail', id, back: { page: 'workflow' } })
               }
             />
           )}
-          {route.page === 'client-processes' && (
+          {view.page === 'client-processes' && (
             <ClientProcessListPage
               processes={clientProcesses}
+              isLoading={loadingClientProcesses}
               onOpen={(id) => navigate({ page: 'proponente-detail', id, back: { page: 'client-processes' } })}
             />
           )}
-          {route.page === 'logs' && (
+          {view.page === 'logs' && (
             <LogsPage
               onOpenProcess={(id) =>
                 navigate({ page: 'proponente-detail', id, back: { page: 'logs' } })
               }
             />
           )}
-          {(route.page === 'tarefas' || route.page === 'calendario' || route.page === 'relatorios' || route.page === 'config') && (
-            <ComingSoonPage label={PAGE_LABELS[route.page]} />
+          {(view.page === 'tarefas' || view.page === 'calendario' || view.page === 'relatorios' || view.page === 'config') && (
+            <ComingSoonPage label={PAGE_LABELS[view.page]} />
           )}
         </div>
       </div>
