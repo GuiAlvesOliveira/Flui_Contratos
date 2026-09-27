@@ -87,7 +87,10 @@ jobs:
             --overwrite \
             --account-key "$STORAGE_KEY"
 
-          EXPIRY=$(date -u -d "+7 days" +"%Y-%m-%dT%H:%MZ")
+          # The App Service re-reads this URL on every (re)start, so the SAS must
+          # outlive the gap between deploys — a 7-day SAS took the API down (503)
+          # the first time it restarted a week after the last deploy.
+          EXPIRY=$(date -u -d "+365 days" +"%Y-%m-%dT%H:%MZ")
           SAS_URL=$(az storage blob generate-sas \
             --account-name fluigj2026dev \
             --container-name deployments \
