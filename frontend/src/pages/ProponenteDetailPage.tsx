@@ -2,17 +2,14 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/axiosInstance';
 import * as Icon from '../components/icons';
+import { allowedTransitions, LINEAR_STAGES, type ProcessStage } from '../lib/processStages';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
-
-type ProcessStage =
-  | 'inicial' | 'cadastro' | 'analise_credito' | 'credito_aprovado'
-  | 'analise_juridica' | 'juridico_aprovado' | 'cartorio' | 'assinatura'
-  | 'cliente_inativo' | 'credito_recusado' | 'processo_pendencia';
 
 interface ProcessDetail {
   id: string;
   stage: ProcessStage;
+  stageBeforePendencia: ProcessStage | null;
   fonteRenda: string | null;
   estadoCivil: string | null;
   valorUnidade: number | null;
@@ -85,14 +82,7 @@ const STAGE_COLORS: Record<ProcessStage, string> = {
   processo_pendencia: '#d97706',
 };
 
-const LINEAR_STAGES: ProcessStage[] = [
-  'inicial', 'cadastro', 'analise_credito', 'credito_aprovado',
-  'analise_juridica', 'juridico_aprovado', 'cartorio', 'assinatura',
-];
-
 const SIDE_STAGES: ProcessStage[] = ['cliente_inativo', 'credito_recusado', 'processo_pendencia'];
-
-const ALL_STAGES: ProcessStage[] = [...LINEAR_STAGES, ...SIDE_STAGES];
 
 const MOTIVO_INATIVIDADE_OPTIONS = [
   { value: 'recursos_proprios', label: 'Quitará por recursos próprios' },
@@ -242,7 +232,8 @@ function GateErrorBox({ error }: { error: GateError | string }) {
 
 function StageChangeModal({ process, onClose }: StageChangeProps) {
   const qc = useQueryClient();
-  const otherStages = ALL_STAGES.filter(s => s !== process.stage);
+  // Only the moves the API accepts (BR-01 + resume rule for processo_pendencia).
+  const otherStages = allowedTransitions(process.stage, process.stageBeforePendencia);
   const [toStage, setToStage] = useState<ProcessStage>(otherStages[0]);
   const [motivoInatividade, setMotivoInatividade] = useState('recursos_proprios');
   const [motivoRecusa, setMotivoRecusa] = useState('');
@@ -328,13 +319,17 @@ function StageChangeModal({ process, onClose }: StageChangeProps) {
   );
 }
 
-// ── Quick advance/back buttons ─────────────────────────────────────────────────
+// ── Quick advance button ───────────────────────────────────────────────────────
 
+// No "back" button: the state machine has no backward transitions (a status
+// never regresses without a registered reason — side stages cover that).
 function QuickStageButtons({ process, isAnalista }: { process: ProcessDetail; isAnalista: boolean }) {
   const qc = useQueryClient();
   const currentIdx = LINEAR_STAGES.indexOf(process.stage);
-  const prevStage = currentIdx > 0 ? LINEAR_STAGES[currentIdx - 1] : null;
-  const nextStage = currentIdx >= 0 && currentIdx < LINEAR_STAGES.length - 1 ? LINEAR_STAGES[currentIdx + 1] : null;
+  const linearNext = currentIdx >= 0 ? LINEAR_STAGES[currentIdx + 1] ?? null : null;
+  const nextStage = linearNext && allowedTransitions(process.stage, process.stageBeforePendencia).includes(linearNext)
+    ? linearNext
+    : null;
   const [gateError, setGateError] = useState<GateError | string>('');
 
   const mut = useMutation({
@@ -349,20 +344,11 @@ function QuickStageButtons({ process, isAnalista }: { process: ProcessDetail; is
     onError: (err: unknown) => setGateError(parseGateError(err)),
   });
 
-  if (!isAnalista) return null;
+  if (!isAnalista || !nextStage) return null;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       <div style={{ display: 'flex', gap: 8 }}>
-        {prevStage && (
-          <button
-            className="ds-btn ghost sm"
-            disabled={mut.isPending}
-            onClick={() => { setGateError(''); mut.mutate(prevStage); }}
-          >
-            ← Voltar
-          </button>
-        )}
         {nextStage && (
           <button
             className="ds-btn accent sm"
@@ -514,13 +500,15 @@ function WorkflowTab({ process, docs, isAnalista, onMoverEtapa }: {
           {isAnalista && (
             <div style={{ padding: '12px 16px', borderTop: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 8 }}>
               <QuickStageButtons process={process} isAnalista={isAnalista} />
-              <button
-                className="ds-btn ghost sm"
-                style={{ width: '100%', justifyContent: 'center' }}
-                onClick={onMoverEtapa}
-              >
-                Mover para outra etapa...
-              </button>
+              {allowedTransitions(process.stage, process.stageBeforePendencia).length > 0 && (
+                <button
+                  className="ds-btn ghost sm"
+                  style={{ width: '100%', justifyContent: 'center' }}
+                  onClick={onMoverEtapa}
+                >
+                  Mover para outra etapa...
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -1293,7 +1281,7 @@ export function ProponenteDetailPage({ processId, onBack, role }: Props) {
             {/* Action buttons */}
             <div style={{ display: 'flex', gap: 8, flexShrink: 0, alignItems: 'center', marginLeft: 8 }}>
               <button className="ds-btn ghost sm" onClick={onBack}>← Voltar</button>
-              {isAnalista && (
+              {isAnalista && allowedTransitions(process.stage, process.stageBeforePendencia).length > 0 && (
                 <button className="ds-btn accent sm" onClick={() => setShowMoverEtapa(true)} style={{ gap: 6 }}>
                   Avançar etapa <Icon.ChevronRight size={13} />
                 </button>
