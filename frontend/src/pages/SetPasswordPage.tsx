@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { api } from '../api/axiosInstance';
 import { supabase } from '../auth/supabaseClient';
 
 export function SetPasswordPage() {
@@ -15,12 +16,28 @@ export function SetPasswordPage() {
     setLoading(true);
     setError('');
 
-    const { error: updateError } = await supabase.auth.updateUser({ password });
-    if (updateError) {
-      setError(updateError.message);
+    const { data: { session } } = await supabase.auth.getSession();
+    const email = session?.user.email;
+    if (!email) {
+      setError('Link de convite expirado. Peça um novo convite.');
       setLoading(false);
       return;
     }
+
+    try {
+      // Define a senha no servidor e limpa o mustChangePassword num passo só —
+      // assim o convidado não é mandado para /change-password escolher outra senha.
+      await api.patch('/me/change-password', { newPassword: password });
+    } catch {
+      setError('Não foi possível salvar a senha. Tente novamente.');
+      setLoading(false);
+      return;
+    }
+
+    // A troca feita pelo servidor encerra a sessão do convite: entra de novo com
+    // a senha recém-criada para seguir direto para o app.
+    const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+    if (signInError) await supabase.auth.signOut(); // senha já salva — cai no login
 
     // Limpa o hash e reinicia o fluxo de auth → RootRedirect redireciona pelo role
     window.location.replace('/');
