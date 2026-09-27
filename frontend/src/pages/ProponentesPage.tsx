@@ -62,6 +62,10 @@ const SIDE_STAGES: ProcessStage[] = ['cliente_inativo', 'credito_recusado', 'pro
 
 const ALL_STAGES: ProcessStage[] = [...MAIN_STAGES, ...SIDE_STAGES];
 
+// Proponentes (client groups) per page — a client's processes never split across pages.
+const PAGE_SIZE = 20;
+const SEM_ANALISTA = '__sem_analista__';
+
 function daysSince(dateStr: string): number {
   return Math.floor((Date.now() - new Date(dateStr).getTime()) / 86400000);
 }
@@ -123,6 +127,8 @@ export function ProponentesPage({ onOpenProcess }: Props) {
   const qc = useQueryClient();
   const [search, setSearch] = useState('');
   const [stageFilter, setStageFilter] = useState<ProcessStage | 'todos'>('todos');
+  const [analistaFilter, setAnalistaFilter] = useState<string>('todos');
+  const [page, setPage] = useState(1);
   const [showDrawer, setShowDrawer] = useState(false);
   const [deleteErrors, setDeleteErrors] = useState<Record<string, string>>({});
 
@@ -152,19 +158,51 @@ export function ProponentesPage({ onOpenProcess }: Props) {
     deleteMut.mutate(processId);
   };
 
-  const filtered = processes.filter(p => {
-    const matchStage = stageFilter === 'todos' || p.stage === stageFilter;
-    const q = search.toLowerCase();
+  // An analista only receives their own processes from the API, so the filter
+  // is only useful to the dono.
+  const showAnalistaFilter = role !== 'analista';
+  const analistas = [...new Map(
+    processes.filter(p => p.analista).map(p => [p.analista!.id, p.analista!]),
+  ).values()].sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '', 'pt-BR'));
+  const hasSemAnalista = processes.some(p => !p.analista);
+
+  // Every filter except the stage one: the stage tabs count within this set.
+  const q = search.toLowerCase();
+  const cpfQuery = search.replace(/\D/g, '');
+  const base = processes.filter(p => {
+    const matchAnalista =
+      analistaFilter === 'todos' ||
+      (analistaFilter === SEM_ANALISTA ? !p.analista : p.analista?.id === analistaFilter);
     const matchSearch =
       !search ||
       (p.client.name ?? '').toLowerCase().includes(q) ||
       p.client.email.toLowerCase().includes(q) ||
-      (p.client.cpf ?? '').includes(search.replace(/\D/g, ''));
-    return matchStage && matchSearch;
+      (!!cpfQuery && (p.client.cpf ?? '').replace(/\D/g, '').includes(cpfQuery));
+    return matchAnalista && matchSearch;
   });
+  const filtered = base.filter(p => stageFilter === 'todos' || p.stage === stageFilter);
 
   const countFor = (stage: ProcessStage | 'todos') =>
-    stage === 'todos' ? processes.length : processes.filter(p => p.stage === stage).length;
+    stage === 'todos' ? base.length : base.filter(p => p.stage === stage).length;
+
+  // Group by client (one row block per proponente), newest activity first, then paginate.
+  const groups = new Map<string, ProcessCard[]>();
+  for (const p of filtered) {
+    if (!groups.has(p.client.id)) groups.set(p.client.id, []);
+    groups.get(p.client.id)!.push(p);
+  }
+  const sortedGroups = [...groups.values()].sort((a, b) => {
+    const latestA = Math.max(...a.map(p => new Date(p.updatedAt).getTime()));
+    const latestB = Math.max(...b.map(p => new Date(p.updatedAt).getTime()));
+    return latestB - latestA;
+  });
+  const totalPages = Math.max(1, Math.ceil(sortedGroups.length / PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+  const firstIdx = (currentPage - 1) * PAGE_SIZE;
+  const pageGroups = sortedGroups.slice(firstIdx, firstIdx + PAGE_SIZE);
+
+  // Any filter change goes back to the first page.
+  const changeFilter = (apply: () => void) => { apply(); setPage(1); };
 
   return (
     <div className="ds-page">
@@ -197,27 +235,44 @@ export function ProponentesPage({ onOpenProcess }: Props) {
           <input
             placeholder="Buscar nome, e-mail ou CPF..."
             value={search}
-            onChange={e => setSearch(e.target.value)}
+            onChange={e => changeFilter(() => setSearch(e.target.value))}
           />
         </div>
+
+        {showAnalistaFilter && (
+          <div className="ds-input" style={{ flex: '0 0 220px' }}>
+            <Icon.Users size={13} style={{ color: 'var(--text-faint)', flexShrink: 0 }} />
+            <select
+              value={analistaFilter}
+              onChange={e => changeFilter(() => setAnalistaFilter(e.target.value))}
+              style={{ flex: 1, border: 'none', outline: 'none', background: 'transparent', fontSize: 13, cursor: 'pointer' }}
+            >
+              <option value="todos">Todos os analistas</option>
+              {analistas.map(a => (
+                <option key={a.id} value={a.id}>{a.name ?? 'Analista sem nome'}</option>
+              ))}
+              {hasSemAnalista && <option value={SEM_ANALISTA}>Sem analista</option>}
+            </select>
+          </div>
+        )}
 
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
           <FilterTab
             label="Todos"
             count={countFor('todos')}
             active={stageFilter === 'todos'}
-            onClick={() => setStageFilter('todos')}
+            onClick={() => changeFilter(() => setStageFilter('todos'))}
           />
           {ALL_STAGES.map(s => {
             const n = countFor(s);
-            if (n === 0) return null;
+            if (n === 0 && stageFilter !== s) return null;
             return (
               <FilterTab
                 key={s}
                 label={STAGE_LABELS[s]}
                 count={n}
                 active={stageFilter === s}
-                onClick={() => setStageFilter(s)}
+                onClick={() => changeFilter(() => setStageFilter(s))}
               />
             );
           })}
@@ -230,23 +285,12 @@ export function ProponentesPage({ onOpenProcess }: Props) {
       ) : filtered.length === 0 ? (
         <div className="ds-card">
           <div className="ds-card-body" style={{ textAlign: 'center', padding: 60, color: 'var(--text-faint)', fontSize: 13 }}>
-            {search || stageFilter !== 'todos'
+            {search || stageFilter !== 'todos' || analistaFilter !== 'todos'
               ? 'Nenhum proponente encontrado para os filtros selecionados.'
               : 'Nenhum processo cadastrado ainda. Clique em "Novo Processo" para começar.'}
           </div>
         </div>
-      ) : (() => {
-        const groups = new Map<string, ProcessCard[]>();
-        for (const p of filtered) {
-          if (!groups.has(p.client.id)) groups.set(p.client.id, []);
-          groups.get(p.client.id)!.push(p);
-        }
-        const sorted = [...groups.entries()].sort((a, b) => {
-          const latestA = Math.max(...a[1].map(p => new Date(p.updatedAt).getTime()));
-          const latestB = Math.max(...b[1].map(p => new Date(p.updatedAt).getTime()));
-          return latestB - latestA;
-        });
-        return (
+      ) : (
         <div className="ds-card">
           <table className="ds-table">
             <thead>
@@ -261,7 +305,7 @@ export function ProponentesPage({ onOpenProcess }: Props) {
               </tr>
             </thead>
             <tbody>
-              {sorted.flatMap(([, group], groupIdx) =>
+              {pageGroups.flatMap((group, groupIdx) =>
                 group.map((p, idx) => {
                 const days = daysSince(p.updatedAt);
                 const isLate = days >= 7 && MAIN_STAGES.includes(p.stage);
@@ -351,9 +395,26 @@ export function ProponentesPage({ onOpenProcess }: Props) {
               )}
             </tbody>
           </table>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '10px 16px', borderTop: '1px solid var(--border)', fontSize: 12, color: 'var(--text-muted)' }}>
+            <span>
+              {sortedGroups.length === 1
+                ? '1 proponente'
+                : `Mostrando ${firstIdx + 1}–${firstIdx + pageGroups.length} de ${sortedGroups.length} proponentes`}
+            </span>
+            {totalPages > 1 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <button className="ds-btn ghost sm" disabled={currentPage === 1} onClick={() => setPage(currentPage - 1)}>
+                  ← Anterior
+                </button>
+                <span style={{ fontVariantNumeric: 'tabular-nums' }}>Página {currentPage} de {totalPages}</span>
+                <button className="ds-btn ghost sm" disabled={currentPage === totalPages} onClick={() => setPage(currentPage + 1)}>
+                  Próxima →
+                </button>
+              </div>
+            )}
+          </div>
         </div>
-        );
-      })()}
+      )}
 
       {showDrawer && (
         <NovoProcessoDrawer
