@@ -2,7 +2,7 @@ import { IsOptional, IsString, IsUUID } from 'class-validator';
 
 /**
  * Whitelist for PATCH /users/:id/profile.
- * Intentionally excludes role, tenantId, active, externalId, onboardingCompleted
+ * Intentionally excludes role, tenantId, status, externalId, onboardingCompleted
  * and mustChangePassword — those must NEVER be settable via a profile update
  * (mass-assignment / privilege-escalation guard, SEC-01).
  * Constraints kept lenient (no min-length) to preserve current edit behavior,

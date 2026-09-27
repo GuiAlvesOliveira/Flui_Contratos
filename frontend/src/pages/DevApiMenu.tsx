@@ -253,7 +253,7 @@ export function DevApiMenu() {
                   color="green"
                   onClick={() =>
                     call(() =>
-                      api.patch(`/users/${userId}/activate`, { active: true }).then((r) => r.data),
+                      api.patch(`/users/${userId}/status`, { status: 'active' }).then((r) => r.data),
                     )
                   }
                 >
@@ -263,7 +263,7 @@ export function DevApiMenu() {
                   color="red"
                   onClick={() =>
                     call(() =>
-                      api.patch(`/users/${userId}/activate`, { active: false }).then((r) => r.data),
+                      api.patch(`/users/${userId}/status`, { status: 'disabled' }).then((r) => r.data),
                     )
                   }
                 >

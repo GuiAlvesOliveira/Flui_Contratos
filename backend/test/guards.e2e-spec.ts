@@ -47,7 +47,7 @@ function dbUser(externalId: string, role: string, id: string) {
     tenantId: 'tenant-1',
     role,
     name: role,
-    active: true,
+    status: 'active',
     onboardingCompleted: true,
     mustChangePassword: false,
     tenant: { active: true },

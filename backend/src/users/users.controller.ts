@@ -68,7 +68,7 @@ export class UsersController {
     return this.usersService.updateProfile(id, dto, req.user);
   }
 
-  @Patch(':id/activate')
+  @Patch(':id/status')
   @Roles('admin', 'dono')
   updateStatus(
     @Param('id', ParseUUIDPipe) id: string,
