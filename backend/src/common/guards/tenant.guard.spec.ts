@@ -2,6 +2,7 @@ import { ForbiddenException, UnauthorizedException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { Repository } from 'typeorm';
 import { TenantGuard } from './tenant.guard';
+import { UserContextCache } from '../../auth/user-context.cache';
 import { User } from '../../users/user.entity';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 import { PASSWORD_CHANGE_EXEMPT_KEY } from '../decorators/password-change-exempt.decorator';
@@ -34,6 +35,7 @@ describe('TenantGuard', () => {
   let guard: TenantGuard;
   let userRepo: { findOne: jest.Mock; update: jest.Mock };
   let reflector: { getAllAndOverride: jest.Mock };
+  let cache: UserContextCache;
 
   const setReflector = (isPublic = false, isExempt = false) => {
     reflector.getAllAndOverride.mockImplementation((key: string) =>
@@ -44,9 +46,11 @@ describe('TenantGuard', () => {
   beforeEach(() => {
     userRepo = { findOne: jest.fn(), update: jest.fn() };
     reflector = { getAllAndOverride: jest.fn() };
+    cache = new UserContextCache();
     guard = new TenantGuard(
       userRepo as unknown as Repository<User>,
       reflector as unknown as Reflector,
+      cache,
     );
   });
 
@@ -127,5 +131,42 @@ describe('TenantGuard', () => {
     userRepo.findOne.mockResolvedValue(makeUser({ mustChangePassword: true }));
     const req = { user: { externalId: 'ext1', email: 'a@x.com' } };
     await expect(guard.canActivate(makeContext(req))).resolves.toBe(true);
+  });
+
+  describe('AUTH-09: shared cache with invalidation by userId', () => {
+    const req = () => ({ user: { externalId: 'ext1', email: 'a@x.com' } });
+
+    it('serves the second request from the cache, without the DB', async () => {
+      setReflector();
+      userRepo.findOne.mockResolvedValue(makeUser());
+      await guard.canActivate(makeContext(req()));
+      await guard.canActivate(makeContext(req()));
+      expect(userRepo.findOne).toHaveBeenCalledTimes(1);
+      expect(cache.get('ext1')).toMatchObject({ userId: 'u1' });
+    });
+
+    it('after invalidateUser, the next request re-reads the DB (disabled → 403 at once)', async () => {
+      setReflector();
+      userRepo.findOne.mockResolvedValue(makeUser());
+      await guard.canActivate(makeContext(req()));
+
+      userRepo.findOne.mockResolvedValue(makeUser({ status: 'disabled' }));
+      // Still cached: the change is not visible yet...
+      await expect(guard.canActivate(makeContext(req()))).resolves.toBe(true);
+      // ...until the service that disabled the user invalidates it.
+      cache.invalidateUser('u1');
+      await expect(
+        guard.canActivate(makeContext(req())),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('never caches a user who must change the password', async () => {
+      setReflector(false, true);
+      userRepo.findOne.mockResolvedValue(
+        makeUser({ mustChangePassword: true }),
+      );
+      await guard.canActivate(makeContext(req()));
+      expect(cache.size).toBe(0);
+    });
   });
 });

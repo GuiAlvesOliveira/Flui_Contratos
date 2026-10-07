@@ -2,15 +2,18 @@ import { Repository } from 'typeorm';
 import { MeService } from './me.service';
 import { User } from '../users/user.entity';
 import { RequestUserFull } from '../auth/supabase.guard';
+import { UserContextCache } from '../auth/user-context.cache';
 
 function makeService() {
   const userRepo = { update: jest.fn() };
   const supabaseAdmin = { updateUserPassword: jest.fn() };
+  const userCache = { invalidateUser: jest.fn() };
   const service = new MeService(
     userRepo as unknown as Repository<User>,
     supabaseAdmin as never,
+    userCache as unknown as UserContextCache,
   );
-  return { service, userRepo, supabaseAdmin };
+  return { service, userRepo, supabaseAdmin, userCache };
 }
 
 const user = { userId: 'u1', externalId: 'ext1', tenantId: 't1', role: 'cliente' } as RequestUserFull;
@@ -45,5 +48,17 @@ describe('MeService', () => {
       onboardingCompleted: true,
       dataNascimento: '1990-05-17',
     });
+  });
+
+  it('completeOnboarding invalidates the cached context so GET /me sees it (AUTH-09)', async () => {
+    const { service, userCache } = makeService();
+    await service.completeOnboarding(user, { name: 'João' });
+    expect(userCache.invalidateUser).toHaveBeenCalledWith('u1');
+  });
+
+  it('changePassword invalidates the cached context too (AUTH-09)', async () => {
+    const { service, userCache } = makeService();
+    await service.changePassword(user, 'nova-senha-123');
+    expect(userCache.invalidateUser).toHaveBeenCalledWith('u1');
   });
 });

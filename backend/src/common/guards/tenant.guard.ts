@@ -11,19 +11,16 @@ import { Repository } from 'typeorm';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 import { PASSWORD_CHANGE_EXEMPT_KEY } from '../decorators/password-change-exempt.decorator';
 import { RequestUser, RequestUserFull } from '../../auth/supabase.guard';
+import { UserContextCache } from '../../auth/user-context.cache';
 import { User } from '../../users/user.entity';
 
 @Injectable()
 export class TenantGuard implements CanActivate {
-  private readonly cache = new Map<
-    string,
-    { data: RequestUserFull; expiresAt: number }
-  >();
-  private readonly TTL_MS = 60_000;
-
   constructor(
     @InjectRepository(User) private readonly userRepo: Repository<User>,
     private readonly reflector: Reflector,
+    // Shared with the services that change users, so they can invalidate it (AUTH-09).
+    private readonly cache: UserContextCache,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -45,20 +42,14 @@ export class TenantGuard implements CanActivate {
       throw new UnauthorizedException();
     }
 
-    const now = Date.now();
     const cached = this.cache.get(user.externalId);
-
-    if (cached && cached.expiresAt > now) {
-      this.enforcePasswordChange(cached.data, passwordChangeExempt);
-      (request as { user: RequestUserFull }).user = cached.data;
+    if (cached) {
+      this.enforcePasswordChange(cached, passwordChangeExempt);
+      (request as { user: RequestUserFull }).user = cached;
       return true;
     }
 
-    for (const [key, val] of this.cache) {
-      if (val.expiresAt < now) {
-        this.cache.delete(key);
-      }
-    }
+    this.cache.pruneExpired();
 
     let found = await this.userRepo.findOne({
       where: { externalId: user.externalId },
@@ -108,10 +99,7 @@ export class TenantGuard implements CanActivate {
 
     // Don't cache users that must change their password so the flag clears immediately after update
     if (!found.mustChangePassword) {
-      this.cache.set(user.externalId, {
-        data: fullUser,
-        expiresAt: now + this.TTL_MS,
-      });
+      this.cache.set(user.externalId, fullUser);
     }
     this.enforcePasswordChange(fullUser, passwordChangeExempt);
     (request as { user: RequestUserFull }).user = fullUser;
