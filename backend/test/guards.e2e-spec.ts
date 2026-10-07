@@ -3,11 +3,11 @@ import { Controller, Get, INestApplication, Req } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { ThrottlerModule } from '@nestjs/throttler';
 import request from 'supertest';
 import { App } from 'supertest/types';
-import { SupabaseGuard, RequestUserFull } from '../src/auth/supabase.guard';
-import { TenantGuard } from '../src/common/guards/tenant.guard';
-import { RolesGuard } from '../src/common/guards/roles.guard';
+import { RequestUserFull } from '../src/auth/supabase.guard';
+import { GLOBAL_GUARDS } from '../src/common/guards/global-guards';
 import { Public } from '../src/common/decorators/public.decorator';
 import { Roles } from '../src/common/decorators/roles.decorator';
 import { User } from '../src/users/user.entity';
@@ -54,40 +54,50 @@ function dbUser(externalId: string, role: string, id: string) {
   };
 }
 
-describe('Guard chain (e2e): Supabase → Tenant → Roles', () => {
+mockGetUser.mockImplementation((token: string) => {
+  if (token === 'analista-token')
+    return Promise.resolve({ data: { user: { id: 'ext-analista', email: 'an@x.com' } }, error: null });
+  if (token === 'cliente-token')
+    return Promise.resolve({ data: { user: { id: 'ext-cliente', email: 'cl@x.com' } }, error: null });
+  return Promise.resolve({ data: { user: null }, error: { message: 'invalid token' } });
+});
+
+// The real global chain, in production order (GLOBAL_GUARDS = what AppModule
+// registers): Throttler → Supabase → Tenant → Roles. Only the external I/O
+// (Supabase getUser, the users table) is mocked.
+async function buildApp(throttleLimit: number): Promise<INestApplication<App>> {
+  const userRepo = {
+    findOne: jest.fn(({ where }: { where: { externalId?: string } }) => {
+      if (where.externalId === 'ext-analista') return Promise.resolve(dbUser('ext-analista', 'analista', 'u-an'));
+      if (where.externalId === 'ext-cliente') return Promise.resolve(dbUser('ext-cliente', 'cliente', 'u-cli'));
+      return Promise.resolve(null);
+    }),
+    update: jest.fn(),
+  };
+
+  const moduleRef: TestingModule = await Test.createTestingModule({
+    imports: [ThrottlerModule.forRoot([{ ttl: 60_000, limit: throttleLimit }])],
+    controllers: [TestController],
+    providers: [
+      ...GLOBAL_GUARDS.map((guard) => ({
+        provide: APP_GUARD,
+        useClass: guard,
+      })),
+      { provide: ConfigService, useValue: { getOrThrow: () => 'x', get: () => undefined } },
+      { provide: getRepositoryToken(User), useValue: userRepo },
+    ],
+  }).compile();
+
+  const app = moduleRef.createNestApplication<INestApplication<App>>();
+  await app.init();
+  return app;
+}
+
+describe('Guard chain (e2e): Throttler → Supabase → Tenant → Roles', () => {
   let app: INestApplication<App>;
 
   beforeAll(async () => {
-    mockGetUser.mockImplementation((token: string) => {
-      if (token === 'analista-token')
-        return Promise.resolve({ data: { user: { id: 'ext-analista', email: 'an@x.com' } }, error: null });
-      if (token === 'cliente-token')
-        return Promise.resolve({ data: { user: { id: 'ext-cliente', email: 'cl@x.com' } }, error: null });
-      return Promise.resolve({ data: { user: null }, error: { message: 'invalid token' } });
-    });
-
-    const userRepo = {
-      findOne: jest.fn(({ where }: { where: { externalId?: string } }) => {
-        if (where.externalId === 'ext-analista') return Promise.resolve(dbUser('ext-analista', 'analista', 'u-an'));
-        if (where.externalId === 'ext-cliente') return Promise.resolve(dbUser('ext-cliente', 'cliente', 'u-cli'));
-        return Promise.resolve(null);
-      }),
-      update: jest.fn(),
-    };
-
-    const moduleRef: TestingModule = await Test.createTestingModule({
-      controllers: [TestController],
-      providers: [
-        { provide: APP_GUARD, useClass: SupabaseGuard },
-        { provide: APP_GUARD, useClass: TenantGuard },
-        { provide: APP_GUARD, useClass: RolesGuard },
-        { provide: ConfigService, useValue: { getOrThrow: () => 'x', get: () => undefined } },
-        { provide: getRepositoryToken(User), useValue: userRepo },
-      ],
-    }).compile();
-
-    app = moduleRef.createNestApplication();
-    await app.init();
+    app = await buildApp(1000); // limit high enough not to interfere here
   });
 
   afterAll(async () => {
@@ -130,5 +140,66 @@ describe('Guard chain (e2e): Supabase → Tenant → Roles', () => {
       .set('Authorization', 'Bearer analista-token')
       .expect(200);
     expect(res.body).toMatchObject({ tenantId: 'tenant-1', role: 'analista', userId: 'u-an' });
+  });
+});
+
+describe('Guard chain (e2e): ThrottlerGuard runs first (QA-02)', () => {
+  let app: INestApplication<App>;
+
+  beforeEach(async () => {
+    app = await buildApp(3); // 3 requests per minute per IP
+    mockGetUser.mockClear();
+  });
+
+  afterEach(async () => {
+    await app.close();
+  });
+
+  it('lets requests under the limit go on through the whole chain', async () => {
+    for (let i = 0; i < 3; i++) {
+      await request(app.getHttpServer())
+        .get('/test/analista-only')
+        .set('Authorization', 'Bearer analista-token')
+        .expect(200);
+    }
+    expect(mockGetUser).toHaveBeenCalledTimes(3);
+  });
+
+  it('429s past the limit before the token is even checked', async () => {
+    for (let i = 0; i < 3; i++) {
+      await request(app.getHttpServer())
+        .get('/test/analista-only')
+        .set('Authorization', 'Bearer analista-token');
+    }
+    mockGetUser.mockClear();
+    const res = await request(app.getHttpServer())
+      .get('/test/analista-only')
+      .set('Authorization', 'Bearer analista-token')
+      .expect(429);
+    expect(res.headers['retry-after']).toBeDefined();
+    expect(mockGetUser).not.toHaveBeenCalled(); // SupabaseGuard never ran
+  });
+
+  it('a throttled request without a token gets 429, not 401 (order of the chain)', async () => {
+    for (let i = 0; i < 3; i++) {
+      await request(app.getHttpServer()).get('/test/analista-only');
+    }
+    await request(app.getHttpServer()).get('/test/analista-only').expect(429);
+  });
+
+  it('@Public() routes are rate-limited too', async () => {
+    for (let i = 0; i < 3; i++) {
+      await request(app.getHttpServer()).get('/test/public').expect(200);
+    }
+    await request(app.getHttpServer()).get('/test/public').expect(429);
+  });
+
+  it('the e2e chain is the one AppModule registers, in the same order', () => {
+    expect(GLOBAL_GUARDS.map((g) => g.name)).toEqual([
+      'ThrottlerGuard',
+      'SupabaseGuard',
+      'TenantGuard',
+      'RolesGuard',
+    ]);
   });
 });

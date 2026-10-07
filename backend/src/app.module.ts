@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
-import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuditModule } from './audit/audit.module';
@@ -16,9 +16,7 @@ import { ProcessesModule } from './processes/processes.module';
 import { TenantsModule } from './tenants/tenants.module';
 import { UnidadesModule } from './unidades/unidades.module';
 import { UsersModule } from './users/users.module';
-import { SupabaseGuard } from './auth/supabase.guard';
-import { TenantGuard } from './common/guards/tenant.guard';
-import { RolesGuard } from './common/guards/roles.guard';
+import { GLOBAL_GUARDS } from './common/guards/global-guards';
 import { Document } from './documents/document.entity';
 import { Empreendimento } from './empreendimentos/empreendimento.entity';
 import { Process } from './processes/process.entity';
@@ -81,11 +79,9 @@ import { AddUserDataNascimento1718500400000 } from './database/migrations/171850
     UnidadesModule,
     UsersModule,
   ],
-  providers: [
-    { provide: APP_GUARD, useClass: ThrottlerGuard },
-    { provide: APP_GUARD, useClass: SupabaseGuard },
-    { provide: APP_GUARD, useClass: TenantGuard },
-    { provide: APP_GUARD, useClass: RolesGuard },
-  ],
+  providers: GLOBAL_GUARDS.map((guard) => ({
+    provide: APP_GUARD,
+    useClass: guard,
+  })),
 })
 export class AppModule {}
