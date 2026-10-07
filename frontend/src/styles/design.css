@@ -551,7 +551,8 @@ input, select, textarea { font-family: inherit; }
 }
 .ds-emp-info { padding: 12px 14px 14px; }
 .ds-emp-name { font-size: 14.5px; font-weight: 600; letter-spacing: -0.01em; }
-.ds-emp-loc { font-size: 12px; color: var(--text-muted); margin-top: 1px; }
+.ds-emp-loc { font-size: 12px; color: var(--text-muted); margin-top: 1px; display: flex; align-items: center; gap: 1px; }
+.ds-emp-loc svg { flex-shrink: 0; }
 .ds-emp-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
 .ds-emp-stat-l { font-size: 10.5px; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.04em; font-weight: 500; }
 .ds-emp-stat-v { font-size: 14px; font-weight: 600; margin-top: 1px; font-variant-numeric: tabular-nums; }
