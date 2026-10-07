@@ -2,30 +2,81 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { DataSource } from 'typeorm';
 import { RequestUserFull } from '../auth/supabase.guard';
 
+export interface AuditLogFilters {
+  processId?: string;
+  action?: string;
+  from?: string; // YYYY-MM-DD
+  to?: string; // YYYY-MM-DD
+}
+
+const TZ = 'America/Sao_Paulo';
+
 @Injectable()
 export class AuditService {
   constructor(private readonly dataSource: DataSource) {}
 
-  async findAll(caller: RequestUserFull, limit = 50, offset = 0) {
+  // BE-07: paginated tenant log, optionally narrowed by process, action and
+  // period. Every row carries total_count (rows matching the filters, ignoring
+  // the page) so the UI can paginate without a second request.
+  async findAll(
+    caller: RequestUserFull,
+    limit = 50,
+    offset = 0,
+    filters: AuditLogFilters = {},
+  ) {
     // Clamp pagination so a caller can't request an unbounded page (SEC-07).
     const safeLimit = Math.min(Math.max(Math.trunc(limit) || 50, 1), 100);
     const safeOffset = Math.max(Math.trunc(offset) || 0, 0);
-    return this.dataSource.query<unknown[]>(
+    if (filters.from && filters.to && filters.from > filters.to) {
+      throw new BadRequestException('A data inicial é posterior à data final');
+    }
+
+    const params: unknown[] = [caller.tenantId];
+    const where = ['al.tenant_id = $1'];
+    const add = (sql: (n: string) => string, value: unknown) => {
+      params.push(value);
+      where.push(sql(`$${params.length}`));
+    };
+    if (filters.processId) {
+      add((n) => `al.process_id = ${n}`, filters.processId);
+    }
+    if (filters.action) {
+      add((n) => `al.action = ${n}`, filters.action);
+    }
+    // Calendar days in the assessoria's time zone, both ends inclusive.
+    if (filters.from) {
+      add(
+        (n) => `al.created_at >= (${n}::date)::timestamp AT TIME ZONE '${TZ}'`,
+        filters.from,
+      );
+    }
+    if (filters.to) {
+      add(
+        (n) =>
+          `al.created_at < (${n}::date + 1)::timestamp AT TIME ZONE '${TZ}'`,
+        filters.to,
+      );
+    }
+    params.push(safeLimit, safeOffset);
+
+    const rows = await this.dataSource.query<{ total_count: string }[]>(
       `SELECT al.*,
               u.name   AS actor_name,
               p.stage  AS current_stage,
               p.active AS process_active,
               c.name   AS client_name,
-              c.email  AS client_email
+              c.email  AS client_email,
+              COUNT(*) OVER () AS total_count
        FROM audit_logs al
        LEFT JOIN users u ON u.id = al.actor_id
        LEFT JOIN processes p ON p.id = al.process_id
        LEFT JOIN users c ON c.id = p.client_id
-       WHERE al.tenant_id = $1
+       WHERE ${where.join(' AND ')}
        ORDER BY al.created_at DESC
-       LIMIT $2 OFFSET $3`,
-      [caller.tenantId, safeLimit, safeOffset],
+       LIMIT $${params.length - 1} OFFSET $${params.length}`,
+      params,
     );
+    return rows.map((r) => ({ ...r, total_count: Number(r.total_count) }));
   }
 
   async undo(logId: string, caller: RequestUserFull) {
