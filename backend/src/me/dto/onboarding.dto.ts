@@ -1,4 +1,5 @@
 import { IsOptional, IsString, Length, MinLength } from 'class-validator';
+import { IsBirthDate } from '../../common/decorators/is-birth-date.decorator';
 
 export class OnboardingDto {
   @IsString()
@@ -21,4 +22,8 @@ export class OnboardingDto {
   @IsOptional()
   @IsString()
   rg?: string;
+
+  @IsOptional()
+  @IsBirthDate()
+  dataNascimento?: string;
 }

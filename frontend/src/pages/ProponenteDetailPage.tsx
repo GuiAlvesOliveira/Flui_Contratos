@@ -1,8 +1,12 @@
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/axiosInstance';
 import * as Icon from '../components/icons';
 import { allowedTransitions, LINEAR_STAGES, type ProcessStage } from '../lib/processStages';
+import {
+  ageOn, formatCpf, formatDateOnly, formatTelefone, isValidCpf, isValidTelefone,
+  normalizeTelefone, onlyDigits, todayIso,
+} from '../lib/validators';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -20,7 +24,16 @@ interface ProcessDetail {
   motivoRecusa: string | null;
   createdAt: string;
   updatedAt: string;
-  client: { id: string; name: string | null; email: string; cpf: string | null; telefone: string | null };
+  client: {
+    id: string;
+    name: string | null;
+    surname: string | null;
+    email: string;
+    cpf: string | null;
+    rg: string | null;
+    dataNascimento: string | null;
+    telefone: string | null;
+  };
   analista: { id: string; name: string | null; email: string } | null;
   unidade: {
     id: string;
@@ -50,7 +63,7 @@ interface Document {
   blobPath: string | null;
 }
 
-type Tab = 'workflow' | 'cadastro' | 'documentos' | 'atividade';
+type Tab = 'workflow' | 'cadastro' | 'ficha' | 'documentos' | 'atividade';
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -90,6 +103,46 @@ const MOTIVO_INATIVIDADE_OPTIONS = [
   { value: 'sozinho', label: 'Seguirá sozinho' },
   { value: 'nao_atendeu', label: 'Não atendeu' },
 ];
+
+const ESTADO_CIVIL_LABELS: Record<string, string> = {
+  solteiro: 'Solteiro(a)',
+  casado: 'Casado(a)',
+  divorciado: 'Divorciado(a)',
+  viuvo: 'Viúvo(a)',
+  uniao_estavel: 'União Estável',
+};
+
+const FONTE_RENDA_LABELS: Record<string, string> = {
+  assalariado: 'Assalariado',
+  nao_assalariado: 'Não Assalariado',
+};
+
+// Dados pessoais editáveis na aba Cadastro (FE-20). O e-mail fica de fora: é o login.
+type ClientFormKey = 'name' | 'surname' | 'cpf' | 'rg' | 'dataNascimento' | 'telefone';
+type ClientFormErrors = Partial<Record<ClientFormKey, string>>;
+
+const CLIENT_FIELDS: { key: ClientFormKey; label: string; placeholder: string; type?: string; inputMode?: 'numeric' | 'tel' }[] = [
+  { key: 'name', label: 'Nome', placeholder: 'Nome' },
+  { key: 'surname', label: 'Sobrenome', placeholder: 'Sobrenome' },
+  { key: 'cpf', label: 'CPF', placeholder: '000.000.000-00', inputMode: 'numeric' },
+  { key: 'rg', label: 'RG', placeholder: '00.000.000-0' },
+  { key: 'dataNascimento', label: 'Data de nascimento', placeholder: '', type: 'date' },
+  { key: 'telefone', label: 'Telefone', placeholder: '(11) 99999-9999', inputMode: 'tel' },
+];
+
+// Campos opcionais: só valida o que foi preenchido.
+function validateClientForm(f: Record<ClientFormKey, string>): ClientFormErrors {
+  const errors: ClientFormErrors = {};
+  if (!f.name.trim()) errors.name = 'Informe o nome.';
+  if (f.cpf.trim() && !isValidCpf(f.cpf)) errors.cpf = 'CPF inválido. Confira os 11 dígitos.';
+  if (f.telefone.trim() && !isValidTelefone(f.telefone)) {
+    errors.telefone = 'Telefone inválido. Use DDD + número, ex.: (11) 99999-9999.';
+  }
+  if (f.dataNascimento && (f.dataNascimento > todayIso() || f.dataNascimento < '1900-01-01')) {
+    errors.dataNascimento = 'Data de nascimento inválida.';
+  }
+  return errors;
+}
 
 const STATUS_BADGE: Record<Document['status'], { label: string; color: string; bg: string }> = {
   pendente:  { label: 'Pendente',  color: '#71717a', bg: '#f4f4f5' },
@@ -719,11 +772,17 @@ function CadastroTab({ process, role }: { process: ProcessDetail; role: string |
   const canEditProfile = isAnalista || isCliente;
 
   const [editingClient, setEditingClient] = useState(false);
-  const [clientForm, setClientForm] = useState({
+  const emptyClientForm = () => ({
     name: client.name ?? '',
-    cpf: client.cpf ?? '',
-    telefone: client.telefone ?? '',
+    surname: client.surname ?? '',
+    cpf: client.cpf ? formatCpf(client.cpf) : '',
+    rg: client.rg ?? '',
+    dataNascimento: client.dataNascimento ?? '',
+    telefone: client.telefone ? formatTelefone(client.telefone) : '',
   });
+  const [clientForm, setClientForm] = useState(emptyClientForm);
+  const [clientErrors, setClientErrors] = useState<ClientFormErrors>({});
+  const [clientSaveError, setClientSaveError] = useState('');
 
   const [editingProcess, setEditingProcess] = useState(false);
   const [processForm, setProcessForm] = useState({
@@ -737,13 +796,40 @@ function CadastroTab({ process, role }: { process: ProcessDetail; role: string |
 
   const clientMut = useMutation({
     mutationFn: (dto: typeof clientForm) =>
-      api.patch(`/users/${client.id}/profile`, { ...dto, processId: process.id }).then(r => r.data),
+      api.patch(`/users/${client.id}/profile`, {
+        name: dto.name.trim(),
+        surname: dto.surname.trim(),
+        cpf: onlyDigits(dto.cpf),
+        rg: dto.rg.trim(),
+        telefone: normalizeTelefone(dto.telefone),
+        dataNascimento: dto.dataNascimento || null,
+        processId: process.id,
+      }).then(r => r.data),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['process', process.id] });
       void qc.invalidateQueries({ queryKey: ['audit', process.id] });
       setEditingClient(false);
     },
+    onError: (err: unknown) => {
+      const msg = (err as { response?: { data?: { message?: string | string[] } } })?.response?.data?.message;
+      setClientSaveError(Array.isArray(msg) ? msg.join('; ') : (msg ?? 'Erro ao salvar os dados'));
+    },
   });
+
+  const startEditClient = () => {
+    setClientForm(emptyClientForm());
+    setClientErrors({});
+    setClientSaveError('');
+    setEditingClient(true);
+  };
+
+  const submitClient = (e: React.FormEvent) => {
+    e.preventDefault();
+    const errors = validateClientForm(clientForm);
+    setClientErrors(errors);
+    setClientSaveError('');
+    if (Object.keys(errors).length === 0) clientMut.mutate(clientForm);
+  };
 
   const processMut = useMutation({
     mutationFn: (dto: typeof processForm) => {
@@ -771,28 +857,46 @@ function CadastroTab({ process, role }: { process: ProcessDetail; role: string |
         <div className="ds-card-hdr">
           Dados do Proponente
           {canEditProfile && !editingClient && (
-            <button className="ds-btn ghost sm" style={{ marginLeft: 'auto' }} onClick={() => setEditingClient(true)}>
+            <button className="ds-btn ghost sm" style={{ marginLeft: 'auto' }} onClick={startEditClient}>
               <Icon.Edit size={12} /> Editar
             </button>
           )}
         </div>
         <div className="ds-card-body">
           {editingClient ? (
-            <form onSubmit={e => { e.preventDefault(); clientMut.mutate(clientForm); }} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {[
-                { key: 'name', label: 'Nome completo', placeholder: '' },
-                { key: 'cpf', label: 'CPF', placeholder: '000.000.000-00' },
-                { key: 'telefone', label: 'Telefone', placeholder: '(11) 99999-9999' },
-              ].map(({ key, label, placeholder }) => (
+            <form onSubmit={submitClient} noValidate style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {CLIENT_FIELDS.map(({ key, label, placeholder, type, inputMode }) => (
                 <div key={key} className="ds-field" style={{ marginBottom: 0 }}>
-                  <label>{label}</label>
-                  <div className="ds-input">
-                    <input type="text" value={clientForm[key as keyof typeof clientForm]}
-                      onChange={e => setClientForm(f => ({ ...f, [key]: e.target.value }))}
-                      placeholder={placeholder} style={{ flex: 1 }} />
+                  <label htmlFor={`cli-${key}`}>{label}</label>
+                  <div className="ds-input" style={clientErrors[key] ? { borderColor: 'var(--red)' } : undefined}>
+                    <input
+                      id={`cli-${key}`}
+                      type={type ?? 'text'}
+                      inputMode={inputMode}
+                      value={clientForm[key]}
+                      max={type === 'date' ? todayIso() : undefined}
+                      aria-invalid={!!clientErrors[key]}
+                      aria-describedby={clientErrors[key] ? `cli-${key}-err` : undefined}
+                      onChange={e => {
+                        const value = e.target.value;
+                        setClientForm(f => ({ ...f, [key]: value }));
+                        if (clientErrors[key]) setClientErrors(er => ({ ...er, [key]: undefined }));
+                      }}
+                      placeholder={placeholder} style={{ flex: 1 }}
+                    />
                   </div>
+                  {clientErrors[key] && (
+                    <span id={`cli-${key}-err`} role="alert" style={{ fontSize: 11.5, color: 'var(--red)' }}>{clientErrors[key]}</span>
+                  )}
                 </div>
               ))}
+              <div className="ds-field" style={{ marginBottom: 0 }}>
+                <label>E-mail</label>
+                <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+                  {client.email} <span style={{ fontSize: 11.5, color: 'var(--text-faint)' }}>· é o login do proponente e não é alterado aqui</span>
+                </div>
+              </div>
+              {clientSaveError && <div className="ds-alert urgent" style={{ fontSize: 12.5 }}>{clientSaveError}</div>}
               <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
                 <button type="button" className="ds-btn ghost sm" onClick={() => setEditingClient(false)}>Cancelar</button>
                 <button type="submit" className="ds-btn accent sm" disabled={clientMut.isPending}>
@@ -802,10 +906,12 @@ function CadastroTab({ process, role }: { process: ProcessDetail; role: string |
             </form>
           ) : (
             <dl className="ds-kv">
-              <dt>Nome</dt><dd>{client.name ?? '—'}</dd>
+              <dt>Nome</dt><dd>{[client.name, client.surname].filter(Boolean).join(' ') || '—'}</dd>
               <dt>E-mail</dt><dd>{client.email}</dd>
-              <dt>CPF</dt><dd>{client.cpf ?? '—'}</dd>
-              <dt>Telefone</dt><dd>{client.telefone ?? '—'}</dd>
+              <dt>CPF</dt><dd>{formatCpf(client.cpf)}</dd>
+              <dt>RG</dt><dd>{client.rg || '—'}</dd>
+              <dt>Nascimento</dt><dd>{formatDateOnly(client.dataNascimento)}</dd>
+              <dt>Telefone</dt><dd>{formatTelefone(client.telefone)}</dd>
             </dl>
           )}
         </div>
@@ -876,12 +982,9 @@ function CadastroTab({ process, role }: { process: ProcessDetail; role: string |
           ) : (
             <dl className="ds-kv">
               <dt>Estado Civil</dt>
-              <dd>{process.estadoCivil ?? '—'}</dd>
+              <dd>{process.estadoCivil ? (ESTADO_CIVIL_LABELS[process.estadoCivil] ?? process.estadoCivil) : '—'}</dd>
               <dt>Fonte de Renda</dt>
-              <dd>
-                {process.fonteRenda === 'assalariado' ? 'Assalariado' :
-                 process.fonteRenda === 'nao_assalariado' ? 'Não Assalariado' : '—'}
-              </dd>
+              <dd>{process.fonteRenda ? (FONTE_RENDA_LABELS[process.fonteRenda] ?? process.fonteRenda) : '—'}</dd>
               <dt>Valor da Unidade</dt>
               <dd>{formatCurrency(process.valorUnidade)}</dd>
               <dt>Valor em Aberto</dt>
@@ -912,6 +1015,144 @@ function CadastroTab({ process, role }: { process: ProcessDetail; role: string |
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ── FichaTab ───────────────────────────────────────────────────────────────────
+// Ficha cadastral completa (FE-20): dados pessoais, renda, financiamento e
+// imóvel numa visão só de leitura, apontando o que ainda falta preencher.
+
+function FichaTab({ process }: { process: ProcessDetail }) {
+  const { client, unidade, analista } = process;
+
+  const { data: participants = [] } = useQuery<Participant[]>({
+    queryKey: ['participants', process.id],
+    queryFn: () => api.get(`/processes/${process.id}/participants`).then(r => r.data),
+  });
+  const { data: composition } = useQuery<{ composedIncome: number; participantCount: number }>({
+    queryKey: ['participants', process.id, 'composition'],
+    queryFn: () => api.get(`/processes/${process.id}/income-composition`).then(r => r.data),
+  });
+
+  const money = (v: number | null | undefined) => (v == null ? null : formatCurrency(v));
+  const idade = client.dataNascimento ? ageOn(client.dataNascimento) : null;
+
+  // null = campo não preenchido
+  const sections: { title: string; rows: [string, string | null][] }[] = [
+    {
+      title: 'Dados pessoais',
+      rows: [
+        ['Nome completo', [client.name, client.surname].filter(Boolean).join(' ') || null],
+        ['CPF', client.cpf ? formatCpf(client.cpf) : null],
+        ['RG', client.rg || null],
+        ['Data de nascimento', client.dataNascimento
+          ? `${formatDateOnly(client.dataNascimento)}${idade !== null ? ` · ${idade} anos` : ''}`
+          : null],
+        ['Estado civil', process.estadoCivil ? (ESTADO_CIVIL_LABELS[process.estadoCivil] ?? process.estadoCivil) : null],
+        ['E-mail', client.email],
+        ['Telefone', client.telefone ? formatTelefone(client.telefone) : null],
+      ],
+    },
+    {
+      title: 'Renda',
+      rows: [
+        ['Fonte de renda', process.fonteRenda ? (FONTE_RENDA_LABELS[process.fonteRenda] ?? process.fonteRenda) : null],
+        ['Participantes', String(composition?.participantCount ?? participants.length)],
+        ['Renda composta', composition ? formatCurrency(composition.composedIncome) : '…'],
+      ],
+    },
+    {
+      title: 'Financiamento',
+      rows: [
+        ['Etapa atual', STAGE_LABELS[process.stage]],
+        ['Analista responsável', analista ? (analista.name ?? analista.email) : null],
+        ['Valor da unidade', money(process.valorUnidade)],
+        ['Valor em aberto', money(process.valorEmAberto)],
+        ['Seguro MIP', money(process.mipValue)],
+        ['Seguro DFI', money(process.dfiValue)],
+      ],
+    },
+    {
+      title: 'Imóvel',
+      rows: [
+        ['Empreendimento', unidade?.empreendimento?.nome ?? null],
+        ['Banco financiador', unidade?.empreendimento?.bancoFinanciador ?? null],
+        ['Unidade', unidade?.identificacao ?? null],
+        ['Valor de tabela', money(unidade?.valor)],
+      ],
+    },
+  ];
+  const missing = sections.flatMap(s => s.rows.filter(([, v]) => v === null).map(([k]) => k));
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {missing.length === 0 ? (
+        <div className="ds-alert" style={{ background: 'var(--green-soft)', border: '1px solid var(--green-soft-border)', color: 'var(--green)', borderRadius: 'var(--radius)' }}>
+          <Icon.Check size={14} />
+          <span>Ficha cadastral completa.</span>
+        </div>
+      ) : (
+        <div className="ds-alert warn" style={{ borderRadius: 'var(--radius)' }} data-testid="ficha-pendencias">
+          <Icon.AlertTriangle size={14} />
+          <span>
+            {missing.length} campo{missing.length !== 1 ? 's' : ''} não preenchido{missing.length !== 1 ? 's' : ''}: {missing.join(', ')}.
+          </span>
+        </div>
+      )}
+
+      <div className="ds-dash-grid">
+        {sections.map(section => (
+          <div key={section.title} className="ds-col-6">
+            <div className="ds-card" style={{ height: '100%' }}>
+              <div className="ds-card-hdr">{section.title}</div>
+              <div className="ds-card-body">
+                <dl className="ds-kv" style={{ gridTemplateColumns: '150px 1fr' }}>
+                  {section.rows.map(([label, value]) => (
+                    <Fragment key={label}>
+                      <dt>{label}</dt>
+                      <dd style={value === null ? { color: 'var(--amber)', fontWeight: 400 } : undefined}>
+                        {value ?? 'Não informado'}
+                      </dd>
+                    </Fragment>
+                  ))}
+                </dl>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="ds-card">
+        <div className="ds-card-hdr">
+          Composição de renda
+          <span style={{ marginLeft: 'auto', fontSize: 11.5, color: 'var(--text-faint)' }}>soma da renda declarada de todos os participantes</span>
+        </div>
+        {participants.length === 0 ? (
+          <div className="ds-card-body" style={{ fontSize: 13, color: 'var(--text-faint)' }}>Nenhum participante cadastrado.</div>
+        ) : (
+          <table className="ds-table">
+            <thead>
+              <tr><th>Participante</th><th>CPF</th><th style={{ textAlign: 'right' }}>Renda declarada</th></tr>
+            </thead>
+            <tbody>
+              {participants.map(p => (
+                <tr key={p.id}>
+                  <td>{p.name}</td>
+                  <td>{formatCpf(p.cpf)}</td>
+                  <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(p.declaredIncome)}</td>
+                </tr>
+              ))}
+              <tr>
+                <td colSpan={2} style={{ fontWeight: 600 }}>Total</td>
+                <td style={{ textAlign: 'right', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
+                  {formatCurrency(composition?.composedIncome ?? participants.reduce((s, p) => s + Number(p.declaredIncome), 0))}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        )}
+      </div>
     </div>
   );
 }
@@ -1194,6 +1435,7 @@ export function ProponenteDetailPage({ processId, onBack, role }: Props) {
   const TABS: { id: Tab; label: string }[] = [
     { id: 'workflow', label: 'Workflow' },
     { id: 'cadastro', label: 'Cadastro' },
+    { id: 'ficha', label: 'Ficha' },
     { id: 'documentos', label: `Documentos${docs.length > 0 ? ` ${docsValidados}/${docs.length}` : ''}` },
     { id: 'atividade', label: 'Atividade' },
   ];
@@ -1314,6 +1556,7 @@ export function ProponenteDetailPage({ processId, onBack, role }: Props) {
       {/* Tab content */}
       {tab === 'workflow' && <WorkflowTab process={process} docs={docs} isAnalista={isAnalista} onMoverEtapa={() => setShowMoverEtapa(true)} />}
       {tab === 'cadastro' && <CadastroTab process={process} role={role} />}
+      {tab === 'ficha' && <FichaTab process={process} />}
       {tab === 'documentos' && <DocumentosTab processId={processId} role={role} />}
       {tab === 'atividade' && <AtividadeTab processId={processId} />}
 

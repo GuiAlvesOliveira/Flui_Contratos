@@ -56,6 +56,10 @@ export class User {
   @Column({ type: 'varchar', length: 20, nullable: true })
   telefone: string | null;
 
+  // FE-20: YYYY-MM-DD (pg DATE comes back as a plain string, no time zone shift)
+  @Column({ type: 'date', name: 'data_nascimento', nullable: true })
+  dataNascimento: string | null;
+
   @Column({ name: 'created_by', type: 'uuid', nullable: true })
   createdBy: string | null;
 

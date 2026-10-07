@@ -33,4 +33,17 @@ describe('MeService', () => {
       cpf: '12345678900',
     });
   });
+
+  it('completeOnboarding stores the birth date from the ficha (FE-20)', async () => {
+    const { service, userRepo } = makeService();
+    await service.completeOnboarding(user, {
+      name: 'João',
+      dataNascimento: '1990-05-17',
+    });
+    expect(userRepo.update).toHaveBeenCalledWith('u1', {
+      name: 'João',
+      onboardingCompleted: true,
+      dataNascimento: '1990-05-17',
+    });
+  });
 });

@@ -12,6 +12,7 @@ import { InitialSchema1718500000000 } from './migrations/1718500000000-InitialSc
 import { UnifyProcessStages1718500100000 } from './migrations/1718500100000-UnifyProcessStages';
 import { AddStageBeforePendencia1718500200000 } from './migrations/1718500200000-AddStageBeforePendencia';
 import { AddUserStatus1718500300000 } from './migrations/1718500300000-AddUserStatus';
+import { AddUserDataNascimento1718500400000 } from './migrations/1718500400000-AddUserDataNascimento';
 
 // Standalone DataSource for the `typeorm migration:*` CLI. The running app builds
 // its own connection from ConfigService (app.module) and runs migrations on boot
@@ -32,6 +33,7 @@ export const AppDataSource = new DataSource({
     UnifyProcessStages1718500100000,
     AddStageBeforePendencia1718500200000,
     AddUserStatus1718500300000,
+    AddUserDataNascimento1718500400000,
   ],
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: true } : false,
 });

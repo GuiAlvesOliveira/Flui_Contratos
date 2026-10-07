@@ -27,6 +27,9 @@ export class MeService {
     if (dto.telefone !== undefined) update.telefone = dto.telefone;
     if (dto.cpf !== undefined) update.cpf = dto.cpf;
     if (dto.rg !== undefined) update.rg = dto.rg;
+    if (dto.dataNascimento !== undefined) {
+      update.dataNascimento = dto.dataNascimento;
+    }
 
     await this.userRepo.update(user.userId, update);
     return { onboardingCompleted: true };
