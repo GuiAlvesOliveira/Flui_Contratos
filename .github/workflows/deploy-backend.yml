@@ -6,6 +6,13 @@ on:
     paths:
       - 'backend/**'
       - '.github/workflows/deploy-backend.yml'
+  # Pull requests run only the test job (unit + coverage gate + e2e), so a red
+  # suite shows up on the PR before it is merged (INFRA-13). No deploy.
+  pull_request:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - '.github/workflows/deploy-backend.yml'
   workflow_dispatch:
 
 jobs:
@@ -18,7 +25,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v5
         with:
-          node-version: '20'
+          node-version: '24'
           cache: 'npm'
           cache-dependency-path: backend/package-lock.json
 
@@ -37,6 +44,11 @@ jobs:
   build-and-deploy:
     # Gate the deploy on the test job: no green tests + coverage floor, no deploy.
     needs: test
+    if: github.event_name != 'pull_request'
+    # One deploy at a time: a newer push waits instead of racing the package URL.
+    concurrency:
+      group: deploy-backend
+      cancel-in-progress: false
     runs-on: ubuntu-latest
 
     steps:
@@ -45,7 +57,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v5
         with:
-          node-version: '20'
+          node-version: '24'
           cache: 'npm'
           cache-dependency-path: backend/package-lock.json
 
