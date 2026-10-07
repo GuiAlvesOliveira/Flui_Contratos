@@ -198,7 +198,12 @@ export class UsersService {
     if (caller.role !== 'admin' && user.tenantId !== caller.tenantId) throw new ForbiddenException();
     if (caller.role === 'cliente' && id !== caller.userId) throw new ForbiddenException();
 
-    const { processId, ...fields } = dto;
+    // The validated DTO declares every optional field (as undefined); keep only
+    // the ones actually sent, so the audit entry lists real changes (RN-07).
+    const { processId, ...sent } = dto;
+    const fields = Object.fromEntries(
+      Object.entries(sent).filter(([, value]) => value !== undefined),
+    );
     Object.assign(user, fields);
     const saved = await this.userRepo.save(user);
 

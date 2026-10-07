@@ -1,4 +1,5 @@
 import { IsOptional, IsString, IsUUID } from 'class-validator';
+import { IsBirthDate } from '../../common/decorators/is-birth-date.decorator';
 
 /**
  * Whitelist for PATCH /users/:id/profile.
@@ -20,6 +21,13 @@ export class UpdateProfileDto {
 
   @IsOptional() @IsString()
   telefone?: string;
+
+  @IsOptional() @IsString()
+  rg?: string;
+
+  /** YYYY-MM-DD; null clears it (FE-20). */
+  @IsOptional() @IsBirthDate()
+  dataNascimento?: string | null;
 
   /** Not persisted on the user — only used to attach an audit-log entry to a process. */
   @IsOptional() @IsUUID()

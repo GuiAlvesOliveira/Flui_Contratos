@@ -242,3 +242,70 @@ describe('UsersService account status (SEC-02)', () => {
     expect(userRepo.update).toHaveBeenCalledWith('u2', { status: 'disabled' });
   });
 });
+
+describe('UsersService.updateProfile — ficha cadastral (FE-20)', () => {
+  const cliente = () =>
+    ({ id: 'u2', tenantId: 't1', role: 'cliente', status: 'active' }) as User;
+
+  it('saves RG and birth date and logs the changed fields on the process', async () => {
+    const { service, userRepo, dataSource } = makeService();
+    userRepo.findOne.mockResolvedValue(cliente());
+    userRepo.save.mockImplementation((u: User) => Promise.resolve(u));
+    await service.updateProfile(
+      'u2',
+      { rg: '123456789', dataNascimento: '1990-05-17', processId: 'p1' },
+      caller('analista'),
+    );
+    expect(userRepo.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        rg: '123456789',
+        dataNascimento: '1990-05-17',
+      }),
+    );
+    const [, params] = dataSource.query.mock.calls[0] as [string, unknown[]];
+    expect(params[3]).toBe(JSON.stringify({ fields: 'rg, dataNascimento' }));
+  });
+
+  it('clears the birth date with null', async () => {
+    const { service, userRepo } = makeService();
+    userRepo.findOne.mockResolvedValue({
+      ...cliente(),
+      dataNascimento: '1990-05-17',
+    });
+    userRepo.save.mockImplementation((u: User) => Promise.resolve(u));
+    await service.updateProfile('u2', { dataNascimento: null }, caller('dono'));
+    expect(userRepo.save).toHaveBeenCalledWith(
+      expect.objectContaining({ dataNascimento: null }),
+    );
+  });
+
+  it('a cliente cannot edit another user profile', async () => {
+    const { service, userRepo } = makeService();
+    userRepo.findOne.mockResolvedValue(cliente());
+    await expect(
+      service.updateProfile('u2', { rg: '1' }, caller('cliente')),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(userRepo.save).not.toHaveBeenCalled();
+  });
+});
+
+describe('UsersService.updateProfile — only sent fields (RN-07)', () => {
+  it('ignores optional fields the DTO declares but the request did not send', async () => {
+    const { service, userRepo, dataSource } = makeService();
+    const stored: Partial<User> = {
+      id: 'u2',
+      tenantId: 't1',
+      role: 'cliente',
+      name: 'Helena',
+      cpf: '52998224725',
+    };
+    userRepo.findOne.mockResolvedValue(stored);
+    userRepo.save.mockImplementation((u: User) => Promise.resolve(u));
+    // Shape of a ValidationPipe instance: undeclared keys present as undefined
+    const dto = { name: undefined, cpf: undefined, rg: '1', processId: 'p1' };
+    const res = await service.updateProfile('u2', dto, caller('dono'));
+    expect(res).toMatchObject({ name: 'Helena', cpf: '52998224725', rg: '1' });
+    const [, params] = dataSource.query.mock.calls[0] as [string, unknown[]];
+    expect(params[3]).toBe(JSON.stringify({ fields: 'rg' }));
+  });
+});

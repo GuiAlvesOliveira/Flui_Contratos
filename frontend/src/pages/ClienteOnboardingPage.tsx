@@ -41,6 +41,7 @@ export function ClienteOnboardingPage() {
         cpf: form.cpf.trim() || undefined,
         rg: form.rg.trim() || undefined,
         telefone: form.telefone.trim() || undefined,
+        dataNascimento: form.dataNascimento || undefined,
       });
       navigate('/cliente', { replace: true });
     } catch {
