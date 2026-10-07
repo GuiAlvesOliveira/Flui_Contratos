@@ -1,0 +1,27 @@
+{
+  "name": "flui-contratos",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Flui Contratos — monorepo (backend NestJS, frontend React/Vite, infra). Cada parte mantém o próprio package.json; aqui ficam só os atalhos que rodam de qualquer uma a partir da raiz.",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "install:all": "npm ci --prefix backend && npm ci --prefix frontend",
+    "infra:up": "docker compose -f infra/docker/docker-compose.yml --env-file .env.local up -d",
+    "infra:down": "docker compose -f infra/docker/docker-compose.yml --env-file .env.local down",
+    "infra:ps": "docker compose -f infra/docker/docker-compose.yml --env-file .env.local ps",
+    "migration:run": "npm run migration:run --prefix backend",
+    "dev:backend": "npm run start:dev --prefix backend",
+    "dev:frontend": "npm run dev --prefix frontend",
+    "build": "npm run build --prefix backend && npm run build --prefix frontend",
+    "build:backend": "npm run build --prefix backend",
+    "build:frontend": "npm run build --prefix frontend",
+    "test": "npm test --prefix backend && npm run test:e2e --prefix backend",
+    "test:cov": "npm run test:cov --prefix backend",
+    "lint": "npm run lint:backend && npm run lint:frontend",
+    "lint:backend": "cd backend && npx eslint \"{src,test}/**/*.ts\"",
+    "lint:frontend": "npm run lint --prefix frontend",
+    "check": "npm run build && npm test"
+  }
+}

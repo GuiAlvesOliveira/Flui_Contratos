@@ -51,6 +51,8 @@ These rules affect how features must be implemented — do not skip or soften th
 
 ## Development Commands
 
+The root `package.json` has shortcuts for all of the below (`npm run install:all`, `infra:up`, `migration:run`, `dev:backend`, `dev:frontend`, `build`, `test`, `check`) — see `README.md`.
+
 ```bash
 # ── Local infrastructure (run first) ──────────────────────────
 cd infra/docker
