@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { Fragment, useState } from 'react';
+import { keepPreviousData, useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/axiosInstance';
 import * as Icon from '../components/icons';
 
@@ -18,15 +18,21 @@ interface AuditLog {
   process_active: boolean | null;
   client_name: string | null;
   client_email: string | null;
+  // Total de eventos que atendem aos filtros, repetido em cada linha (BE-07)
+  total_count?: number;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+const PAGE_SIZE = 25;
 
 const ACTION_LABELS: Record<string, string> = {
   stage_change: 'Mudança de etapa',
   stage_change_undo: 'Desfez mudança de etapa',
   process_deactivated: 'Processo removido',
   process_reactivated: 'Processo reativado',
+  document_upload: 'Envio de documento',
+  profile_update: 'Atualização de cadastro',
 };
 
 const STAGE_LABELS: Record<string, string> = {
@@ -79,6 +85,19 @@ export function LogsPage({ onOpenProcess }: Props) {
   const [showEmailTest, setShowEmailTest] = useState(false);
   const [testEmail, setTestEmail] = useState('');
   const [testResult, setTestResult] = useState<'ok' | 'error' | null>(null);
+  const [page, setPage] = useState(0);
+  const [actionFilter, setActionFilter] = useState('');
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
+
+  // Qualquer mudança de filtro volta para a primeira página.
+  const changeFilter = (apply: () => void) => {
+    apply();
+    setPage(0);
+  };
+  const clearFilters = () => changeFilter(() => { setActionFilter(''); setFromDate(''); setToDate(''); });
+  const hasFilters = !!(actionFilter || fromDate || toDate);
+  const invalidPeriod = !!(fromDate && toDate && fromDate > toDate);
 
   const emailTestMut = useMutation({
     mutationFn: (to: string) => api.post('/email/test', { to }).then(r => r.data),
@@ -87,10 +106,27 @@ export function LogsPage({ onOpenProcess }: Props) {
   });
 
   const { data: logs = [], isLoading, isError, refetch } = useQuery<AuditLog[]>({
-    queryKey: ['audit-logs'],
-    queryFn: () => api.get<AuditLog[]>('/audit-logs?limit=100').then(r => r.data),
+    queryKey: ['audit-logs', { page, actionFilter, fromDate, toDate }],
+    queryFn: () =>
+      api
+        .get<AuditLog[]>('/audit-logs', {
+          params: {
+            limit: PAGE_SIZE,
+            offset: page * PAGE_SIZE,
+            action: actionFilter || undefined,
+            from: fromDate || undefined,
+            to: toDate || undefined,
+          },
+        })
+        .then(r => r.data),
+    enabled: !invalidPeriod,
+    placeholderData: keepPreviousData,
     refetchInterval: 30_000,
   });
+
+  const total = logs[0]?.total_count ?? logs.length;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const firstIdx = page * PAGE_SIZE;
 
   const undoMut = useMutation({
     mutationFn: (logId: string) => api.post(`/audit-logs/${logId}/undo`).then(r => r.data),
@@ -122,7 +158,9 @@ export function LogsPage({ onOpenProcess }: Props) {
         <div>
           <h1>Log de Ações</h1>
           <p>
-            {isLoading ? 'Carregando...' : `${logs.length} evento${logs.length !== 1 ? 's' : ''} registrado${logs.length !== 1 ? 's' : ''}`}
+            {isLoading
+              ? 'Carregando...'
+              : `${total} evento${total !== 1 ? 's' : ''} ${hasFilters ? 'encontrado' : 'registrado'}${total !== 1 ? 's' : ''}`}
           </p>
         </div>
         <div className="actions">
@@ -171,6 +209,58 @@ export function LogsPage({ onOpenProcess }: Props) {
         </div>
       )}
 
+      {/* Filtros */}
+      <div className="ds-list-toolbar" style={{ flexWrap: 'wrap', gap: 10 }}>
+        <div className="ds-input" style={{ flex: '0 0 230px' }}>
+          <Icon.Filter size={13} style={{ color: 'var(--text-faint)', flexShrink: 0 }} />
+          <select
+            aria-label="Filtrar por ação"
+            value={actionFilter}
+            onChange={e => changeFilter(() => setActionFilter(e.target.value))}
+            style={{ flex: 1, border: 'none', outline: 'none', background: 'transparent', fontSize: 13, cursor: 'pointer' }}
+          >
+            <option value="">Todas as ações</option>
+            {Object.entries(ACTION_LABELS).map(([value, label]) => (
+              <option key={value} value={value}>{label}</option>
+            ))}
+          </select>
+        </div>
+        <div className="ds-input" style={{ flex: '0 0 auto' }}>
+          <Icon.Calendar size={13} style={{ color: 'var(--text-faint)', flexShrink: 0 }} />
+          <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>De</span>
+          <input
+            type="date"
+            aria-label="Data inicial"
+            value={fromDate}
+            max={toDate || undefined}
+            onChange={e => changeFilter(() => setFromDate(e.target.value))}
+          />
+        </div>
+        <div className="ds-input" style={{ flex: '0 0 auto' }}>
+          <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Até</span>
+          <input
+            type="date"
+            aria-label="Data final"
+            value={toDate}
+            min={fromDate || undefined}
+            onChange={e => changeFilter(() => setToDate(e.target.value))}
+          />
+        </div>
+        {hasFilters && (
+          <button className="ds-btn ghost sm" onClick={clearFilters}>
+            <Icon.X size={12} />
+            Limpar filtros
+          </button>
+        )}
+      </div>
+
+      {invalidPeriod && (
+        <div className="ds-alert urgent" style={{ marginBottom: 16 }}>
+          <Icon.AlertTriangle size={14} />
+          <span>A data inicial é posterior à data final.</span>
+        </div>
+      )}
+
       {isError && (
         <div className="ds-alert urgent" style={{ marginBottom: 16 }}>
           <Icon.AlertTriangle size={14} />
@@ -178,12 +268,21 @@ export function LogsPage({ onOpenProcess }: Props) {
         </div>
       )}
 
-      {isLoading ? (
+      {invalidPeriod ? null : isLoading ? (
         <div style={{ color: 'var(--text-faint)', fontSize: 13, padding: 24 }}>Carregando...</div>
       ) : logs.length === 0 ? (
         <div className="ds-card">
           <div className="ds-card-body" style={{ textAlign: 'center', padding: 60, color: 'var(--text-faint)', fontSize: 13 }}>
-            Nenhuma ação registrada ainda.
+            {page > 0 ? (
+              <>
+                Nenhum evento nesta página.{' '}
+                <button className="ds-btn ghost sm" onClick={() => setPage(0)}>Voltar para a primeira página</button>
+              </>
+            ) : hasFilters ? (
+              'Nenhum evento encontrado para os filtros selecionados.'
+            ) : (
+              'Nenhuma ação registrada ainda.'
+            )}
           </div>
         </div>
       ) : (
@@ -205,8 +304,8 @@ export function LogsPage({ onOpenProcess }: Props) {
                 const hasError = !!undoErrors[log.id];
                 const wasUndone = !!undoSuccess[log.id];
                 return (
-                  <>
-                    <tr key={log.id}>
+                  <Fragment key={log.id}>
+                    <tr>
                       <td style={{ fontSize: 12, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
                         {fmtDate(log.created_at)}
                       </td>
@@ -256,17 +355,33 @@ export function LogsPage({ onOpenProcess }: Props) {
                       </td>
                     </tr>
                     {hasError && (
-                      <tr key={`err-${log.id}`}>
+                      <tr>
                         <td colSpan={6} style={{ padding: '0 16px 8px', fontSize: 11.5, color: 'var(--red)' }}>
                           {undoErrors[log.id]}
                         </td>
                       </tr>
                     )}
-                  </>
+                  </Fragment>
                 );
               })}
             </tbody>
           </table>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '10px 16px', borderTop: '1px solid var(--border)', fontSize: 12, color: 'var(--text-muted)' }}>
+            <span style={{ fontVariantNumeric: 'tabular-nums' }}>
+              Mostrando {firstIdx + 1}–{firstIdx + logs.length} de {total} eventos
+            </span>
+            {totalPages > 1 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <button className="ds-btn ghost sm" disabled={page === 0} onClick={() => setPage(page - 1)}>
+                  ← Anterior
+                </button>
+                <span style={{ fontVariantNumeric: 'tabular-nums' }}>Página {page + 1} de {totalPages}</span>
+                <button className="ds-btn ghost sm" disabled={page + 1 >= totalPages} onClick={() => setPage(page + 1)}>
+                  Próxima →
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>
