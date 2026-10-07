@@ -384,7 +384,7 @@ function WorkflowTab({ process, docs, isAnalista, onMoverEtapa }: {
   const isSide = SIDE_STAGES.includes(process.stage);
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: 16, alignItems: 'start' }}>
+    <div className="ds-split">
       {/* Left: timeline */}
       <div className="ds-card">
         <div className="ds-card-hdr">
