@@ -77,3 +77,78 @@ describe('AuditService.findAll (SEC-07 pagination clamp)', () => {
     expect(params).toEqual(['t1', 100, 0]);
   });
 });
+
+describe('AuditService.findAll (BE-07 filters)', () => {
+  const lastCall = (dataSource: { query: jest.Mock }) =>
+    dataSource.query.mock.calls[0] as [string, unknown[]];
+
+  it('without filters only scopes by tenant', async () => {
+    const { service, dataSource } = makeService();
+    dataSource.query.mockResolvedValueOnce([]);
+    await service.findAll(caller, 20, 40);
+    const [sql, params] = lastCall(dataSource);
+    expect(sql).toMatch(/WHERE al\.tenant_id = \$1\s+ORDER BY/);
+    expect(sql).toContain('LIMIT $2 OFFSET $3');
+    expect(params).toEqual(['t1', 20, 40]);
+  });
+
+  it('narrows by process, action and inclusive period in Sao Paulo time', async () => {
+    const { service, dataSource } = makeService();
+    dataSource.query.mockResolvedValueOnce([]);
+    await service.findAll(caller, 25, 0, {
+      processId: 'p1',
+      action: 'stage_change',
+      from: '2026-10-01',
+      to: '2026-10-07',
+    });
+    const [sql, params] = lastCall(dataSource);
+    expect(sql).toContain('al.tenant_id = $1');
+    expect(sql).toContain('al.process_id = $2');
+    expect(sql).toContain('al.action = $3');
+    expect(sql).toContain(
+      "al.created_at >= ($4::date)::timestamp AT TIME ZONE 'America/Sao_Paulo'",
+    );
+    expect(sql).toContain(
+      "al.created_at < ($5::date + 1)::timestamp AT TIME ZONE 'America/Sao_Paulo'",
+    );
+    expect(sql).toContain('LIMIT $6 OFFSET $7');
+    expect(params).toEqual([
+      't1',
+      'p1',
+      'stage_change',
+      '2026-10-01',
+      '2026-10-07',
+      25,
+      0,
+    ]);
+  });
+
+  it('accepts a single-day period (from = to)', async () => {
+    const { service, dataSource } = makeService();
+    dataSource.query.mockResolvedValueOnce([]);
+    const day = '2026-10-07';
+    await service.findAll(caller, 25, 0, { from: day, to: day });
+    expect(lastCall(dataSource)[1]).toEqual(['t1', day, day, 25, 0]);
+  });
+
+  it('rejects a period whose start is after its end', async () => {
+    const { service, dataSource } = makeService();
+    await expect(
+      service.findAll(caller, 25, 0, { from: '2026-10-08', to: '2026-10-07' }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(dataSource.query).not.toHaveBeenCalled();
+  });
+
+  it('returns total_count as a number on every row', async () => {
+    const { service, dataSource } = makeService();
+    dataSource.query.mockResolvedValueOnce([
+      { id: 'a', total_count: '42' },
+      { id: 'b', total_count: '42' },
+    ]);
+    const rows = await service.findAll(caller);
+    expect(rows).toEqual([
+      { id: 'a', total_count: 42 },
+      { id: 'b', total_count: 42 },
+    ]);
+  });
+});

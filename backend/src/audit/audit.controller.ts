@@ -2,6 +2,7 @@ import { Controller, Get, Param, ParseUUIDPipe, Post, Query, Request } from '@ne
 import { RequestUserFull } from '../auth/supabase.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { AuditService } from './audit.service';
+import { ListAuditLogsDto } from './dto/list-audit-logs.dto';
 
 @Controller('audit-logs')
 export class AuditController {
@@ -11,10 +12,15 @@ export class AuditController {
   @Roles('dono')
   findAll(
     @Request() req: { user: RequestUserFull },
-    @Query('limit') limit = '50',
-    @Query('offset') offset = '0',
+    @Query() query: ListAuditLogsDto,
   ) {
-    return this.service.findAll(req.user, +limit, +offset);
+    const { limit = '50', offset = '0', processId, action, from, to } = query;
+    return this.service.findAll(req.user, +limit, +offset, {
+      processId,
+      action,
+      from,
+      to,
+    });
   }
 
   @Post(':id/undo')
