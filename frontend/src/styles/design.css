@@ -274,6 +274,7 @@ input, select, textarea { font-family: inherit; }
 
 /* KPI row */
 .ds-kpi-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
+.ds-kpi-row.cols-3 { grid-template-columns: repeat(3, 1fr); }
 .ds-kpi {
   background: #fff;
   border: 1px solid var(--border);
