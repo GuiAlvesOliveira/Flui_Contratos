@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../api/axiosInstance';
 import * as Icon from '../components/icons';
+import { averageTicket, conversionSummary, funnel, ticketByEmpreendimento } from '../lib/dashboardMetrics';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -15,7 +16,14 @@ interface ProcessCard {
   client: { id: string; name: string | null; email: string };
   analista: { id: string; name: string | null; email: string } | null;
   valorUnidade: number | null;
+  stageBeforePendencia: ProcessStage | null;
+  unidade: { empreendimentoId: string; valor: number | null } | null;
   updatedAt: string;
+}
+
+interface EmpreendimentoRef {
+  id: string;
+  nome: string;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -63,6 +71,13 @@ function formatCurrency(value: number | null): string {
   return `R$ ${Number(value).toLocaleString('pt-BR')}`;
 }
 
+const compactBRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', notation: 'compact', minimumFractionDigits: 0, maximumFractionDigits: 1 });
+
+function formatPct(value: number | null): string {
+  if (value === null) return '—';
+  return `${Math.round(value)}%`;
+}
+
 // ── Sub-components ────────────────────────────────────────────────────────────
 
 interface KpiCardProps {
@@ -107,6 +122,37 @@ function PhaseRow({ stage, count, total }: PhaseRowProps) {
   );
 }
 
+interface ConversionRowProps {
+  stage: ProcessStage;
+  reached: number;
+  pctOfTotal: number;
+  stepRate: number | null;
+}
+
+// Uma etapa do funil: quantos processos chegaram até ela, a fatia do total e a
+// conversão em relação à etapa anterior.
+function ConversionRow({ stage, reached, pctOfTotal, stepRate }: ConversionRowProps) {
+  return (
+    <div className="ds-phase-row" data-testid={`conv-${stage}`}>
+      <div className="ds-phase-name">
+        <span className="ds-phase-dot" style={{ background: STAGE_COLORS[stage] }} />
+        {STAGE_LABELS[stage]}
+      </div>
+      <div className="ds-phase-bar">
+        <span style={{ width: `${pctOfTotal}%`, background: STAGE_COLORS[stage] }} />
+      </div>
+      <div className="ds-phase-count" style={{ minWidth: 40 }}>{formatPct(pctOfTotal)}</div>
+      <div
+        className="ds-phase-count"
+        style={{ minWidth: 64, color: 'var(--text-muted)', fontWeight: 400, fontSize: 12 }}
+        title="Conversão sobre a etapa anterior"
+      >
+        {stepRate === null ? `${reached} proc.` : `↳ ${formatPct(stepRate)}`}
+      </div>
+    </div>
+  );
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 interface DashboardPageProps {
@@ -137,6 +183,18 @@ export function DashboardPage({ onNavigate }: DashboardPageProps) {
 
   const totalPortfolio = processes.reduce((sum, p) => sum + (p.valorUnidade ? Number(p.valorUnidade) : 0), 0);
 
+  // Conversão do funil e ticket médio (FE-08)
+  const funnelSteps = funnel(processes);
+  const conversion = conversionSummary(processes);
+  const ticket = averageTicket(processes);
+  const ticketByEmp = ticketByEmpreendimento(processes).slice(0, 5);
+  const { data: empreendimentos = [] } = useQuery<EmpreendimentoRef[]>({
+    queryKey: ['empreendimentos'],
+    queryFn: () => api.get<EmpreendimentoRef[]>('/empreendimentos').then(r => r.data),
+    enabled: ticketByEmp.length > 0,
+  });
+  const empName = (id: string) => empreendimentos.find(e => e.id === id)?.nome ?? 'Empreendimento';
+
   const recentUpdates = [...processes]
     .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
     .slice(0, 6);
@@ -162,7 +220,7 @@ export function DashboardPage({ onNavigate }: DashboardPageProps) {
       </div>
 
       {/* KPI Row */}
-      <div className="ds-kpi-row">
+      <div className="ds-kpi-row cols-3">
         <KpiCard
           label="Processos ativos"
           value={isLoading ? '…' : activeProcesses.length}
@@ -189,9 +247,15 @@ export function DashboardPage({ onNavigate }: DashboardPageProps) {
         />
         <KpiCard
           label="Valor do portfólio"
-          value={isLoading ? '…' : new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', notation: 'compact', maximumFractionDigits: 1 }).format(totalPortfolio)}
+          value={isLoading ? '…' : compactBRL.format(totalPortfolio)}
           meta={`${activeProcesses.length} processos ativos`}
           icon={<Icon.TrendingUp size={12} />}
+        />
+        <KpiCard
+          label="Ticket médio por unidade"
+          value={isLoading ? '…' : ticket.count > 0 ? compactBRL.format(ticket.average) : '—'}
+          meta={ticket.count > 0 ? `Média de ${ticket.count} unidade${ticket.count !== 1 ? 's' : ''} em carteira` : 'Nenhuma unidade com valor informado'}
+          icon={<Icon.Building size={12} />}
         />
       </div>
 
@@ -261,6 +325,72 @@ export function DashboardPage({ onNavigate }: DashboardPageProps) {
                 </div>
               )}
             </div>
+          </div>
+        </div>
+
+        {/* Conversão do funil */}
+        <div className="ds-col-7">
+          <div className="ds-card">
+            <div className="ds-card-hdr">
+              <h3>Conversão do funil</h3>
+              <span className="meta">pela etapa atual de cada processo</span>
+            </div>
+            <div className="ds-card-body" style={{ padding: 0 }}>
+              {isLoading ? (
+                <div style={{ padding: 20, textAlign: 'center', color: 'var(--text-faint)', fontSize: 13 }}>
+                  Carregando...
+                </div>
+              ) : processes.length === 0 ? (
+                <div style={{ padding: 20, textAlign: 'center', color: 'var(--text-faint)', fontSize: 13 }}>
+                  Sem processos para calcular a conversão
+                </div>
+              ) : (
+                <>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', borderBottom: '1px solid var(--border)' }}>
+                    {[
+                      { label: 'Aprovação de crédito', value: formatPct(conversion.creditApprovalRate), hint: 'aprovados ÷ (aprovados + recusados)' },
+                      { label: 'Contratos assinados', value: formatPct(conversion.signedRate), hint: 'assinados ÷ total' },
+                      { label: 'Perda (inativos)', value: formatPct(conversion.lossRate), hint: 'inativos ÷ total' },
+                    ].map(m => (
+                      <div key={m.label} style={{ padding: '10px 14px' }} title={m.hint}>
+                        <div className="ds-kpi-label">{m.label}</div>
+                        <div style={{ fontSize: 20, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{m.value}</div>
+                      </div>
+                    ))}
+                  </div>
+                  {funnelSteps.map(s => (
+                    <ConversionRow key={s.stage} {...s} />
+                  ))}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Ticket médio por empreendimento */}
+        <div className="ds-col-5">
+          <div className="ds-card">
+            <div className="ds-card-hdr">
+              <h3>Ticket médio por empreendimento</h3>
+              <span className="meta">valor médio da unidade</span>
+            </div>
+            {ticketByEmp.length > 0 ? (
+              <div style={{ padding: 0 }}>
+                {ticketByEmp.map(t => (
+                  <div key={t.empreendimentoId} className="ds-proc-row" style={{ gridTemplateColumns: '1fr auto', cursor: 'default' }}>
+                    <div>
+                      <div className="pr-title">{empName(t.empreendimentoId)}</div>
+                      <div className="pr-sub">{t.count} unidade{t.count !== 1 ? 's' : ''} com valor</div>
+                    </div>
+                    <div className="pr-days">{compactBRL.format(t.average)}</div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div style={{ padding: '20px 14px', textAlign: 'center', color: 'var(--text-faint)', fontSize: 13 }}>
+                {isLoading ? 'Carregando...' : 'Nenhum processo com unidade e valor informados'}
+              </div>
+            )}
           </div>
         </div>
 
