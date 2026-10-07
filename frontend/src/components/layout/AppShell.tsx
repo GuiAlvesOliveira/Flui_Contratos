@@ -226,9 +226,12 @@ function getInitialRoute(): Route {
 export function AppShell() {
   const { name, role, logout } = useAuth();
   const [route, setRoute] = useState<Route>(getInitialRoute);
+  // Telas estreitas (≤ 1024px): a sidebar vira um menu sobreposto, aberto pelo botão da topbar.
+  const [navOpen, setNavOpen] = useState(false);
 
   function navigate(r: Route) {
     setRoute(r);
+    setNavOpen(false);
     try { sessionStorage.setItem(ROUTE_KEY, JSON.stringify(r)); } catch { /* ignore */ }
   }
 
@@ -256,8 +259,14 @@ export function AppShell() {
 
   return (
     <div className="ds-app">
+      <div
+        className={`ds-sb-backdrop ${navOpen ? 'open' : ''}`}
+        onClick={() => setNavOpen(false)}
+        aria-hidden="true"
+      />
+
       {/* Sidebar */}
-      <aside className="ds-sidebar">
+      <aside id="ds-sidebar" className={`ds-sidebar ${navOpen ? 'open' : ''}`} aria-label="Menu principal">
         <div className="ds-sb-brand" onClick={() => navigate({ page: 'dashboard' })}>
           <div className="ds-sb-logo"><span>F</span></div>
           <div>
@@ -320,6 +329,16 @@ export function AppShell() {
       <div className="ds-main">
         {/* Topbar */}
         <div className="ds-topbar">
+          <button
+            className="ds-tb-icon-btn ds-tb-menu"
+            title="Menu"
+            aria-label={navOpen ? 'Fechar menu' : 'Abrir menu'}
+            aria-expanded={navOpen}
+            aria-controls="ds-sidebar"
+            onClick={() => setNavOpen(o => !o)}
+          >
+            {navOpen ? <Icon.X size={16} /> : <Icon.Menu size={16} />}
+          </button>
           <div className="ds-crumb">
             <span className="cur">{crumb}</span>
           </div>

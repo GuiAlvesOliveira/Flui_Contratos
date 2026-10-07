@@ -58,8 +58,12 @@ input, select, textarea { font-family: inherit; }
   display: grid;
   grid-template-columns: var(--sb-w) 1fr;
   height: 100vh;
+  height: 100dvh;
   overflow: hidden;
 }
+/* Botão de menu e fundo escuro: só aparecem em telas estreitas (ver Responsivo) */
+.ds-tb-icon-btn.ds-tb-menu { display: none; }
+.ds-sb-backdrop { display: none; }
 
 /* Sidebar */
 .ds-sidebar {
@@ -690,6 +694,8 @@ input, select, textarea { font-family: inherit; }
 .ds-field label { font-size: 12px; color: var(--text-muted); font-weight: 500; }
 .ds-field .ds-input { height: 32px; }
 .ds-row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+/* Conteúdo + painel lateral (ex.: detalhe do proponente) */
+.ds-split { display: grid; grid-template-columns: 1fr 320px; gap: 16px; align-items: start; }
 
 /* KV list */
 .ds-kv { display: grid; grid-template-columns: 120px 1fr; gap: 6px 12px; font-size: 13px; }
@@ -725,3 +731,63 @@ input, select, textarea { font-family: inherit; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: #d4d4d8; border-radius: 99px; border: 2px solid var(--bg); }
 ::-webkit-scrollbar-thumb:hover { background: #a1a1aa; }
+
+/* Responsivo (FE-06) ────────────────────────────────────────────────────────
+   ≤ 1024px: a sidebar sai do grid e vira um menu sobreposto (aberto pelo botão
+   da topbar); KPIs em 2 colunas e cards do dashboard empilhados.
+   ≤ 640px: celular — sem busca na topbar, cabeçalho em coluna, filtros em
+   largura total, tabelas com rolagem horizontal e drawers em tela cheia. */
+@media (max-width: 1024px) {
+  .ds-app { grid-template-columns: 1fr; }
+  .ds-sidebar {
+    position: fixed; top: 0; bottom: 0; left: 0;
+    width: var(--sb-w);
+    z-index: 60;
+    transform: translateX(-100%);
+    transition: transform 0.24s cubic-bezier(0.32, 0.72, 0, 1);
+    box-shadow: var(--shadow-lg);
+    overflow-y: auto;
+  }
+  .ds-sidebar.open { transform: translateX(0); }
+  .ds-sb-backdrop {
+    display: block;
+    position: fixed; inset: 0;
+    background: rgba(16, 16, 20, 0.32);
+    z-index: 59;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+  }
+  .ds-sb-backdrop.open { opacity: 1; pointer-events: auto; }
+  .ds-tb-icon-btn.ds-tb-menu { display: grid; margin-left: -6px; }
+  .ds-tb-search { width: 200px; }
+  .ds-tb-search span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ds-kpi-row, .ds-kpi-row.cols-3 { grid-template-columns: repeat(2, 1fr); }
+  .ds-dash-grid > [class*="ds-col-"] { grid-column: span 12; }
+  .ds-split { grid-template-columns: 1fr; }
+  .ds-page { padding: 20px 20px 64px; }
+}
+
+@media (max-width: 640px) {
+  .ds-topbar { padding: 0 12px; gap: 6px; }
+  .ds-tb-search { display: none; }
+  .ds-crumb { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ds-page { padding: 16px 14px 56px; }
+  .ds-page-hdr { flex-direction: column; align-items: stretch; gap: 12px; margin-bottom: 16px; }
+  .ds-page-hdr .actions { flex-wrap: wrap; }
+  .ds-list-toolbar { flex-wrap: wrap; }
+  .ds-list-toolbar > .ds-input { flex: 1 1 100% !important; max-width: none !important; }
+  .ds-list-toolbar > div[style*="margin-left: auto"] { margin-left: 0 !important; }
+  .ds-card:has(> .ds-table) { overflow-x: auto; }
+  .ds-table th, .ds-table td { white-space: nowrap; }
+  .ds-emp-grid { grid-template-columns: 1fr; }
+  .ds-tabs { overflow-x: auto; }
+  .ds-drawer { width: 100%; }
+  .ds-modal { max-width: calc(100% - 32px); }
+  .ds-row-2 { grid-template-columns: 1fr; }
+  .ds-kv { grid-template-columns: 100px 1fr; }
+}
+
+@media (max-width: 420px) {
+  .ds-kpi-row, .ds-kpi-row.cols-3 { grid-template-columns: 1fr; }
+}
