@@ -6,6 +6,13 @@ on:
     paths:
       - 'frontend/**'
       - '.github/workflows/deploy-frontend.yml'
+  # Pull requests only build (tsc + vite) to catch a broken build before the
+  # merge (INFRA-13); the deploy step is skipped.
+  pull_request:
+    branches: [main]
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/deploy-frontend.yml'
   workflow_dispatch:
 
 jobs:
@@ -18,7 +25,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v5
         with:
-          node-version: '20'
+          node-version: '24'
           cache: 'npm'
           cache-dependency-path: frontend/package-lock.json
 
@@ -35,6 +42,7 @@ jobs:
           VITE_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL }}
 
       - name: Deploy to Azure Blob Storage
+        if: github.event_name != 'pull_request'
         uses: azure/CLI@v2
         with:
           inlineScript: |
