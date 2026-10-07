@@ -6,6 +6,30 @@ import { Empreendimento } from './empreendimento.entity';
 import { CreateEmpreendimentoDto } from './dto/create-empreendimento.dto';
 import { UpdateEmpreendimentoDto } from './dto/update-empreendimento.dto';
 
+export type EmpreendimentoStatus =
+  | 'em_andamento'
+  | 'concluido'
+  | 'sem_processos';
+
+interface ProcessCountRow {
+  empreendimento_id: string;
+  total: string;
+  em_andamento: string;
+  concluidos: string;
+}
+
+// em_andamento: at least one process still moving through the pipeline;
+// concluido: none in progress and at least one signed (assinatura);
+// sem_processos: nothing in progress or signed (no process, or only inactive).
+export function empreendimentoStatus(
+  emAndamento: number,
+  concluidos: number,
+): EmpreendimentoStatus {
+  if (emAndamento > 0) return 'em_andamento';
+  if (concluidos > 0) return 'concluido';
+  return 'sem_processos';
+}
+
 @Injectable()
 export class EmpreendimentosService {
   constructor(
@@ -28,8 +52,47 @@ export class EmpreendimentosService {
     return this.repo.save(emp);
   }
 
-  findAll(caller: RequestUserFull) {
-    return this.repo.find({ where: { tenantId: caller.tenantId!, active: true } });
+  // Each empreendimento comes with its process counts and a derived status, so
+  // the list can show and filter them without loading every process. Counts
+  // follow GET /processes visibility: an analista only counts their own.
+  async findAll(caller: RequestUserFull) {
+    const emps = await this.repo.find({
+      where: { tenantId: caller.tenantId!, active: true },
+    });
+    if (emps.length === 0) return [];
+
+    const params: string[] = [caller.tenantId!];
+    let analistaFilter = '';
+    if (caller.role === 'analista') {
+      params.push(caller.userId);
+      analistaFilter = 'AND p.analista_id = $2';
+    }
+    const rows = await this.dataSource.query<ProcessCountRow[]>(
+      `SELECT u.empreendimento_id AS empreendimento_id,
+              COUNT(*) AS total,
+              COUNT(*) FILTER (WHERE p.stage NOT IN ('assinatura', 'cliente_inativo')) AS em_andamento,
+              COUNT(*) FILTER (WHERE p.stage = 'assinatura') AS concluidos
+       FROM processes p
+       JOIN unidades u ON u.id = p.unidade_id
+       WHERE p.tenant_id = $1 AND p.active = true ${analistaFilter}
+       GROUP BY u.empreendimento_id`,
+      params,
+    );
+    const byEmp = new Map(rows.map((r) => [r.empreendimento_id, r]));
+
+    return emps.map((emp) => {
+      const row = byEmp.get(emp.id);
+      const processCount = Number(row?.total ?? 0);
+      const processosEmAndamento = Number(row?.em_andamento ?? 0);
+      const processosConcluidos = Number(row?.concluidos ?? 0);
+      return {
+        ...emp,
+        processCount,
+        processosEmAndamento,
+        processosConcluidos,
+        status: empreendimentoStatus(processosEmAndamento, processosConcluidos),
+      };
+    });
   }
 
   async findOne(id: string, caller: RequestUserFull) {
