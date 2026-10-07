@@ -9,6 +9,7 @@ import { User } from './user.entity';
 import { Tenant } from '../tenants/tenant.entity';
 import { CreateUserDto } from './dto/create-user.dto';
 import { RequestUserFull } from '../auth/supabase.guard';
+import { UserContextCache } from '../auth/user-context.cache';
 
 function makeService() {
   const userRepo = {
@@ -25,14 +26,23 @@ function makeService() {
   };
   const email = { sendInvite: jest.fn() };
   const dataSource = { query: jest.fn() };
+  const userCache = { invalidateUser: jest.fn() };
   const service = new UsersService(
     userRepo as unknown as Repository<User>,
     tenantRepo as unknown as Repository<Tenant>,
     supabaseAdmin as never,
     email as never,
     dataSource as unknown as DataSource,
+    userCache as unknown as UserContextCache,
   );
-  return { service, userRepo, tenantRepo, supabaseAdmin, dataSource };
+  return {
+    service,
+    userRepo,
+    tenantRepo,
+    supabaseAdmin,
+    dataSource,
+    userCache,
+  };
 }
 
 const dto = (role: string) =>
@@ -307,5 +317,46 @@ describe('UsersService.updateProfile — only sent fields (RN-07)', () => {
     expect(res).toMatchObject({ name: 'Helena', cpf: '52998224725', rg: '1' });
     const [, params] = dataSource.query.mock.calls[0] as [string, unknown[]];
     expect(params[3]).toBe(JSON.stringify({ fields: 'rg' }));
+  });
+});
+
+describe('UsersService invalidates the TenantGuard cache (AUTH-09)', () => {
+  const target = {
+    id: 'u2',
+    tenantId: 't1',
+    role: 'cliente',
+    status: 'active',
+  };
+
+  it('on PATCH /users/:id/status (disable/enable)', async () => {
+    const { service, userRepo, userCache } = makeService();
+    userRepo.findOne.mockResolvedValue({ ...target });
+    await service.updateStatus('u2', { status: 'disabled' }, caller('dono'));
+    expect(userCache.invalidateUser).toHaveBeenCalledWith('u2');
+  });
+
+  it('when a cliente is removed (account disabled)', async () => {
+    const { service, userRepo, dataSource, userCache } = makeService();
+    userRepo.findOne.mockResolvedValue({ ...target });
+    dataSource.query.mockResolvedValue([{ count: '0' }]);
+    await service.remove('u2', caller('dono'));
+    expect(userCache.invalidateUser).toHaveBeenCalledWith('u2');
+  });
+
+  it('on a profile update', async () => {
+    const { service, userRepo, userCache } = makeService();
+    userRepo.findOne.mockResolvedValue({ ...target });
+    userRepo.save.mockImplementation((u: User) => Promise.resolve(u));
+    await service.updateProfile('u2', { name: 'Novo' }, caller('dono'));
+    expect(userCache.invalidateUser).toHaveBeenCalledWith('u2');
+  });
+
+  it('not when the change is refused', async () => {
+    const { service, userRepo, userCache } = makeService();
+    userRepo.findOne.mockResolvedValue({ ...target, tenantId: 'other' });
+    await expect(
+      service.updateStatus('u2', { status: 'disabled' }, caller('dono')),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(userCache.invalidateUser).not.toHaveBeenCalled();
   });
 });

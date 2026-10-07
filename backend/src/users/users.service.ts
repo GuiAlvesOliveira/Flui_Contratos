@@ -11,6 +11,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { randomBytes } from 'crypto';
 import { DataSource, In, Repository } from 'typeorm';
 import { RequestUserFull } from '../auth/supabase.guard';
+import { UserContextCache } from '../auth/user-context.cache';
 import { Tenant } from '../tenants/tenant.entity';
 import { SupabaseAdminService } from '../common/services/supabase-admin.service';
 import { EmailService } from '../email/email.service';
@@ -35,6 +36,7 @@ export class UsersService {
     private readonly supabaseAdmin: SupabaseAdminService,
     private readonly email: EmailService,
     private readonly dataSource: DataSource,
+    private readonly userCache: UserContextCache,
   ) {}
 
   async create(dto: CreateUserDto, caller: RequestUserFull) {
@@ -206,6 +208,7 @@ export class UsersService {
     );
     Object.assign(user, fields);
     const saved = await this.userRepo.save(user);
+    this.userCache.invalidateUser(id); // name shows up in request.user (AUTH-09)
 
     if (processId) {
       const changedKeys = Object.keys(fields).join(', ');
@@ -232,6 +235,8 @@ export class UsersService {
     }
 
     await this.userRepo.update(id, { status: dto.status });
+    // Disabling must block the very next request, not up to a minute later.
+    this.userCache.invalidateUser(id);
     return { id, status: dto.status };
   }
 
@@ -249,6 +254,7 @@ export class UsersService {
     }
 
     await this.userRepo.update(id, { status: 'disabled' });
+    this.userCache.invalidateUser(id);
 
     if (user.externalId) {
       try {

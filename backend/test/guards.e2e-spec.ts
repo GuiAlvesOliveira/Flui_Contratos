@@ -8,6 +8,7 @@ import request from 'supertest';
 import { App } from 'supertest/types';
 import { RequestUserFull } from '../src/auth/supabase.guard';
 import { GLOBAL_GUARDS } from '../src/common/guards/global-guards';
+import { UserContextCache } from '../src/auth/user-context.cache';
 import { Public } from '../src/common/decorators/public.decorator';
 import { Roles } from '../src/common/decorators/roles.decorator';
 import { User } from '../src/users/user.entity';
@@ -85,6 +86,7 @@ async function buildApp(throttleLimit: number): Promise<INestApplication<App>> {
       })),
       { provide: ConfigService, useValue: { getOrThrow: () => 'x', get: () => undefined } },
       { provide: getRepositoryToken(User), useValue: userRepo },
+      UserContextCache,
     ],
   }).compile();
 
@@ -201,5 +203,64 @@ describe('Guard chain (e2e): ThrottlerGuard runs first (QA-02)', () => {
       'TenantGuard',
       'RolesGuard',
     ]);
+  });
+});
+
+describe('Guard chain (e2e): cache invalidation by userId (AUTH-09)', () => {
+  let app: INestApplication<App>;
+  let analistaStatus: string;
+
+  beforeAll(async () => {
+    const userRepo = {
+      findOne: jest.fn(({ where }: { where: { externalId?: string } }) =>
+        Promise.resolve(
+          where.externalId === 'ext-analista'
+            ? {
+                ...dbUser('ext-analista', 'analista', 'u-an'),
+                status: analistaStatus,
+              }
+            : null,
+        ),
+      ),
+      update: jest.fn(),
+    };
+    const moduleRef = await Test.createTestingModule({
+      imports: [ThrottlerModule.forRoot([{ ttl: 60_000, limit: 1000 }])],
+      controllers: [TestController],
+      providers: [
+        ...GLOBAL_GUARDS.map((guard) => ({
+          provide: APP_GUARD,
+          useClass: guard,
+        })),
+        {
+          provide: ConfigService,
+          useValue: { getOrThrow: () => 'x', get: () => undefined },
+        },
+        { provide: getRepositoryToken(User), useValue: userRepo },
+        UserContextCache,
+      ],
+    }).compile();
+    app = moduleRef.createNestApplication<INestApplication<App>>();
+    await app.init();
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  it('a disabled account is blocked on the next request once invalidated', async () => {
+    const call = () =>
+      request(app.getHttpServer())
+        .get('/test/analista-only')
+        .set('Authorization', 'Bearer analista-token');
+
+    analistaStatus = 'active';
+    await call().expect(200); // context now cached
+
+    analistaStatus = 'disabled'; // e.g. PATCH /users/:id/status
+    await call().expect(200); // stale for up to 60s without invalidation...
+
+    app.get(UserContextCache).invalidateUser('u-an'); // what UsersService does
+    await call().expect(403);
   });
 });
