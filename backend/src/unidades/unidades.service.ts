@@ -22,10 +22,25 @@ export class UnidadesService {
     return this.repo.save(unidade);
   }
 
-  findByEmpreendimento(empreendimentoId: string, caller: RequestUserFull) {
-    return this.repo.find({
+  // `disponivel` is false while a process is under way on the unidade (FE-26).
+  // Inactive and credit-refused processes free it up again.
+  async findByEmpreendimento(
+    empreendimentoId: string,
+    caller: RequestUserFull,
+  ) {
+    const unidades = await this.repo.find({
       where: { empreendimentoId, tenantId: caller.tenantId! },
     });
+    if (unidades.length === 0) return [];
+
+    const rows = await this.dataSource.query<{ unidade_id: string }[]>(
+      `SELECT DISTINCT unidade_id FROM processes
+        WHERE tenant_id = $1 AND unidade_id = ANY($2::uuid[]) AND active = true
+          AND stage NOT IN ('cliente_inativo', 'credito_recusado')`,
+      [caller.tenantId, unidades.map((u) => u.id)],
+    );
+    const ocupadas = new Set(rows.map((r) => r.unidade_id));
+    return unidades.map((u) => ({ ...u, disponivel: !ocupadas.has(u.id) }));
   }
 
   async findOne(id: string, caller: RequestUserFull) {

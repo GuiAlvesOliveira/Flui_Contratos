@@ -31,6 +31,34 @@ describe('UnidadesService', () => {
     );
   });
 
+  it('FE-26: flags the unidades that already have a process under way', async () => {
+    const { service, repo, dataSource } = makeService();
+    repo.find.mockResolvedValue([
+      { id: 'un1', identificacao: 'Apto 101' },
+      { id: 'un2', identificacao: 'Apto 102' },
+    ]);
+    dataSource.query.mockResolvedValue([{ unidade_id: 'un1' }]);
+    const res = await service.findByEmpreendimento('e1', caller);
+    expect(res).toEqual([
+      { id: 'un1', identificacao: 'Apto 101', disponivel: false },
+      { id: 'un2', identificacao: 'Apto 102', disponivel: true },
+    ]);
+    expect(repo.find).toHaveBeenCalledWith({
+      where: { empreendimentoId: 'e1', tenantId: 't1' },
+    });
+    const [sql, params] = dataSource.query.mock.calls[0] as [string, unknown[]];
+    expect(sql).toContain('active = true');
+    expect(sql).toContain("NOT IN ('cliente_inativo', 'credito_recusado')");
+    expect(params).toEqual(['t1', ['un1', 'un2']]);
+  });
+
+  it('FE-26: skips the process lookup when the empreendimento has no unidades', async () => {
+    const { service, repo, dataSource } = makeService();
+    repo.find.mockResolvedValue([]);
+    expect(await service.findByEmpreendimento('e1', caller)).toEqual([]);
+    expect(dataSource.query).not.toHaveBeenCalled();
+  });
+
   it('404s on findOne when the unidade is outside the tenant', async () => {
     const { service, repo } = makeService();
     repo.findOne.mockResolvedValue(null);

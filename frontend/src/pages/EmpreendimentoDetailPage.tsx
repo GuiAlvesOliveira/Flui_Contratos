@@ -78,14 +78,17 @@ function NovaUnidadeDrawer({ empId, onClose }: { empId: string; onClose: () => v
 }
 
 function AlocarClienteDrawer({
-  unidade, empId, onClose, onSuccess,
+  unidade: fixedUnidade, empId, onClose, onSuccess, doneLabel = 'Concluir e abrir processo',
 }: {
-  unidade: { id: string; identificacao: string; valor: number | null };
+  // Sem unidade fixa (aberto pelo Workflow), o drawer lista as unidades livres (FE-26)
+  unidade?: { id: string; identificacao: string; valor: number | null };
   empId: string;
   onClose: () => void;
   onSuccess: (processId: string) => void;
+  doneLabel?: string;
 }) {
   const qc = useQueryClient();
+  const [unidadeId, setUnidadeId] = useState('');
   const [mode, setMode] = useState<ClienteMode>('existente');
   const [clienteId, setClienteId] = useState('');
   const [analistaId, setAnalistaId] = useState('');
@@ -107,9 +110,17 @@ function AlocarClienteDrawer({
     queryKey: ['users', 'analista'],
     queryFn: () => api.get('/users', { params: { role: 'analista' } }).then(r => r.data),
   });
+  const { data: unidades = [], isLoading: loadingUnidades } = useQuery<Unidade[]>({
+    queryKey: ['unidades', empId],
+    queryFn: () => api.get('/unidades', { params: { empreendimentoId: empId } }).then(r => r.data),
+    enabled: !fixedUnidade,
+  });
+  const disponiveis = unidades.filter(u => u.disponivel !== false);
+  const unidade = fixedUnidade ?? unidades.find(u => u.id === unidadeId);
 
   const mut = useMutation({
     mutationFn: async () => {
+      if (!unidade) throw new Error('Selecione a unidade');
       let finalClienteId = clienteId;
       if (mode === 'novo') {
         const cpfDigits = novoForm.cpf.replace(/\D/g, '');
@@ -139,6 +150,7 @@ function AlocarClienteDrawer({
     onSuccess: (processId) => {
       void qc.invalidateQueries({ queryKey: ['processes'] });
       void qc.invalidateQueries({ queryKey: ['processes', { empreendimentoId: empId }] });
+      void qc.invalidateQueries({ queryKey: ['unidades', empId] });
       if (loginShown.current) setCreatedProcessId(processId);
       else onSuccess(processId);
     },
@@ -149,9 +161,9 @@ function AlocarClienteDrawer({
     },
   });
 
-  const canSubmit = mode === 'existente'
+  const canSubmit = !!unidade && (mode === 'existente'
     ? !!clienteId
-    : !!(novoForm.name.trim() && novoForm.email.trim() && novoForm.cpf.trim());
+    : !!(novoForm.name.trim() && novoForm.email.trim() && novoForm.cpf.trim()));
 
   const copyPassword = () => {
     if (!createdLogin) return;
@@ -203,7 +215,7 @@ function AlocarClienteDrawer({
           <div className="ds-drawer-foot">
             {createdProcessId ? (
               <button className="ds-btn accent" onClick={() => onSuccess(createdProcessId)}>
-                Concluir e abrir processo
+                {doneLabel}
               </button>
             ) : mut.isPending ? (
               <button className="ds-btn accent" disabled>Criando processo...</button>
@@ -227,15 +239,39 @@ function AlocarClienteDrawer({
       <div className="ds-drawer open" style={{ width: 440 }}>
         <div className="ds-drawer-hdr">
           <div>
-            <h2>Alocar Cliente</h2>
+            <h2>{fixedUnidade ? 'Alocar Cliente' : 'Novo processo'}</h2>
             <div style={{ fontSize: 12, color: 'var(--text-faint)', marginTop: 2 }}>
-              Unidade: <strong>{unidade.identificacao}</strong>
+              {fixedUnidade
+                ? <>Unidade: <strong>{fixedUnidade.identificacao}</strong></>
+                : 'Escolha uma unidade disponível do empreendimento'}
             </div>
           </div>
           <button className="ds-btn ghost sm" onClick={onClose}><Icon.X size={14} /></button>
         </div>
 
         <div className="ds-drawer-body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {!fixedUnidade && (
+            <div className="ds-field" style={{ marginBottom: 0 }}>
+              <label htmlFor="alocar-unidade">Unidade <span style={{ color: 'var(--red)' }}>*</span></label>
+              <select id="alocar-unidade" className="ds-input" value={unidadeId}
+                onChange={e => setUnidadeId(e.target.value)} style={{ width: '100%' }}>
+                <option value="">Selecionar unidade...</option>
+                {disponiveis.map(u => (
+                  <option key={u.id} value={u.id}>
+                    {u.identificacao}{u.valor != null ? ` · ${formatCurrency(u.valor)}` : ''}
+                  </option>
+                ))}
+              </select>
+              {!loadingUnidades && disponiveis.length === 0 && (
+                <div style={{ fontSize: 11.5, color: 'var(--text-faint)', marginTop: 4 }}>
+                  {unidades.length === 0
+                    ? 'Nenhuma unidade cadastrada — cadastre na aba Unidades.'
+                    : 'Todas as unidades já têm processo em andamento.'}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Mode toggle */}
           <div className="ds-seg" style={{ width: '100%' }}>
             <button className={`ds-seg-btn ${mode === 'existente' ? 'active' : ''}`}
@@ -341,6 +377,7 @@ interface Unidade {
   id: string;
   identificacao: string;
   valor: number | null;
+  disponivel?: boolean; // false = já tem processo em andamento (GET /unidades)
 }
 
 interface ProcessCard {
@@ -389,6 +426,8 @@ function formatCurrency(v: number | null) {
 function WorkflowTab({ empId, onOpenProcess }: { empId: string; onOpenProcess: (id: string) => void }) {
   const { role } = useAuth();
   const qc = useQueryClient();
+  const canCreate = role === 'dono' || role === 'analista';
+  const [showNovo, setShowNovo] = useState(false);
   const { data: processes = [], isLoading } = useQuery<ProcessCard[]>({
     queryKey: ['processes', { empreendimentoId: empId }],
     queryFn: () => api.get('/processes', { params: { empreendimentoId: empId } }).then(r => r.data),
@@ -407,55 +446,73 @@ function WorkflowTab({ empId, onOpenProcess }: { empId: string; onOpenProcess: (
   if (isLoading) return <div style={{ color: 'var(--text-faint)', fontSize: 13, padding: 24 }}>Carregando...</div>;
 
   return (
-    <div className="ds-kanban" style={{ minHeight: 300 }}>
-      {byStage.map(({ stage, cards }) => (
-        <div className="ds-kb-col" key={stage}>
-          <div className="ds-kb-hdr">
-            <span className="ds-kb-title">{STAGE_LABELS[stage]}</span>
-            <span className="ds-kb-count">{cards.length}</span>
-          </div>
-          <div className="ds-kb-body">
-            {cards.map(p => (
-              <div
-                className="ds-kb-card"
-                key={p.id}
-                onClick={() => onOpenProcess(p.id)}
-                style={{ cursor: 'pointer' }}
-              >
-                <div className="ds-kb-card-hdr" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4 }}>
-                  <span className="ds-kb-card-name">{p.client.name ?? p.client.email}</span>
-                  {role === 'dono' && (
-                    <button
-                      className="ds-btn ghost sm"
-                      title="Remover alocação"
-                      style={{ padding: '2px 4px', opacity: 0.6 }}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (window.confirm(`Remover a alocação de "${p.client.name ?? p.client.email}" desta unidade?`)) {
-                          deactivateMut.mutate(p.id);
-                        }
-                      }}
-                    >
-                      <Icon.Trash size={12} />
-                    </button>
-                  )}
-                </div>
-                <div className="ds-kb-card-foot">
-                  <span style={{ fontSize: 11, color: 'var(--text-faint)' }}>
-                    {p.unidade ? p.unidade.identificacao : '—'}
-                  </span>
-                  {p.analista && (
-                    <div className="ds-kb-avatar" title={p.analista.name ?? ''}>
-                      {initials(p.analista.name)}
-                    </div>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
+    <>
+      {canCreate && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+          <button className="ds-btn accent sm" onClick={() => setShowNovo(true)}>
+            <Icon.Plus size={12} /> Novo processo
+          </button>
         </div>
-      ))}
-    </div>
+      )}
+      <div className="ds-kanban" style={{ minHeight: 300 }}>
+        {byStage.map(({ stage, cards }) => (
+          <div className="ds-kb-col" key={stage}>
+            <div className="ds-kb-hdr">
+              <span className="ds-kb-title">{STAGE_LABELS[stage]}</span>
+              <span className="ds-kb-count">{cards.length}</span>
+            </div>
+            <div className="ds-kb-body">
+              {cards.map(p => (
+                <div
+                  className="ds-kb-card"
+                  key={p.id}
+                  onClick={() => onOpenProcess(p.id)}
+                  style={{ cursor: 'pointer' }}
+                >
+                  <div className="ds-kb-card-hdr" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4 }}>
+                    <span className="ds-kb-card-name">{p.client.name ?? p.client.email}</span>
+                    {role === 'dono' && (
+                      <button
+                        className="ds-btn ghost sm"
+                        title="Remover alocação"
+                        style={{ padding: '2px 4px', opacity: 0.6 }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (window.confirm(`Remover a alocação de "${p.client.name ?? p.client.email}" desta unidade?`)) {
+                            deactivateMut.mutate(p.id);
+                          }
+                        }}
+                      >
+                        <Icon.Trash size={12} />
+                      </button>
+                    )}
+                  </div>
+                  <div className="ds-kb-card-foot">
+                    <span style={{ fontSize: 11, color: 'var(--text-faint)' }}>
+                      {p.unidade ? p.unidade.identificacao : '—'}
+                    </span>
+                    {p.analista && (
+                      <div className="ds-kb-avatar" title={p.analista.name ?? ''}>
+                        {initials(p.analista.name)}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+      {/* FE-26: o processo novo entra na coluna Primeiro Contato deste Kanban */}
+      {showNovo && (
+        <AlocarClienteDrawer
+          empId={empId}
+          doneLabel="Concluir"
+          onClose={() => setShowNovo(false)}
+          onSuccess={() => setShowNovo(false)}
+        />
+      )}
+    </>
   );
 }
 
