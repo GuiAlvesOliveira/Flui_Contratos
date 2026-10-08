@@ -224,6 +224,47 @@ input, select, textarea { font-family: inherit; }
   border: 1.5px solid var(--bg);
 }
 
+/* Notificações da topbar (FE-29) */
+.ds-tb-badge {
+  position: absolute; top: -3px; right: -4px;
+  min-width: 16px; height: 16px; padding: 0 4px;
+  border-radius: 8px; background: var(--red); color: #fff;
+  font-size: 10px; font-weight: 600; line-height: 16px; text-align: center;
+  border: 1.5px solid var(--bg);
+}
+.ds-notif-wrap { position: relative; }
+.ds-notif {
+  position: absolute; top: 38px; right: 0; z-index: 40;
+  width: 360px; max-height: 70vh; overflow: auto;
+  background: #fff; border: 1px solid var(--border); border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+}
+.ds-notif-hdr {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 10px 12px; border-bottom: 1px solid var(--border); font-size: 13px;
+}
+.ds-notif-pending {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px; font-size: 12.5px; color: var(--amber);
+  background: var(--amber-soft); border-bottom: 1px solid var(--border);
+}
+.ds-notif-empty { padding: 20px 12px; text-align: center; font-size: 13px; color: var(--text-faint); }
+.ds-notif-list { list-style: none; margin: 0; padding: 0; }
+.ds-notif-item {
+  position: relative; display: flex; flex-direction: column; gap: 2px; width: 100%;
+  padding: 9px 12px 9px 24px; text-align: left; background: transparent; border: 0;
+  border-bottom: 1px solid var(--border); cursor: pointer; font-size: 13px; color: var(--text-muted);
+}
+.ds-notif-item:hover { background: var(--bg-hover); }
+.ds-notif-item.unread { background: var(--accent-soft); color: var(--text); }
+.ds-notif-item.unread:hover { background: var(--bg-hover); }
+.ds-notif-dot { position: absolute; left: 10px; top: 14px; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+.ds-notif-title { font-weight: 500; }
+.ds-notif-sub { font-size: 11.5px; color: var(--text-faint); }
+@media (max-width: 640px) {
+  .ds-notif { position: fixed; top: calc(var(--tb-h) + 4px); left: 16px; right: 16px; width: auto; }
+}
+
 /* Content */
 .ds-content { flex: 1; overflow: auto; }
 .ds-page { max-width: 1320px; margin: 0 auto; padding: 24px 28px 80px; }

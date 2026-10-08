@@ -4,6 +4,7 @@ import { useAuth } from '../../auth/useAuth';
 import { api } from '../../api/axiosInstance';
 import { STAGE_LABELS, type ProcessStage } from '../../lib/processStages';
 import * as Icon from '../icons';
+import { NotificationsBell } from '../NotificationsBell';
 import { DashboardPage } from '../../pages/DashboardPage';
 import { AnalistaDashboard } from '../AnalistaDashboard';
 import { EmpreendimentosPage } from '../../pages/EmpreendimentosPage';
@@ -376,9 +377,12 @@ export function AppShell() {
             <span>Buscar processo, proponente…</span>
             <kbd>⌘K</kbd>
           </div>
-          <button className="ds-tb-icon-btn" title="Notificações">
-            <Icon.Bell size={15} />
-          </button>
+          <NotificationsBell
+            isCliente={isCliente}
+            onOpenProcess={(id) => navigate(isCliente
+              ? { page: 'proponente-detail', id, back: { page: 'client-processes' } }
+              : { page: 'proponente-detail', id })}
+          />
           <button className="ds-tb-icon-btn" title="Ajuda">
             <Icon.Info size={15} />
           </button>

@@ -5,6 +5,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuditModule } from './audit/audit.module';
 import { DashboardModule } from './dashboard/dashboard.module';
+import { NotificationsModule } from './notifications/notifications.module';
 import { AuthModule } from './auth/auth.module';
 import { ParticipantsModule } from './participants/participants.module';
 import { ProcessParticipant } from './participants/participant.entity';
@@ -32,6 +33,7 @@ import { AddUserStatus1718500300000 } from './database/migrations/1718500300000-
 import { AddUserDataNascimento1718500400000 } from './database/migrations/1718500400000-AddUserDataNascimento';
 import { AddDocumentTypes1718500500000 } from './database/migrations/1718500500000-AddDocumentTypes';
 import { AddEmpreendimentoTeam1718500600000 } from './database/migrations/1718500600000-AddEmpreendimentoTeam';
+import { AddNotificationReads1718500700000 } from './database/migrations/1718500700000-AddNotificationReads';
 
 @Module({
   imports: [
@@ -70,6 +72,7 @@ import { AddEmpreendimentoTeam1718500600000 } from './database/migrations/171850
           AddUserDataNascimento1718500400000,
           AddDocumentTypes1718500500000,
           AddEmpreendimentoTeam1718500600000,
+          AddNotificationReads1718500700000,
         ],
         migrationsRun: true,
         synchronize: false,
@@ -83,6 +86,7 @@ import { AddEmpreendimentoTeam1718500600000 } from './database/migrations/171850
     TypeOrmModule.forFeature([User, Tenant]),
     AuditModule,
     DashboardModule,
+    NotificationsModule,
     AuthModule,
     ParticipantsModule,
     DocumentsModule,

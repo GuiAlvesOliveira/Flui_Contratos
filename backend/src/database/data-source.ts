@@ -16,6 +16,7 @@ import { AddUserStatus1718500300000 } from './migrations/1718500300000-AddUserSt
 import { AddUserDataNascimento1718500400000 } from './migrations/1718500400000-AddUserDataNascimento';
 import { AddDocumentTypes1718500500000 } from './migrations/1718500500000-AddDocumentTypes';
 import { AddEmpreendimentoTeam1718500600000 } from './migrations/1718500600000-AddEmpreendimentoTeam';
+import { AddNotificationReads1718500700000 } from './migrations/1718500700000-AddNotificationReads';
 
 // Standalone DataSource for the `typeorm migration:*` CLI. The running app builds
 // its own connection from ConfigService (app.module) and runs migrations on boot
@@ -48,6 +49,7 @@ export const AppDataSource = new DataSource({
     AddUserDataNascimento1718500400000,
     AddDocumentTypes1718500500000,
     AddEmpreendimentoTeam1718500600000,
+    AddNotificationReads1718500700000,
   ],
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: true } : false,
 });
