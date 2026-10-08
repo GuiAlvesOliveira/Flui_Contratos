@@ -87,6 +87,7 @@ Abra http://localhost:5173 e entre com um dos usuários do passo 3.
 
 **Configuração:**
 - *App Service (Application settings):* as mesmas variáveis do backend do `.env.local`, com os valores de produção (banco da Azure, Supabase, Blob Storage, SMTP), mais `NODE_ENV=production`, `FRONTEND_URL` com os domínios do frontend separados por vírgula (CORS) e `APPLICATIONINSIGHTS_CONNECTION_STRING`.
+- *Segredos no Key Vault (INFRA-17):* `bash infra/azure/keyvault-refs.sh` mostra o plano; com `--apply`, move `DATABASE_PASSWORD`, `SUPABASE_SERVICE_ROLE_KEY`, `AZURE_STORAGE_CONNECTION_STRING`, `SMTP_USER`, `SMTP_PASS` e `WEBHOOK_SECRET` para o cofre `flui-kv-dev-fecap`, lidos pela identidade gerenciada do App Service (referências `@Microsoft.KeyVault(...)`). O código não muda. O script migra um segredo de teste primeiro, só segue se a referência resolver, volta tudo sozinho se algo falhar e confere o `/health`. `--remove-unused` apaga `SUPABASE_JWT_SECRET` e `DATABASE_URL`, que a API não lê mais.
 - *Vercel (Environment Variables):* `VITE_API_BASE_URL`, `VITE_SUPABASE_URL` e `VITE_SUPABASE_ANON_KEY`.
 - *GitHub (Secrets do repositório):* `AZURE_CREDENTIALS`, `AZURE_WEBAPP_NAME`, `AZURE_STORAGE_CONN_STRING` e os três `VITE_*`.
 
