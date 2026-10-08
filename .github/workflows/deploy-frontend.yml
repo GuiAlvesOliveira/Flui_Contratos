@@ -7,16 +7,16 @@ on:
       - 'frontend/**'
       - '.github/workflows/deploy-frontend.yml'
   # Pull requests only build (tsc + vite) to catch a broken build before the
-  # merge (INFRA-13); the deploy step is skipped.
+  # merge (INFRA-13); the deploy step is skipped. Runs on every PR because
+  # `frontend-build` is a required check on main.
   pull_request:
     branches: [main]
-    paths:
-      - 'frontend/**'
-      - '.github/workflows/deploy-frontend.yml'
   workflow_dispatch:
 
 jobs:
   build-and-deploy:
+    # Check name required by the main branch protection.
+    name: frontend-build
     runs-on: ubuntu-latest
 
     steps:

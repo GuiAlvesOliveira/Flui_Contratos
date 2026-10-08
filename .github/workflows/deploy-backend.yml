@@ -7,12 +7,11 @@ on:
       - 'backend/**'
       - '.github/workflows/deploy-backend.yml'
   # Pull requests run only the test job (unit + coverage gate + e2e), so a red
-  # suite shows up on the PR before it is merged (INFRA-13). No deploy.
+  # suite shows up on the PR before it is merged (INFRA-13). No deploy. No paths
+  # filter here: `test` is a required check on main, so it must report on every
+  # PR, or a PR that doesn't touch the backend would wait for it forever.
   pull_request:
     branches: [main]
-    paths:
-      - 'backend/**'
-      - '.github/workflows/deploy-backend.yml'
   workflow_dispatch:
 
 jobs:
