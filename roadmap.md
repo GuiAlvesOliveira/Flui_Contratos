@@ -63,7 +63,6 @@ flui-contratos/
 ├── .env.local                        # git-ignored — criado em 2026-04-30
 ├── .env.local.template               # template documentado (inclui JWKS_URI)
 ├── .gitignore
-├── CLAUDE.md                         # instruções permanentes para o Claude Code
 ├── implementation_plan.md
 └── roadmap.md                        # este arquivo
 ```

@@ -392,7 +392,7 @@ Considere expor a soma calculada no servidor para garantir consistência.
 **Impacto.** Cada chamada à API faz **uma ida e volta de rede ao servidor de auth
 do Supabase** para validar o token. Consequências: latência somada em todo
 endpoint, ponto único de falha (Supabase fora → API toda em `401`), e exposição a
-_rate limits_ do Supabase sob carga. Note que o `CLAUDE.md` descreve "valida JWT
+_rate limits_ do Supabase sob carga. Note que a documentação interna descreve "valida JWT
 via `SUPABASE_JWT_SECRET` (HS256)" — verificação **local** — mas o código faz a
 verificação **remota**. As dependências para validar localmente já existem
 (`@nestjs/jwt`, `SUPABASE_JWT_SECRET` no `.env`).
@@ -449,7 +449,7 @@ Pontos de atenção (baixo):
   tempo. Reduzir a validade (ex.: 7 dias) já que o `appsetting` é atualizado a
   cada push.
 - **Runtime divergente** — `provision.sh:40` cria o Web App com `NODE:22-lts`, mas
-  o workflow e o `CLAUDE.md` usam Node 20. Alinhar para evitar surpresas de
+  o workflow e a documentação interna usam Node 20. Alinhar para evitar surpresas de
   runtime.
 - **`OBS-01` (Application Insights)** — `provision.sh:218-223` injeta
   `APPLICATIONINSIGHTS_CONNECTION_STRING`, mas o backend **não importa o SDK

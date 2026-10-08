@@ -64,8 +64,7 @@ flui-contratos/
 │       └── seed.sql                # dev seed: 1 tenant, 3 users (one per role)
 ├── .env.local.template   # template for local Docker env vars
 ├── frontend/.env.local   # Vite env vars (git-ignored)
-├── implementation_plan.md
-└── CLAUDE.md
+└── implementation_plan.md
 ```
 
 ---
