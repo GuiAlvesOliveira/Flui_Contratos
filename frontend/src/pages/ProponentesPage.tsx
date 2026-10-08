@@ -5,6 +5,45 @@ import { NovoProcessoDrawer } from '../components/NovoProcessoDrawer';
 import * as Icon from '../components/icons';
 import { useAuth } from '../auth/useAuth';
 
+// ── Exportar CSV (BE-17) ─────────────────────────────────────────────────────
+
+// Relatório de todos os processos da assessoria, só para o gestor. O arquivo vem
+// pronto da API (UTF-8 com BOM, separado por ponto e vírgula, para o Excel).
+function ExportCsvButton() {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleExport = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      const resp = await api.get('/processes/export', { responseType: 'blob' });
+      const url = URL.createObjectURL(resp.data as Blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `processos-${new Date().toLocaleDateString('sv-SE')}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 10_000);
+    } catch {
+      setError('Não foi possível exportar');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <>
+      {error && <span role="alert" style={{ fontSize: 12, color: 'var(--red)' }}>{error}</span>}
+      <button className="ds-btn" onClick={handleExport} disabled={busy}>
+        <Icon.Download size={13} />
+        {busy ? 'Exportando...' : 'Exportar CSV'}
+      </button>
+    </>
+  );
+}
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 type ProcessStage =
@@ -214,6 +253,7 @@ export function ProponentesPage({ onOpenProcess }: Props) {
           </p>
         </div>
         <div className="actions">
+          {isDono && <ExportCsvButton />}
           <button className="ds-btn accent" onClick={() => setShowDrawer(true)}>
             <Icon.Plus size={13} />
             Novo Processo

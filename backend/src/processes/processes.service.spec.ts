@@ -196,3 +196,44 @@ describe('ProcessesService.getIncomeComposition (RN-06)', () => {
     );
   });
 });
+
+describe('ProcessesService.exportCsv (BE-17)', () => {
+  const dono = {
+    tenantId: 't1',
+    userId: 'g1',
+    role: 'dono',
+  } as RequestUserFull;
+
+  it('exports the active processes of the tenant and logs the export', async () => {
+    const { service, dataSource } = makeService(null);
+    dataSource.query
+      .mockResolvedValueOnce([
+        {
+          id: 'abcd0000-0000-4000-8000-000000000001',
+          stage: 'cadastro',
+          created_at: '2026-10-01T12:00:00Z',
+          client_name: 'Ana',
+          client_surname: 'Souza',
+          client_email: 'ana@x.dev',
+          analista_name: null,
+          empreendimento: null,
+          unidade: null,
+          valor_unidade: null,
+        },
+      ])
+      .mockResolvedValueOnce([]);
+    const csv = await service.exportCsv(dono);
+    expect(csv.split('\r\n')[1]).toBe(
+      'CLI-ABCD;Ana Souza;Cadastro;01/10/2026;;;;',
+    );
+    const [sql, params] = dataSource.query.mock.calls[0] as [string, unknown[]];
+    expect(sql).toContain('p.tenant_id = $1 AND p.active = true');
+    expect(params).toEqual(['t1']);
+    const [logSql, logParams] = dataSource.query.mock.calls[1] as [
+      string,
+      unknown[],
+    ];
+    expect(logSql).toContain("'processes_exported'");
+    expect(logParams).toEqual(['t1', 'g1', JSON.stringify({ count: 1 })]);
+  });
+});

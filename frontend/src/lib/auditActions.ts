@@ -13,6 +13,7 @@ export const ACTION_LABELS: Record<string, string> = {
   document_rejected: 'Documento rejeitado',
   document_deleted: 'Documento excluído (LGPD)',
   profile_update: 'Atualização de cadastro',
+  processes_exported: 'Exportação de processos (CSV)',
 };
 
 export const actionLabel = (action: string) => ACTION_LABELS[action] ?? action;

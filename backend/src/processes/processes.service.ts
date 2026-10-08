@@ -15,6 +15,7 @@ import { AdvanceStageDto } from './dto/advance-stage.dto';
 import { CreateProcessDto } from './dto/create-process.dto';
 import { UpdateProcessDto } from './dto/update-process.dto';
 import { allowedTransitions, LINEAR_STAGES, Process, ProcessStage } from './process.entity';
+import { processesCsv, type ExportRow } from './processes-csv';
 
 // RN-04: a process may only move past analise_credito with every document
 // validated. Applies to forward moves starting from analise_credito onward
@@ -93,6 +94,31 @@ export class ProcessesService {
     }
 
     return qb.getMany();
+  }
+
+  // BE-17: every active process of the tenant as CSV (gestor only). Exporting
+  // personal data is recorded in the audit log (LGPD).
+  async exportCsv(caller: RequestUserFull): Promise<string> {
+    const rows = await this.dataSource.query<ExportRow[]>(
+      `SELECT p.id, p.stage, p.created_at,
+              c.name AS client_name, c.surname AS client_surname, c.email AS client_email,
+              a.name AS analista_name, e.nome AS empreendimento,
+              un.identificacao AS unidade, p.valor_unidade
+         FROM processes p
+         JOIN users c ON c.id = p.client_id
+         LEFT JOIN users a ON a.id = p.analista_id
+         LEFT JOIN unidades un ON un.id = p.unidade_id
+         LEFT JOIN empreendimentos e ON e.id = un.empreendimento_id
+        WHERE p.tenant_id = $1 AND p.active = true
+        ORDER BY p.created_at DESC`,
+      [caller.tenantId],
+    );
+    await this.dataSource.query(
+      `INSERT INTO audit_logs (tenant_id, actor_id, action, metadata)
+       VALUES ($1, $2, 'processes_exported', $3::jsonb)`,
+      [caller.tenantId, caller.userId, JSON.stringify({ count: rows.length })],
+    );
+    return processesCsv(rows);
   }
 
   async findOne(id: string, caller: RequestUserFull) {

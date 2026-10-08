@@ -1,4 +1,5 @@
-import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Query, Request } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Header, Param, ParseUUIDPipe, Patch, Post, Query, Request, Res } from '@nestjs/common';
+import type { Response } from 'express';
 import { RequestUserFull } from '../auth/supabase.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { AdvanceStageDto } from './dto/advance-stage.dto';
@@ -25,6 +26,26 @@ export class ProcessesController {
     @Query('empreendimentoId') empreendimentoId?: string,
   ) {
     return this.service.findAll(req.user, stage, empreendimentoId);
+  }
+
+  // BE-17: relatório CSV (declarado antes de ':id' para não cair nele)
+  @Get('export')
+  @Roles('dono')
+  @Header('Content-Type', 'text/csv; charset=utf-8')
+  @Header('Cache-Control', 'no-store')
+  async exportCsv(
+    @Request() req: { user: RequestUserFull },
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const csv = await this.service.exportCsv(req.user);
+    const day = new Date().toLocaleDateString('sv-SE', {
+      timeZone: 'America/Sao_Paulo',
+    });
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="processos-${day}.csv"`,
+    );
+    return csv;
   }
 
   @Get(':id')
