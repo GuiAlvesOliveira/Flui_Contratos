@@ -2,7 +2,7 @@
 
 Plataforma SaaS multi-tenant para a gestão de processos de financiamento imobiliário em assessorias (TCC — FECAP).
 
-**Documentação:** [Diagnóstico do MVP e Product Backlog](docs/diagnostico_backlog.md) · [Decisões de arquitetura (ADR)](docs/adr/README.md) · [Métricas de uso](docs/metricas-de-uso.md) · [Webhooks do n8n](docs/n8n-webhooks.md) · [Auditoria técnica](DIAGNOSTICO.md) · [Pendências de produção](PRODUCAO.md) · [Backlog no GitHub Projects](https://github.com/users/GuiAlvesOliveira/projects/2)
+**Documentação:** [Diagnóstico do MVP e Product Backlog](docs/diagnostico_backlog.md) · [Decisões de arquitetura (ADR)](docs/adr/README.md) · [Métricas de uso](docs/metricas-de-uso.md) · [Webhooks do n8n](docs/n8n-webhooks.md) · [Validação com usuários](docs/validacao/README.md) · [Atas](docs/atas/README.md) · [Roteiro do vídeo](docs/demo/roteiro-video.md) · [Auditoria técnica](DIAGNOSTICO.md) · [Pendências de produção](PRODUCAO.md) · [Backlog no GitHub Projects](https://github.com/users/GuiAlvesOliveira/projects/2)
 
 ## Estrutura
 
