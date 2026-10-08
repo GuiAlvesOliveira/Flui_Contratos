@@ -5,6 +5,7 @@ import { api } from '../../api/axiosInstance';
 import { STAGE_LABELS, type ProcessStage } from '../../lib/processStages';
 import * as Icon from '../icons';
 import { NotificationsBell } from '../NotificationsBell';
+import { GlobalSearch } from '../GlobalSearch';
 import { DashboardPage } from '../../pages/DashboardPage';
 import { AnalistaDashboard } from '../AnalistaDashboard';
 import { EmpreendimentosPage } from '../../pages/EmpreendimentosPage';
@@ -372,11 +373,13 @@ export function AppShell() {
             </nav>
           </div>
           <div className="ds-tb-spacer" />
-          <div className="ds-tb-search">
-            <Icon.Search size={13} />
-            <span>Buscar processo, proponente…</span>
-            <kbd>⌘K</kbd>
-          </div>
+          {!isCliente && (
+            <GlobalSearch
+              onOpenProcess={(id) => navigate({ page: 'proponente-detail', id })}
+              onOpenEmpreendimento={(id) => navigate({ page: 'empreendimento-detail', id })}
+              onOpenProponentes={() => navigate({ page: 'proponentes' })}
+            />
+          )}
           <NotificationsBell
             isCliente={isCliente}
             onOpenProcess={(id) => navigate(isCliente

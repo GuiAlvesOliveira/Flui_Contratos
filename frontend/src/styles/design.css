@@ -265,6 +265,31 @@ input, select, textarea { font-family: inherit; }
   .ds-notif { position: fixed; top: calc(var(--tb-h) + 4px); left: 16px; right: 16px; width: auto; }
 }
 
+/* Busca global da topbar (FE-30) */
+.ds-search-wrap { position: relative; }
+.ds-tb-search input {
+  flex: 1; min-width: 0; border: 0; outline: none; background: transparent;
+  font: inherit; font-size: 13px; color: var(--text);
+}
+.ds-tb-search input::placeholder { color: var(--text-muted); }
+.ds-tb-search:focus-within { background: #fff; border-color: var(--accent); cursor: text; }
+.ds-search-dd {
+  position: absolute; top: 36px; left: 0; z-index: 40;
+  width: 380px; max-height: 70vh; overflow: auto;
+  background: #fff; border: 1px solid var(--border); border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+}
+.ds-search-group {
+  padding: 8px 12px 4px; font-size: 11px; font-weight: 600; letter-spacing: 0.04em;
+  text-transform: uppercase; color: var(--text-faint);
+}
+.ds-search-item {
+  display: flex; flex-direction: column; gap: 2px; width: 100%;
+  padding: 7px 12px; text-align: left; background: transparent; border: 0;
+  cursor: pointer; font-size: 13px; color: var(--text);
+}
+.ds-search-item.active { background: var(--bg-hover); }
+
 /* Content */
 .ds-content { flex: 1; overflow: auto; }
 .ds-page { max-width: 1320px; margin: 0 auto; padding: 24px 28px 80px; }

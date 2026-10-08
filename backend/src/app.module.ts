@@ -6,6 +6,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuditModule } from './audit/audit.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { NotificationsModule } from './notifications/notifications.module';
+import { SearchModule } from './search/search.module';
 import { AuthModule } from './auth/auth.module';
 import { ParticipantsModule } from './participants/participants.module';
 import { ProcessParticipant } from './participants/participant.entity';
@@ -87,6 +88,7 @@ import { AddNotificationReads1718500700000 } from './database/migrations/1718500
     AuditModule,
     DashboardModule,
     NotificationsModule,
+    SearchModule,
     AuthModule,
     ParticipantsModule,
     DocumentsModule,
