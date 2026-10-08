@@ -31,7 +31,9 @@ function parseNum(s: string): number {
   if (/^\d{1,3}(\.\d{3})+$/.test(t)) return Number(t.replace(/\./g, ''));
   return Number(t);
 }
-const toText = (v: unknown) => (v === undefined || v === null ? '' : String(v).replace('.', ','));
+// Valor salvo de volta no campo, no formato brasileiro (280.000 / 61,5)
+const toText = (v: unknown) =>
+  typeof v === 'number' ? v.toLocaleString('pt-BR', { maximumFractionDigits: 2 }) : v == null ? '' : String(v);
 
 function apiError(e: unknown): string {
   const msg = (e as { response?: { data?: { message?: string | string[] } } })?.response?.data?.message;
