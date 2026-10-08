@@ -482,7 +482,7 @@ function WorkflowTab({ process, docs, isAnalista, onMoverEtapa }: {
                 <div style={{ flex: 1, minWidth: 0, paddingBottom: idx < audit.length - 1 ? 4 : 0 }}>
                   <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, flexWrap: 'wrap' }}>
                     <span style={{ fontSize: 13, fontWeight: 600 }}>
-                      {entry.from_state && entry.to_state ? 'Mudança de etapa' : entry.action}
+                      {actionLabel(entry.action)}
                     </span>
                     {entry.from_state && (
                       <span style={{
@@ -490,7 +490,7 @@ function WorkflowTab({ process, docs, isAnalista, onMoverEtapa }: {
                         background: STAGE_COLORS[entry.from_state as ProcessStage] + '18',
                         color: STAGE_COLORS[entry.from_state as ProcessStage],
                       }}>
-                        {STAGE_LABELS[entry.from_state as ProcessStage] ?? entry.from_state}
+                        {stateLabel(entry.from_state)}
                       </span>
                     )}
                     {entry.to_state && (
@@ -501,11 +501,14 @@ function WorkflowTab({ process, docs, isAnalista, onMoverEtapa }: {
                           background: STAGE_COLORS[entry.to_state as ProcessStage] + '18',
                           color: STAGE_COLORS[entry.to_state as ProcessStage],
                         }}>
-                          {STAGE_LABELS[entry.to_state as ProcessStage] ?? entry.to_state}
+                          {stateLabel(entry.to_state)}
                         </span>
                       </>
                     )}
                   </div>
+                  {!(entry.from_state && entry.to_state) && activityDetail(entry) && (
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>{activityDetail(entry)}</div>
+                  )}
                   <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
                     {entry.actor_name ?? 'Sistema'}
                   </div>
