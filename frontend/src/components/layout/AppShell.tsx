@@ -12,6 +12,7 @@ import { ProponentesPage } from '../../pages/ProponentesPage';
 import { ProponenteDetailPage } from '../../pages/ProponenteDetailPage';
 import { WorkflowPage } from '../../pages/WorkflowPage';
 import { LogsPage } from '../../pages/LogsPage';
+import { ConfigPage } from '../../pages/ConfigPage';
 import { DevApiMenu } from '../../pages/DevApiMenu';
 
 // ── Route state ────────────────────────────────────────────────────────────────
@@ -416,7 +417,8 @@ export function AppShell() {
               }
             />
           )}
-          {(view.page === 'tarefas' || view.page === 'calendario' || view.page === 'relatorios' || view.page === 'config') && (
+          {view.page === 'config' && <ConfigPage role={role} />}
+          {(view.page === 'tarefas' || view.page === 'calendario' || view.page === 'relatorios') && (
             <ComingSoonPage label={PAGE_LABELS[view.page]} />
           )}
         </div>

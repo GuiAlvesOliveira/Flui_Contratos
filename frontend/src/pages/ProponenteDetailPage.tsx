@@ -7,6 +7,8 @@ import {
   ageOn, formatCpf, formatDateOnly, formatTelefone, isValidCpf, isValidTelefone,
   normalizeTelefone, onlyDigits, todayIso,
 } from '../lib/validators';
+import { CATEGORY_LABELS, groupByCategory } from '../lib/documentCatalog';
+import { SolicitarDocumentosModal } from '../components/SolicitarDocumentosModal';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -61,6 +63,8 @@ interface Document {
   notes: string | null;
   validatedByNotes: string | null;
   blobPath: string | null;
+  processId: string | null; // null = documento pessoal do cliente (vale para todos os processos)
+  documentTypeId: string | null; // item da lista de documentos da assessoria (BE-03)
 }
 
 type Tab = 'workflow' | 'cadastro' | 'ficha' | 'documentos' | 'atividade';
@@ -1246,14 +1250,11 @@ function DocumentosTab({ processId, role }: { processId: string; role: string | 
   const isAnalista = role === 'analista' || role === 'dono';
   const isCliente = role === 'cliente';
 
+  const [showSolicitar, setShowSolicitar] = useState(false);
+
   const { data: docs = [], isLoading } = useQuery<Document[]>({
     queryKey: ['documents', processId],
     queryFn: () => api.get(`/processes/${processId}/documents`).then(r => r.data),
-  });
-
-  const initMut = useMutation({
-    mutationFn: () => api.post(`/processes/${processId}/documents/init-checklist`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['documents', processId] }),
   });
 
   const validateMut = useMutation({
@@ -1264,27 +1265,18 @@ function DocumentosTab({ processId, role }: { processId: string; role: string | 
 
   if (isLoading) return <div style={{ color: 'var(--text-faint)', fontSize: 13, padding: 24 }}>Carregando...</div>;
 
-  const byCategory: Record<string, Document[]> = {};
-  docs.forEach(d => {
-    const cat = d.category ?? 'outros';
-    if (!byCategory[cat]) byCategory[cat] = [];
-    byCategory[cat].push(d);
-  });
-
-  const catLabels: Record<string, string> = {
-    pessoal: 'Documentos Pessoais',
-    renda: 'Comprovação de Renda',
-    outros: 'Outros',
-  };
-
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      {isAnalista && docs.length === 0 && (
+      {isAnalista && (
         <div className="ds-card">
-          <div className="ds-card-body" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>Checklist ainda não inicializado.</span>
-            <button className="ds-btn accent sm" onClick={() => initMut.mutate()} disabled={initMut.isPending}>
-              {initMut.isPending ? 'Iniciando...' : 'Inicializar Checklist'}
+          <div className="ds-card-body" style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 13, color: 'var(--text-muted)', flex: 1, minWidth: 220 }}>
+              {docs.length === 0
+                ? 'Nenhum documento solicitado ainda. Escolha na lista da assessoria o que o cliente deve enviar.'
+                : `${docs.length} documento${docs.length !== 1 ? 's' : ''} solicitado${docs.length !== 1 ? 's' : ''}. Precisa de mais algum? Escolha na lista da assessoria.`}
+            </span>
+            <button className="ds-btn accent sm" onClick={() => setShowSolicitar(true)}>
+              <Icon.Plus size={12} /> Solicitar documentos
             </button>
           </div>
         </div>
@@ -1296,9 +1288,9 @@ function DocumentosTab({ processId, role }: { processId: string; role: string | 
           </div>
         </div>
       )}
-      {Object.entries(byCategory).map(([cat, catDocs]) => (
+      {groupByCategory(docs).map(([cat, catDocs]) => (
         <div className="ds-card" key={cat}>
-          <div className="ds-card-hdr">{catLabels[cat] ?? cat}</div>
+          <div className="ds-card-hdr">{CATEGORY_LABELS[cat]}</div>
           <div className="ds-card-body" style={{ padding: 0 }}>
             {catDocs.map((doc, idx) => {
               const badge = STATUS_BADGE[doc.status];
@@ -1343,6 +1335,15 @@ function DocumentosTab({ processId, role }: { processId: string; role: string | 
           </div>
         </div>
       ))}
+
+      {showSolicitar && (
+        <SolicitarDocumentosModal
+          processId={processId}
+          requestedTypeIds={new Set(docs.map(d => d.documentTypeId).filter((id): id is string => !!id))}
+          requestedLabels={new Set(docs.map(d => (d.label ?? d.name).toLowerCase()))}
+          onClose={() => setShowSolicitar(false)}
+        />
+      )}
     </div>
   );
 }

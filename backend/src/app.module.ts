@@ -18,6 +18,7 @@ import { UnidadesModule } from './unidades/unidades.module';
 import { UsersModule } from './users/users.module';
 import { GLOBAL_GUARDS } from './common/guards/global-guards';
 import { Document } from './documents/document.entity';
+import { DocumentType } from './documents/document-type.entity';
 import { Empreendimento } from './empreendimentos/empreendimento.entity';
 import { Process } from './processes/process.entity';
 import { Tenant } from './tenants/tenant.entity';
@@ -28,6 +29,7 @@ import { UnifyProcessStages1718500100000 } from './database/migrations/171850010
 import { AddStageBeforePendencia1718500200000 } from './database/migrations/1718500200000-AddStageBeforePendencia';
 import { AddUserStatus1718500300000 } from './database/migrations/1718500300000-AddUserStatus';
 import { AddUserDataNascimento1718500400000 } from './database/migrations/1718500400000-AddUserDataNascimento';
+import { AddDocumentTypes1718500500000 } from './database/migrations/1718500500000-AddDocumentTypes';
 
 @Module({
   imports: [
@@ -48,13 +50,23 @@ import { AddUserDataNascimento1718500400000 } from './database/migrations/171850
         database: config.get<string>('DATABASE_NAME'),
         username: config.get<string>('DATABASE_USER'),
         password: config.get<string>('DATABASE_PASSWORD'),
-        entities: [Tenant, User, Empreendimento, Unidade, Process, Document, ProcessParticipant],
+        entities: [
+          Tenant,
+          User,
+          Empreendimento,
+          Unidade,
+          Process,
+          Document,
+          DocumentType,
+          ProcessParticipant,
+        ],
         migrations: [
           InitialSchema1718500000000,
           UnifyProcessStages1718500100000,
           AddStageBeforePendencia1718500200000,
           AddUserStatus1718500300000,
           AddUserDataNascimento1718500400000,
+          AddDocumentTypes1718500500000,
         ],
         migrationsRun: true,
         synchronize: false,

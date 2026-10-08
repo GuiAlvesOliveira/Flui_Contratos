@@ -20,14 +20,12 @@ function makeService(process: Partial<Process> | null) {
   };
   const webhook = { fireAndForget: jest.fn() };
   const email = { sendStageChange: jest.fn() };
-  const documents = { initChecklist: jest.fn() };
   const service = new ProcessesService(
     repo as unknown as Repository<Process>,
     userRepo as unknown as Repository<User>,
     dataSource as unknown as DataSource,
     webhook as never,
     email as never,
-    documents as never,
   );
   return { service, repo, userRepo, dataSource, manager, webhook, email };
 }

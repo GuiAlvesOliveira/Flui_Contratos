@@ -18,6 +18,7 @@ import type { Response } from 'express';
 import { RequestUserFull } from '../auth/supabase.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { UpdateDocumentDto } from './dto/update-document.dto';
+import { RequestDocumentsDto } from './dto/request-documents.dto';
 import { DocumentsService } from './documents.service';
 
 @Controller()
@@ -39,13 +40,19 @@ export class DocumentsController {
     return this.service.getForProcess(processId, req.user);
   }
 
-  @Post('processes/:processId/documents/init-checklist')
+  // BE-03: request documents for a process, picked from the catalog
+  @Post('processes/:processId/documents/request')
   @Roles('dono', 'analista')
-  initChecklist(
+  requestDocuments(
     @Param('processId', ParseUUIDPipe) processId: string,
+    @Body() dto: RequestDocumentsDto,
     @Request() req: { user: RequestUserFull },
   ) {
-    return this.service.initChecklist(processId, req.user);
+    return this.service.requestDocuments(
+      processId,
+      dto.documentTypeIds,
+      req.user,
+    );
   }
 
   @Patch('documents/:docId')

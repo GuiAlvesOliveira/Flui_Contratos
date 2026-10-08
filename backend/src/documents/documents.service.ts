@@ -5,41 +5,16 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, IsNull, Repository } from 'typeorm';
+import { DataSource, In, IsNull, Repository } from 'typeorm';
 import { RequestUserFull } from '../auth/supabase.guard';
 import { AzureStorageService } from '../common/services/azure-storage.service';
 import { EmailService } from '../email/email.service';
 import { Process } from '../processes/process.entity';
 import { User } from '../users/user.entity';
 import { Document } from './document.entity';
+import { DocumentType } from './document-type.entity';
 import type { DocumentStatus } from './document.entity';
 import { UpdateDocumentDto } from './dto/update-document.dto';
-
-// ── Checklist templates ───────────────────────────────────────────────────────
-
-// Personal docs are stored once per client (processId = null) and shared across all their processes
-const DOCS_PESSOAL = [
-  { docType: 'rg_cnh', label: 'RG ou CNH' },
-  { docType: 'comprovante_endereco', label: 'Comprovante de Endereço' },
-  { docType: 'cert_estado_civil', label: 'Certidão de Estado Civil' },
-];
-
-const DOCS_ASSALARIADO = [
-  { docType: 'holerite_1', label: 'Holerite (mês 1)' },
-  { docType: 'holerite_2', label: 'Holerite (mês 2)' },
-  { docType: 'holerite_3', label: 'Holerite (mês 3)' },
-  { docType: 'irpf', label: 'Declaração de IRPF' },
-];
-
-const DOCS_NAO_ASSALARIADO = [
-  { docType: 'extrato_1', label: 'Extrato Bancário (mês 1)' },
-  { docType: 'extrato_2', label: 'Extrato Bancário (mês 2)' },
-  { docType: 'extrato_3', label: 'Extrato Bancário (mês 3)' },
-  { docType: 'extrato_4', label: 'Extrato Bancário (mês 4)' },
-  { docType: 'extrato_5', label: 'Extrato Bancário (mês 5)' },
-  { docType: 'extrato_6', label: 'Extrato Bancário (mês 6)' },
-  { docType: 'irpf', label: 'Declaração de IRPF' },
-];
 
 // ── Upload content validation (magic numbers) ─────────────────────────────────
 
@@ -64,6 +39,7 @@ function isAllowedFileContent(buffer: Buffer | undefined): boolean {
 export class DocumentsService {
   constructor(
     @InjectRepository(Document) private readonly repo: Repository<Document>,
+    @InjectRepository(DocumentType) private readonly typeRepo: Repository<DocumentType>,
     @InjectRepository(Process) private readonly processRepo: Repository<Process>,
     @InjectRepository(User) private readonly userRepo: Repository<User>,
     private readonly azureStorage: AzureStorageService,
@@ -89,64 +65,73 @@ export class DocumentsService {
     return [...personalDocs, ...processDocs];
   }
 
-  async initChecklist(processId: string, caller: RequestUserFull) {
+  // BE-03: the analista picks, from the assessoria's catalog, which documents
+  // the client must send. Only active entries of the caller's tenant are
+  // accepted (no free text). Personal docs live once per client
+  // (process_id NULL) and serve all their processes; the rest belong to the
+  // process. A type already requested is skipped, so repeating is harmless.
+  async requestDocuments(processId: string, typeIds: string[], caller: RequestUserFull) {
+    const tenantId = caller.tenantId!;
     const process = await this.resolveProcess(processId, caller);
 
-    const rendaDocs =
-      process.fonteRenda === 'assalariado' ? DOCS_ASSALARIADO : DOCS_NAO_ASSALARIADO;
-
-    // ── Personal docs: create once per client, shared across all their processes ──
-
-    const existingPersonal = await this.repo.find({
-      where: { processId: IsNull(), userId: process.clientId, tenantId: caller.tenantId! },
-      select: ['docType'],
+    const types = await this.typeRepo.find({
+      where: { id: In(typeIds), tenantId, active: true },
     });
-    const existingPersonalTypes = new Set(existingPersonal.map(d => d.docType));
-
-    const personalToCreate = DOCS_PESSOAL.filter(t => !existingPersonalTypes.has(t.docType));
-    if (personalToCreate.length > 0) {
-      const personalDocs = personalToCreate.map(t =>
-        this.repo.create({
-          tenantId: caller.tenantId!,
-          processId: null,
-          userId: process.clientId,
-          name: t.label,
-          category: 'pessoal',
-          docType: t.docType,
-          label: t.label,
-          status: 'pendente' as DocumentStatus,
-        }),
+    if (types.length !== new Set(typeIds).size) {
+      throw new BadRequestException(
+        'Só é possível solicitar documentos ativos da lista da assessoria',
       );
-      await this.repo.save(personalDocs);
     }
 
-    // ── Income docs: per-process ──────────────────────────────────────────────
-
-    const existingProcess = await this.repo.find({
-      where: { processId, tenantId: caller.tenantId! },
-      select: ['docType'],
+    const existing = await this.repo.find({
+      where: [
+        { processId, tenantId },
+        { processId: IsNull(), userId: process.clientId, tenantId },
+      ],
     });
-    const existingProcessTypes = new Set(existingProcess.map(d => d.docType));
+    const alreadyRequested = (t: DocumentType) =>
+      existing.some(
+        (d) =>
+          d.documentTypeId === t.id ||
+          // rows created before the catalog existed carry only the label
+          (!d.documentTypeId &&
+            (d.label ?? d.name).toLowerCase() === t.label.toLowerCase()),
+      );
 
-    const rendaToCreate = rendaDocs.filter(t => !existingProcessTypes.has(t.docType));
-    if (rendaToCreate.length > 0) {
-      const rendaDocEntities = rendaToCreate.map(t =>
+    const toCreate = types.filter((t) => !alreadyRequested(t));
+    const created = await this.repo.save(
+      toCreate.map((t) =>
         this.repo.create({
-          tenantId: caller.tenantId!,
+          tenantId,
+          processId: t.category === 'pessoal' ? null : processId,
+          userId: process.clientId,
+          name: t.label,
+          label: t.label,
+          category: t.category,
+          documentTypeId: t.id,
+          status: 'pendente' as DocumentStatus,
+        }),
+      ),
+    );
+
+    if (created.length > 0) {
+      await this.dataSource.query(
+        `INSERT INTO audit_logs (tenant_id, process_id, actor_id, action, metadata)
+         VALUES ($1, $2, $3, 'documents_requested', $4::jsonb)`,
+        [
+          tenantId,
           processId,
-          userId: process.clientId,
-          name: t.label,
-          category: 'renda',
-          docType: t.docType,
-          label: t.label,
-          status: 'pendente' as DocumentStatus,
-        }),
+          caller.userId,
+          JSON.stringify({ labels: created.map((d) => d.label) }),
+        ],
       );
-      await this.repo.save(rendaDocEntities);
     }
 
-    const created = personalToCreate.length + rendaToCreate.length;
-    return created === 0 ? { created: 0, message: 'Checklist já inicializado' } : { created };
+    return {
+      created: created.length,
+      skipped: types.length - created.length,
+      documents: created,
+    };
   }
 
   async update(docId: string, dto: UpdateDocumentDto, caller: RequestUserFull) {

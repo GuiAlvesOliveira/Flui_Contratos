@@ -786,6 +786,7 @@ input, select, textarea { font-family: inherit; }
   .ds-modal { max-width: calc(100% - 32px); }
   .ds-row-2 { grid-template-columns: 1fr; }
   .ds-kv { grid-template-columns: 100px 1fr; }
+  .ds-doc-form { grid-template-columns: 1fr !important; }
 }
 
 @media (max-width: 420px) {

@@ -5,13 +5,19 @@ import { EmailModule } from '../email/email.module';
 import { Process } from '../processes/process.entity';
 import { User } from '../users/user.entity';
 import { Document } from './document.entity';
+import { DocumentType } from './document-type.entity';
+import { DocumentTypesController } from './document-types.controller';
+import { DocumentTypesService } from './document-types.service';
 import { DocumentsController } from './documents.controller';
 import { DocumentsService } from './documents.service';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Document, Process, User]), EmailModule],
-  controllers: [DocumentsController],
-  providers: [DocumentsService, AzureStorageService],
+  imports: [
+    TypeOrmModule.forFeature([Document, DocumentType, Process, User]),
+    EmailModule,
+  ],
+  controllers: [DocumentsController, DocumentTypesController],
+  providers: [DocumentsService, DocumentTypesService, AzureStorageService],
   exports: [DocumentsService],
 })
 export class DocumentsModule {}

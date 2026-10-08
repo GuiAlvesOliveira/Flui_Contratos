@@ -1,7 +1,12 @@
-import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 import { DataSource, Repository } from 'typeorm';
 import { DocumentsService } from './documents.service';
 import { Document } from './document.entity';
+import { DocumentType } from './document-type.entity';
 import { Process } from '../processes/process.entity';
 import { User } from '../users/user.entity';
 import { RequestUserFull } from '../auth/supabase.guard';
@@ -13,70 +18,144 @@ function makeService() {
     create: jest.fn((x: unknown) => x),
     save: jest.fn((x: unknown) => Promise.resolve(x)),
   };
+  const typeRepo = { find: jest.fn() };
   const processRepo = { findOne: jest.fn() };
   const userRepo = { findOne: jest.fn() };
-  const azureStorage = { isAvailable: false, upload: jest.fn(), download: jest.fn() };
-  const dataSource = { query: jest.fn() };
+  const azureStorage = {
+    isAvailable: false,
+    upload: jest.fn(),
+    download: jest.fn(),
+    delete: jest.fn().mockResolvedValue(true),
+  };
+  const manager = { delete: jest.fn(), query: jest.fn() };
+  const dataSource = {
+    query: jest.fn(),
+    transaction: jest
+      .fn()
+      .mockImplementation((cb: (m: unknown) => unknown) => cb(manager)),
+  };
   const email = { sendDocumentRejected: jest.fn() };
   const service = new DocumentsService(
     repo as unknown as Repository<Document>,
+    typeRepo as unknown as Repository<DocumentType>,
     processRepo as unknown as Repository<Process>,
     userRepo as unknown as Repository<User>,
     azureStorage as never,
     dataSource as unknown as DataSource,
     email as never,
   );
-  return { service, repo, processRepo, userRepo, azureStorage, dataSource, email };
+  return {
+    service,
+    repo,
+    typeRepo,
+    processRepo,
+    userRepo,
+    azureStorage,
+    dataSource,
+    manager,
+    email,
+  };
 }
 
 const caller = (role: string, userId = 'u1') =>
-  ({ role, tenantId: 't1', userId } as RequestUserFull);
+  ({ role, tenantId: 't1', userId }) as RequestUserFull;
 
-// docTypes hardcoded to mirror the service templates (not exported).
-const PERSONAL = ['rg_cnh', 'comprovante_endereco', 'cert_estado_civil'];
-const ASSALARIADO = ['holerite_1', 'holerite_2', 'holerite_3', 'irpf'];
+const type = (id: string, label: string, category: string) =>
+  ({ id, tenantId: 't1', label, category, active: true }) as DocumentType;
+const RG = type('ty-rg', 'RG ou CNH', 'pessoal');
+const HOLERITE = type('ty-hol', 'Holerite (mês 1)', 'renda');
+const MATRICULA = type('ty-mat', 'Matrícula do imóvel', 'imovel');
 
-describe('DocumentsService.initChecklist (RN-04 checklist source)', () => {
-  it('creates personal + income docs for an assalariado process', async () => {
-    const { service, repo, processRepo } = makeService();
-    processRepo.findOne.mockResolvedValue({ id: 'p1', clientId: 'cl1', fonteRenda: 'assalariado' });
-    repo.find.mockResolvedValue([]); // nothing existing yet (personal + process queries)
+describe('DocumentsService.requestDocuments (BE-03 catalog)', () => {
+  const setup = () => {
+    const ctx = makeService();
+    ctx.processRepo.findOne.mockResolvedValue({ id: 'p1', clientId: 'cl1' });
+    return ctx;
+  };
 
-    const res = await service.initChecklist('p1', caller('analista'));
-
-    expect(res).toEqual({ created: 7 }); // 3 personal + 4 assalariado
-    expect(repo.save).toHaveBeenCalledTimes(2);
-  });
-
-  it('uses the 6-month income template when the source is not assalariado', async () => {
-    const { service, repo, processRepo } = makeService();
-    processRepo.findOne.mockResolvedValue({ id: 'p1', clientId: 'cl1', fonteRenda: 'nao_assalariado' });
+  it('creates the picked documents: personal on the client, the rest on the process', async () => {
+    const { service, repo, typeRepo, dataSource } = setup();
+    typeRepo.find.mockResolvedValue([RG, HOLERITE, MATRICULA]);
     repo.find.mockResolvedValue([]);
 
-    const res = await service.initChecklist('p1', caller('analista'));
+    const res = await service.requestDocuments(
+      'p1',
+      ['ty-rg', 'ty-hol', 'ty-mat'],
+      caller('analista'),
+    );
 
-    expect(res).toEqual({ created: 10 }); // 3 personal + 6 extratos + irpf = 10
+    expect(res).toMatchObject({ created: 3, skipped: 0 });
+    const saved = repo.save.mock.calls[0][0] as Partial<Document>[];
+    expect(saved).toEqual([
+      expect.objectContaining({
+        label: 'RG ou CNH',
+        category: 'pessoal',
+        processId: null,
+        userId: 'cl1',
+        documentTypeId: 'ty-rg',
+        status: 'pendente',
+      }),
+      expect.objectContaining({
+        label: 'Holerite (mês 1)',
+        category: 'renda',
+        processId: 'p1',
+        documentTypeId: 'ty-hol',
+      }),
+      expect.objectContaining({
+        label: 'Matrícula do imóvel',
+        category: 'imovel',
+        processId: 'p1',
+        documentTypeId: 'ty-mat',
+      }),
+    ]);
+    const [sql, params] = dataSource.query.mock.calls[0] as [string, unknown[]];
+    expect(sql).toContain("'documents_requested'");
+    expect(params[3]).toBe(
+      JSON.stringify({
+        labels: ['RG ou CNH', 'Holerite (mês 1)', 'Matrícula do imóvel'],
+      }),
+    );
   });
 
-  it('is idempotent — re-running creates nothing when the checklist already exists', async () => {
-    const { service, repo, processRepo } = makeService();
-    processRepo.findOne.mockResolvedValue({ id: 'p1', clientId: 'cl1', fonteRenda: 'assalariado' });
-    repo.find
-      .mockResolvedValueOnce(PERSONAL.map((docType) => ({ docType }))) // existing personal
-      .mockResolvedValueOnce(ASSALARIADO.map((docType) => ({ docType }))); // existing income
-
-    const res = await service.initChecklist('p1', caller('analista'));
-
-    expect(res).toEqual({ created: 0, message: 'Checklist já inicializado' });
+  it('only accepts active catalog entries of the caller tenant (no free text)', async () => {
+    const { service, repo, typeRepo } = setup();
+    typeRepo.find.mockResolvedValue([RG]); // the other id is inactive or from another tenant
+    await expect(
+      service.requestDocuments('p1', ['ty-rg', 'ty-foreign'], caller('analista')),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(typeRepo.find).toHaveBeenCalledWith({
+      where: { id: expect.anything(), tenantId: 't1', active: true },
+    });
     expect(repo.save).not.toHaveBeenCalled();
+  });
+
+  it('skips what was already requested, including old rows linked only by label', async () => {
+    const { service, repo, typeRepo, dataSource } = setup();
+    typeRepo.find.mockResolvedValue([RG, HOLERITE]);
+    repo.find.mockResolvedValue([
+      { id: 'd1', processId: null, documentTypeId: 'ty-rg' },
+      {
+        id: 'd2',
+        processId: 'p1',
+        documentTypeId: null,
+        label: 'holerite (MÊS 1)',
+      },
+    ]);
+    const res = await service.requestDocuments(
+      'p1',
+      ['ty-rg', 'ty-hol'],
+      caller('analista'),
+    );
+    expect(res).toMatchObject({ created: 0, skipped: 2 });
+    expect(dataSource.query).not.toHaveBeenCalled(); // nothing new, no audit entry
   });
 
   it('404s when the process is not in the caller tenant', async () => {
     const { service, processRepo } = makeService();
     processRepo.findOne.mockResolvedValue(null);
-    await expect(service.initChecklist('p1', caller('analista'))).rejects.toBeInstanceOf(
-      NotFoundException,
-    );
+    await expect(
+      service.requestDocuments('p1', ['ty-rg'], caller('analista')),
+    ).rejects.toBeInstanceOf(NotFoundException);
   });
 });
 

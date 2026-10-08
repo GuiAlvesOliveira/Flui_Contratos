@@ -8,7 +8,6 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { RequestUserFull } from '../auth/supabase.guard';
-import { DocumentsService } from '../documents/documents.service';
 import { EmailService } from '../email/email.service';
 import { WebhookService } from '../common/services/webhook.service';
 import { User } from '../users/user.entity';
@@ -39,7 +38,6 @@ export class ProcessesService {
     private readonly dataSource: DataSource,
     private readonly webhook: WebhookService,
     private readonly email: EmailService,
-    private readonly documents: DocumentsService,
   ) {}
 
   async create(dto: CreateProcessDto, caller: RequestUserFull) {
@@ -159,15 +157,10 @@ export class ProcessesService {
 
     await this.assertAssociationsInTenant(caller.tenantId!, dto.analistaId, dto.unidadeId);
 
-    const wasNoFonteRenda = !process.fonteRenda;
+    // BE-03: setting the income source no longer creates a fixed checklist;
+    // the analista requests the documents from the assessoria's catalog.
     Object.assign(process, dto);
-    const saved = await this.repo.save(process);
-
-    if (wasNoFonteRenda && dto.fonteRenda) {
-      await this.documents.initChecklist(id, caller);
-    }
-
-    return saved;
+    return this.repo.save(process);
   }
 
   async advanceStage(id: string, dto: AdvanceStageDto, caller: RequestUserFull) {
@@ -220,11 +213,11 @@ export class ProcessesService {
         [id, caller.tenantId, process.clientId],
       );
 
-      // RN-04 fail-closed: an uninitialised checklist (total = 0) blocks the
-      // advance instead of letting it through.
+      // RN-04 fail-closed: a process with no document of its own requested
+      // (total = 0) is blocked instead of let through.
       if (Number(counts.total) === 0) {
         throw new UnprocessableEntityException(
-          'Checklist de documentos não inicializado — defina a fonte de renda do processo antes de avançar (RN-04)',
+          'Nenhum documento solicitado para este processo — solicite os documentos antes de avançar (RN-04)',
         );
       }
       if (Number(counts.pending) > 0) {

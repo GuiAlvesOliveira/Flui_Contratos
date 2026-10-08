@@ -59,6 +59,10 @@ export class Document {
   @Column({ type: 'varchar', name: 'doc_type', length: 50, nullable: true })
   docType: string | null;
 
+  // BE-03: catalog entry this request came from (null for very old rows)
+  @Column({ type: 'uuid', name: 'document_type_id', nullable: true })
+  documentTypeId: string | null;
+
   @Column({ type: 'varchar', length: 255, nullable: true })
   label: string | null;
 

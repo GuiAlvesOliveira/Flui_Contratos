@@ -32,6 +32,7 @@ const ACTION_LABELS: Record<string, string> = {
   process_deactivated: 'Processo removido',
   process_reactivated: 'Processo reativado',
   document_upload: 'Envio de documento',
+  documents_requested: 'Documentos solicitados',
   profile_update: 'Atualização de cadastro',
 };
 
