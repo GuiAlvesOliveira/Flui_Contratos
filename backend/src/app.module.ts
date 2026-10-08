@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -20,6 +20,8 @@ import { TenantsModule } from './tenants/tenants.module';
 import { UnidadesModule } from './unidades/unidades.module';
 import { UsersModule } from './users/users.module';
 import { GLOBAL_GUARDS } from './common/guards/global-guards';
+import { UsageTelemetryInterceptor } from './common/interceptors/usage-telemetry.interceptor';
+import { TelemetryService } from './common/services/telemetry.service';
 import { Document } from './documents/document.entity';
 import { DocumentType } from './documents/document-type.entity';
 import { Empreendimento } from './empreendimentos/empreendimento.entity';
@@ -79,6 +81,10 @@ import { AddDocumentForms1718500800000 } from './database/migrations/17185008000
         ],
         migrationsRun: true,
         synchronize: false,
+        // The schema uses the built-in gen_random_uuid(); trying to create the
+        // uuid-ossp extension (not allow-listed on Azure) only logged a 0A000
+        // error on every boot.
+        installExtensions: false,
         ssl:
           config.get('NODE_ENV') === 'production'
             ? { rejectUnauthorized: true }
@@ -103,9 +109,14 @@ import { AddDocumentForms1718500800000 } from './database/migrations/17185008000
     UnidadesModule,
     UsersModule,
   ],
-  providers: GLOBAL_GUARDS.map((guard) => ({
-    provide: APP_GUARD,
-    useClass: guard,
-  })),
+  providers: [
+    ...GLOBAL_GUARDS.map((guard) => ({
+      provide: APP_GUARD,
+      useClass: guard,
+    })),
+    // VAL-04: eventos de uso (login, processo criado, avanço de etapa...) no App Insights
+    TelemetryService,
+    { provide: APP_INTERCEPTOR, useClass: UsageTelemetryInterceptor },
+  ],
 })
 export class AppModule {}

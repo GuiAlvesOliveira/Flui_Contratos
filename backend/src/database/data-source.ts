@@ -53,5 +53,6 @@ export const AppDataSource = new DataSource({
     AddNotificationReads1718500700000,
     AddDocumentForms1718500800000,
   ],
+  installExtensions: false, // same as app.module: gen_random_uuid() is built in
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: true } : false,
 });

@@ -2,6 +2,7 @@ import { Body, Controller, Delete, Get, Header, Param, ParseUUIDPipe, Patch, Pos
 import type { Response } from 'express';
 import { RequestUserFull } from '../auth/supabase.guard';
 import { Roles } from '../common/decorators/roles.decorator';
+import { TrackUsage } from '../common/decorators/track-usage.decorator';
 import { AdvanceStageDto } from './dto/advance-stage.dto';
 import { CreateProcessDto } from './dto/create-process.dto';
 import { UpdateProcessDto } from './dto/update-process.dto';
@@ -14,6 +15,7 @@ export class ProcessesController {
 
   @Post()
   @Roles('dono', 'analista')
+  @TrackUsage('process_created')
   create(@Body() dto: CreateProcessDto, @Request() req: { user: RequestUserFull }) {
     return this.service.create(dto, req.user);
   }
@@ -75,6 +77,10 @@ export class ProcessesController {
 
   @Patch(':id/stage')
   @Roles('dono', 'analista')
+  @TrackUsage('stage_changed', (res) => {
+    const r = res as { fromStage?: string; toStage?: string };
+    return { fromStage: r.fromStage, toStage: r.toStage };
+  })
   advanceStage(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: AdvanceStageDto,

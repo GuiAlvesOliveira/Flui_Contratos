@@ -20,6 +20,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
 import { RequestUserFull } from '../auth/supabase.guard';
 import { Roles } from '../common/decorators/roles.decorator';
+import { TrackUsage } from '../common/decorators/track-usage.decorator';
 import { UpdateDocumentDto } from './dto/update-document.dto';
 import { DpsFormDto, FinanciamentoFormDto } from './dto/forms.dto';
 import {
@@ -35,6 +36,7 @@ export class DocumentsController {
   // FE-23: DPS (equipe ou o próprio cliente) e financiamento (só a equipe)
   @Put('processes/:processId/forms/dps')
   @Roles('dono', 'analista', 'cliente')
+  @TrackUsage('form_submitted', () => ({ form: 'dps' }))
   submitDps(
     @Param('processId', ParseUUIDPipe) processId: string,
     @Body() dto: DpsFormDto,
@@ -45,6 +47,7 @@ export class DocumentsController {
 
   @Put('processes/:processId/forms/financiamento')
   @Roles('dono', 'analista')
+  @TrackUsage('form_submitted', () => ({ form: 'financiamento' }))
   submitFinanciamento(
     @Param('processId', ParseUUIDPipe) processId: string,
     @Body() dto: FinanciamentoFormDto,
@@ -134,6 +137,7 @@ export class DocumentsController {
 
   @Post('documents/:docId/upload')
   @Roles('dono', 'analista', 'cliente')
+  @TrackUsage('document_uploaded')
   @UseInterceptors(FileInterceptor('file', {
     limits: { fileSize: 20 * 1024 * 1024 }, // 20MB
     fileFilter: (_req, file, cb) => {

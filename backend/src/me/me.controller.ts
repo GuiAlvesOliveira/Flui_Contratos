@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Patch, Request } from '@nestjs/common';
 import { RequestUserFull } from '../auth/supabase.guard';
 import { PasswordChangeExempt } from '../common/decorators/password-change-exempt.decorator';
+import { TrackUsage } from '../common/decorators/track-usage.decorator';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { OnboardingDto } from './dto/onboarding.dto';
 import { MeService } from './me.service';
@@ -9,8 +10,10 @@ import { MeService } from './me.service';
 export class MeController {
   constructor(private readonly meService: MeService) {}
 
+  // VAL-04: o app chama /me ao entrar (login ou sessão retomada)
   @Get()
   @PasswordChangeExempt()
+  @TrackUsage('login')
   getMe(@Request() req: { user: RequestUserFull }) {
     const user = req.user;
     return {
