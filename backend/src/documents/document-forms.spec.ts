@@ -91,6 +91,20 @@ describe('FE-23: DPS and financing forms', () => {
     expect(await errors(DpsFormDto, { ...dps, declaracao: false })).toEqual([
       'declaracao',
     ]);
+    // missing details: one clear message, not one per rule
+    const [missing] = await validate(
+      plainToInstance(DpsFormDto, { ...dps, tratamento: true }),
+    );
+    expect(Object.values(missing.constraints ?? {})).toEqual([
+      'descreva os itens marcados como "sim" (até 1000 caracteres)',
+    ]);
+    expect(
+      await errors(DpsFormDto, {
+        ...dps,
+        tratamento: true,
+        detalhes: 'x'.repeat(1001),
+      }),
+    ).toEqual(['detalhes']);
   });
 
   it('validates the financing form', async () => {

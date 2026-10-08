@@ -3,7 +3,6 @@ import {
   IsBoolean,
   IsIn,
   IsInt,
-  IsNotEmpty,
   IsNumber,
   IsOptional,
   IsString,
@@ -11,8 +10,21 @@ import {
   Max,
   MaxLength,
   Min,
+  ValidateBy,
   ValidateIf,
 } from 'class-validator';
+
+// Required text up to `max` characters, reported with a single message
+function RequiredText(max: number, message: string) {
+  return ValidateBy({
+    name: 'requiredText',
+    validator: {
+      validate: (v: unknown) =>
+        typeof v === 'string' && v.trim().length > 0 && v.length <= max,
+      defaultMessage: () => message,
+    },
+  });
+}
 
 /**
  * PUT /processes/:id/forms/dps (FE-23) — Declaração Pessoal de Saúde used by
@@ -53,9 +65,10 @@ export class DpsFormDto {
       o.afastamento ||
       o.detalhes !== undefined,
   )
-  @IsString({ message: 'descreva os itens marcados como "sim"' })
-  @IsNotEmpty({ message: 'descreva os itens marcados como "sim"' })
-  @MaxLength(1000, { message: 'os detalhes podem ter até 1000 caracteres' })
+  @RequiredText(
+    1000,
+    'descreva os itens marcados como "sim" (até 1000 caracteres)',
+  )
   detalhes?: string;
 
   @Equals(true, { message: 'é preciso confirmar a declaração' })
