@@ -29,6 +29,9 @@ Thumbs.db
 
 # Configuração local de ferramentas de desenvolvimento (fica só na máquina)
 .claude/
+CLAUDE.md
+CLAUDE.local.md
+**/CLAUDE.md
 
 # Documentos privados do TCC (pasta na raiz — ancorada para não pegar backend/src/documents/)
 /documents/
@@ -36,3 +39,5 @@ MERCADO.md
 
 # Backlog local (visualização HTML + dados — não versionado)
 /BACKLOG/
+
+.vercel
