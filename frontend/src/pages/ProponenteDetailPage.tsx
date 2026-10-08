@@ -2,7 +2,7 @@ import { Fragment, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/axiosInstance';
 import * as Icon from '../components/icons';
-import { allowedTransitions, LINEAR_STAGES, type ProcessStage } from '../lib/processStages';
+import { allowedTransitions, formsAvailable, LINEAR_STAGES, type ProcessStage } from '../lib/processStages';
 import {
   ageOn, formatCpf, formatDateOnly, formatTelefone, isValidCpf, isValidTelefone,
   normalizeTelefone, onlyDigits, todayIso,
@@ -11,6 +11,7 @@ import { CATEGORY_LABELS, groupByCategory } from '../lib/documentCatalog';
 import { actionLabel, stateLabel } from '../lib/auditActions';
 import { SolicitarDocumentosModal } from '../components/SolicitarDocumentosModal';
 import { ExcluirDocumentoModal } from '../components/ExcluirDocumentoModal';
+import { FormulariosTab } from '../components/FormulariosTab';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -68,9 +69,11 @@ interface Document {
   blobPath: string | null;
   processId: string | null; // null = documento pessoal do cliente (vale para todos os processos)
   documentTypeId: string | null; // item da lista de documentos da assessoria (BE-03)
+  formType?: 'dps' | 'financiamento' | null; // preenchido na aba Formulários (FE-23)
+  formData?: Record<string, unknown> | null;
 }
 
-type Tab = 'workflow' | 'cadastro' | 'ficha' | 'documentos' | 'atividade';
+type Tab = 'workflow' | 'cadastro' | 'ficha' | 'documentos' | 'formularios' | 'atividade';
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -1341,7 +1344,7 @@ function DocumentosTab({ processId, role }: { processId: string; role: string | 
             {catDocs.map((doc, idx) => {
               const badge = STATUS_BADGE[doc.status];
               // FE-21: o analista também envia o arquivo pela linha (ex.: recebido por e-mail)
-              const canUpload = (isCliente || isAnalista) && (doc.status === 'pendente' || doc.status === 'rejeitado');
+              const canUpload = (isCliente || isAnalista) && !doc.formType && (doc.status === 'pendente' || doc.status === 'rejeitado');
               return (
                 <div key={doc.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 16px', borderTop: idx === 0 ? 'none' : '1px solid var(--border)' }}>
                   <div style={{
@@ -1353,6 +1356,9 @@ function DocumentosTab({ processId, role }: { processId: string; role: string | 
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 13, fontWeight: 500 }}>{doc.label ?? doc.name}</div>
+                    {doc.formType && (
+                      <div style={{ fontSize: 11.5, color: 'var(--text-faint)', marginTop: 2 }}>Preenchido na aba Formulários</div>
+                    )}
                     {doc.validatedByNotes && (
                       <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 2 }}>{doc.validatedByNotes}</div>
                     )}
@@ -1535,6 +1541,10 @@ export function ProponenteDetailPage({ processId, onBack, role }: Props) {
     { id: 'cadastro', label: 'Cadastro' },
     { id: 'ficha', label: 'Ficha' },
     { id: 'documentos', label: `Documentos${docs.length > 0 ? ` ${docsValidados}/${docs.length}` : ''}` },
+    // FE-23: só a partir da Análise de Crédito
+    ...(formsAvailable(process.stage, process.stageBeforePendencia)
+      ? [{ id: 'formularios' as Tab, label: 'Formulários' }]
+      : []),
     { id: 'atividade', label: 'Atividade' },
   ];
 
@@ -1656,6 +1666,7 @@ export function ProponenteDetailPage({ processId, onBack, role }: Props) {
       {tab === 'cadastro' && <CadastroTab process={process} role={role} />}
       {tab === 'ficha' && <FichaTab process={process} />}
       {tab === 'documentos' && <DocumentosTab processId={processId} role={role} />}
+      {tab === 'formularios' && <FormulariosTab processId={processId} docs={docs} role={role} />}
       {tab === 'atividade' && <AtividadeTab processId={processId} />}
 
       {showMoverEtapa && (

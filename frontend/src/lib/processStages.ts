@@ -31,6 +31,15 @@ export const LINEAR_STAGES: ProcessStage[] = [
 // processo recém-criado ainda não tem.
 export const NEW_PROCESS_STAGES: ProcessStage[] = ['inicial', 'cadastro', 'analise_credito'];
 
+// FE-23: formulários DPS e financiamento a partir da Análise de Crédito (onde
+// a antiga etapa "em análise no banco" foi unificada). Mesma regra da API.
+export function formsAvailable(stage: ProcessStage, stageBeforePendencia: ProcessStage | null): boolean {
+  const from = LINEAR_STAGES.indexOf('analise_credito');
+  if (stage === 'credito_recusado') return true;
+  if (stage === 'processo_pendencia') return LINEAR_STAGES.indexOf(stageBeforePendencia ?? 'cadastro') >= from;
+  return LINEAR_STAGES.indexOf(stage) >= from;
+}
+
 const ALLOWED_TRANSITIONS: Record<ProcessStage, ProcessStage[]> = {
   inicial: ['cadastro', 'cliente_inativo'],
   cadastro: ['analise_credito', 'cliente_inativo', 'processo_pendencia'],

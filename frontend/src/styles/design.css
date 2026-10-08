@@ -290,6 +290,14 @@ input, select, textarea { font-family: inherit; }
 }
 .ds-search-item.active { background: var(--bg-hover); }
 
+/* Formulários do processo (FE-23) */
+.ds-forms-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 16px; align-items: start; }
+.ds-form-status { font-size: 12px; color: var(--text-muted); }
+.ds-form-status.info { color: var(--accent); }
+.ds-form-status.ok { color: var(--green); }
+.ds-form-status.bad { color: var(--red); }
+@media (max-width: 640px) { .ds-forms-grid { grid-template-columns: 1fr; } }
+
 /* Content */
 .ds-content { flex: 1; overflow: auto; }
 .ds-page { max-width: 1320px; margin: 0 auto; padding: 24px 28px 80px; }

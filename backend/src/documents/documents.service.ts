@@ -4,6 +4,7 @@ import {
   Injectable,
   NotFoundException,
   ServiceUnavailableException,
+  UnprocessableEntityException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, IsNull, Repository } from 'typeorm';
@@ -16,6 +17,7 @@ import { Document } from './document.entity';
 import { DocumentType } from './document-type.entity';
 import type { DocumentStatus } from './document.entity';
 import { UpdateDocumentDto } from './dto/update-document.dto';
+import { FORM_LABELS, formsAvailable, type FormType } from './document-forms';
 
 // ── Upload content validation (magic numbers) ─────────────────────────────────
 
@@ -358,6 +360,60 @@ export class DocumentsService {
       [caller.tenantId],
     );
     return { pending: Number(row.pending), total: Number(row.total) };
+  }
+
+  // FE-23: DPS and financing filled in the app become a document of the
+  // process checklist — "recebido", to be validated by the analista like any
+  // other (RN-04). A validated form is not overwritten.
+  async submitForm(
+    processId: string,
+    formType: FormType,
+    data: object,
+    caller: RequestUserFull,
+  ) {
+    const process = await this.resolveProcess(processId, caller);
+    if (!formsAvailable(process.stage, process.stageBeforePendencia)) {
+      throw new UnprocessableEntityException(
+        'Os formulários ficam disponíveis a partir da Análise de Crédito',
+      );
+    }
+
+    const label = FORM_LABELS[formType];
+    let doc = await this.repo.findOne({
+      where: { processId, formType, tenantId: caller.tenantId! },
+    });
+    if (doc?.status === 'validado') {
+      throw new UnprocessableEntityException(
+        'Formulário já validado pelo analista',
+      );
+    }
+    doc ??= this.repo.create({
+      tenantId: caller.tenantId!,
+      processId,
+      userId: process.clientId,
+      name: label,
+      label,
+      category: 'outros',
+      formType,
+    });
+    doc.formData = { ...data };
+    doc.status = 'recebido';
+    doc.validated = false;
+    doc.validatedByNotes = null;
+    doc.uploadedBy = caller.userId;
+    const saved = await this.repo.save(doc);
+
+    await this.dataSource.query(
+      `INSERT INTO audit_logs (tenant_id, process_id, actor_id, action, metadata)
+       VALUES ($1, $2, $3, 'form_submitted', $4::jsonb)`,
+      [
+        caller.tenantId,
+        processId,
+        caller.userId,
+        JSON.stringify({ docId: saved.id, label }),
+      ],
+    );
+    return saved;
   }
 
   private async resolveProcess(processId: string, caller: RequestUserFull) {

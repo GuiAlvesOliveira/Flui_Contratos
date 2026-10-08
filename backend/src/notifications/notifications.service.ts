@@ -7,12 +7,14 @@ export const NOTIFY_ACTIONS: Record<string, string[]> = {
   dono: [
     'stage_change',
     'document_upload',
+    'form_submitted',
     'process_deactivated',
     'process_reactivated',
   ],
   analista: [
     'stage_change',
     'document_upload',
+    'form_submitted',
     'process_deactivated',
     'process_reactivated',
     'profile_update',

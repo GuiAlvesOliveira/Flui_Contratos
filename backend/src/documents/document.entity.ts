@@ -9,6 +9,7 @@ import {
 import { Process } from '../processes/process.entity';
 import { Tenant } from '../tenants/tenant.entity';
 import { User } from '../users/user.entity';
+import type { FormType } from './document-forms';
 
 export type DocumentStatus = 'pendente' | 'recebido' | 'validado' | 'rejeitado';
 
@@ -68,6 +69,13 @@ export class Document {
 
   @Column({ type: 'varchar', length: 20, default: 'pendente' })
   status: DocumentStatus;
+
+  // FE-23: form filled in the app (DPS, financing) instead of an uploaded file
+  @Column({ type: 'varchar', name: 'form_type', length: 30, nullable: true })
+  formType: FormType | null;
+
+  @Column({ type: 'jsonb', name: 'form_data', nullable: true })
+  formData: Record<string, unknown> | null;
 
   @Column({ type: 'text', nullable: true })
   notes: string | null;

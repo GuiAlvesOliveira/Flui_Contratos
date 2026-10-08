@@ -34,6 +34,7 @@ function notificationText(n: NotificationItem): string {
     case 'document_validated': return `Documento validado: ${n.label ?? 'documento'}`;
     case 'document_rejected': return `Documento rejeitado: ${n.label ?? 'documento'} — envie de novo`;
     case 'profile_update': return 'Cadastro do proponente atualizado';
+    case 'form_submitted': return `Formulário enviado: ${n.label ?? 'formulário'}`;
     default: return actionLabel(n.action);
   }
 }

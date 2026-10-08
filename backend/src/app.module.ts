@@ -35,6 +35,7 @@ import { AddUserDataNascimento1718500400000 } from './database/migrations/171850
 import { AddDocumentTypes1718500500000 } from './database/migrations/1718500500000-AddDocumentTypes';
 import { AddEmpreendimentoTeam1718500600000 } from './database/migrations/1718500600000-AddEmpreendimentoTeam';
 import { AddNotificationReads1718500700000 } from './database/migrations/1718500700000-AddNotificationReads';
+import { AddDocumentForms1718500800000 } from './database/migrations/1718500800000-AddDocumentForms';
 
 @Module({
   imports: [
@@ -74,6 +75,7 @@ import { AddNotificationReads1718500700000 } from './database/migrations/1718500
           AddDocumentTypes1718500500000,
           AddEmpreendimentoTeam1718500600000,
           AddNotificationReads1718500700000,
+          AddDocumentForms1718500800000,
         ],
         migrationsRun: true,
         synchronize: false,

@@ -8,6 +8,7 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Put,
   Query,
   Request,
   Res,
@@ -20,6 +21,7 @@ import type { Response } from 'express';
 import { RequestUserFull } from '../auth/supabase.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { UpdateDocumentDto } from './dto/update-document.dto';
+import { DpsFormDto, FinanciamentoFormDto } from './dto/forms.dto';
 import {
   RemoveDocumentQueryDto,
   RequestDocumentsDto,
@@ -29,6 +31,27 @@ import { DocumentsService } from './documents.service';
 @Controller()
 export class DocumentsController {
   constructor(private readonly service: DocumentsService) {}
+
+  // FE-23: DPS (equipe ou o próprio cliente) e financiamento (só a equipe)
+  @Put('processes/:processId/forms/dps')
+  @Roles('dono', 'analista', 'cliente')
+  submitDps(
+    @Param('processId', ParseUUIDPipe) processId: string,
+    @Body() dto: DpsFormDto,
+    @Request() req: { user: RequestUserFull },
+  ) {
+    return this.service.submitForm(processId, 'dps', dto, req.user);
+  }
+
+  @Put('processes/:processId/forms/financiamento')
+  @Roles('dono', 'analista')
+  submitFinanciamento(
+    @Param('processId', ParseUUIDPipe) processId: string,
+    @Body() dto: FinanciamentoFormDto,
+    @Request() req: { user: RequestUserFull },
+  ) {
+    return this.service.submitForm(processId, 'financiamento', dto, req.user);
+  }
 
   @Get('documents/stats')
   @Roles('dono', 'analista')
