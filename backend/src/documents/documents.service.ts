@@ -3,6 +3,7 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, IsNull, Repository } from 'typeorm';
@@ -132,6 +133,68 @@ export class DocumentsService {
       skipped: types.length - created.length,
       documents: created,
     };
+  }
+
+  // BE-10 / LGPD: removes a document completely — the file in storage (with
+  // its snapshots) and the database row — and drops the original file name
+  // from earlier audit entries, since it may identify the person. The removal
+  // itself is audited without personal data. If the file cannot be removed
+  // from storage, nothing is deleted, so no orphan file is left behind.
+  async removeDocument(
+    docId: string,
+    opts: { reason?: string; processId?: string },
+    caller: RequestUserFull,
+  ) {
+    const tenantId = caller.tenantId!;
+    const doc = await this.repo.findOne({ where: { id: docId, tenantId } });
+    if (!doc) throw new NotFoundException('Documento não encontrado');
+
+    const hasFile = !!doc.blobPath && !doc.blobPath.startsWith('local://');
+    if (hasFile) {
+      if (!this.azureStorage.isAvailable) {
+        throw new ServiceUnavailableException(
+          'Armazenamento indisponível — o documento não foi excluído. Tente novamente.',
+        );
+      }
+      await this.azureStorage.delete(doc.blobPath!);
+    }
+
+    // Personal docs have no process of their own: log it on the process the
+    // user was looking at, if it is one of this client's.
+    let auditProcessId = doc.processId;
+    if (!auditProcessId && opts.processId && doc.userId) {
+      const viewed = await this.processRepo.findOne({
+        where: { id: opts.processId, tenantId, clientId: doc.userId },
+      });
+      auditProcessId = viewed?.id ?? null;
+    }
+
+    await this.dataSource.transaction(async (manager) => {
+      await manager.delete(Document, { id: docId, tenantId });
+      await manager.query(
+        `UPDATE audit_logs SET metadata = metadata - 'fileName'
+          WHERE tenant_id = $1 AND metadata->>'docId' = $2`,
+        [tenantId, docId],
+      );
+      await manager.query(
+        `INSERT INTO audit_logs (tenant_id, process_id, actor_id, action, metadata)
+         VALUES ($1, $2, $3, 'document_deleted', $4::jsonb)`,
+        [
+          tenantId,
+          auditProcessId,
+          caller.userId,
+          JSON.stringify({
+            docId,
+            label: doc.label ?? doc.name,
+            category: doc.category,
+            hadFile: hasFile,
+            reason: opts.reason?.trim() || null,
+          }),
+        ],
+      );
+    });
+
+    return { id: docId, deleted: true, fileRemoved: hasFile };
   }
 
   async update(docId: string, dto: UpdateDocumentDto, caller: RequestUserFull) {

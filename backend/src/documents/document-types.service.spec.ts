@@ -8,7 +8,10 @@ import {
   CreateDocumentTypeDto,
   UpdateDocumentTypeDto,
 } from './dto/document-type.dto';
-import { RequestDocumentsDto } from './dto/request-documents.dto';
+import {
+  RemoveDocumentQueryDto,
+  RequestDocumentsDto,
+} from './dto/request-documents.dto';
 import { RequestUserFull } from '../auth/supabase.guard';
 
 function makeService() {
@@ -155,7 +158,7 @@ async function errorsFor<T extends object>(
   return errors.map((e) => e.property).sort();
 }
 
-describe('BE-03 DTOs', () => {
+describe('BE-03 / BE-10 DTOs', () => {
   it('catalog entry: label 2–120 chars (trimmed), known category', async () => {
     expect(
       await errorsFor(CreateDocumentTypeDto, {
@@ -185,5 +188,17 @@ describe('BE-03 DTOs', () => {
     expect(
       await errorsFor(RequestDocumentsDto, { documentTypeIds: ['RG'] }),
     ).toEqual(['documentTypeIds']);
+  });
+
+  it('removal: optional reason (≤300) and process id', async () => {
+    expect(
+      await errorsFor(RemoveDocumentQueryDto, { reason: 'Pedido do titular' }),
+    ).toEqual([]);
+    expect(
+      await errorsFor(RemoveDocumentQueryDto, {
+        reason: 'x'.repeat(301),
+        processId: 'p1',
+      }),
+    ).toEqual(['processId', 'reason']);
   });
 });

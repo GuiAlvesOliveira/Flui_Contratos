@@ -49,6 +49,18 @@ export class AzureStorageService {
     return blobName;
   }
 
+  // Removes the blob and its snapshots (LGPD removal, BE-10). Returns false if
+  // it was already gone. With blob soft delete enabled on the storage account,
+  // Azure keeps it recoverable by an account admin for the retention period;
+  // the app itself can no longer reach it.
+  async delete(blobName: string): Promise<boolean> {
+    if (!this.containerClient) throw new Error('Azure Storage not configured');
+    const res = await this.containerClient
+      .getBlockBlobClient(blobName)
+      .deleteIfExists({ deleteSnapshots: 'include' });
+    return res.succeeded;
+  }
+
   // Downloads the blob and returns a raw stream — caller pipes it to the HTTP response.
   // The blob URL is never exposed; the backend is the only transport.
   async download(blobName: string): Promise<BlobDownload> {

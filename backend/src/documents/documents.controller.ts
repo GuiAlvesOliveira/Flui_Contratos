@@ -1,12 +1,14 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Header,
   Param,
   ParseUUIDPipe,
   Patch,
   Post,
+  Query,
   Request,
   Res,
   StreamableFile,
@@ -18,7 +20,10 @@ import type { Response } from 'express';
 import { RequestUserFull } from '../auth/supabase.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { UpdateDocumentDto } from './dto/update-document.dto';
-import { RequestDocumentsDto } from './dto/request-documents.dto';
+import {
+  RemoveDocumentQueryDto,
+  RequestDocumentsDto,
+} from './dto/request-documents.dto';
 import { DocumentsService } from './documents.service';
 
 @Controller()
@@ -53,6 +58,17 @@ export class DocumentsController {
       dto.documentTypeIds,
       req.user,
     );
+  }
+
+  // BE-10 / LGPD: complete removal (file in storage + record)
+  @Delete('documents/:docId')
+  @Roles('dono', 'analista')
+  remove(
+    @Param('docId', ParseUUIDPipe) docId: string,
+    @Query() query: RemoveDocumentQueryDto,
+    @Request() req: { user: RequestUserFull },
+  ) {
+    return this.service.removeDocument(docId, query, req.user);
   }
 
   @Patch('documents/:docId')

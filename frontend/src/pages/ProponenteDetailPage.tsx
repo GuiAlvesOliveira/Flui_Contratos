@@ -9,6 +9,7 @@ import {
 } from '../lib/validators';
 import { CATEGORY_LABELS, groupByCategory } from '../lib/documentCatalog';
 import { SolicitarDocumentosModal } from '../components/SolicitarDocumentosModal';
+import { ExcluirDocumentoModal } from '../components/ExcluirDocumentoModal';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -1251,6 +1252,7 @@ function DocumentosTab({ processId, role }: { processId: string; role: string | 
   const isCliente = role === 'cliente';
 
   const [showSolicitar, setShowSolicitar] = useState(false);
+  const [toDelete, setToDelete] = useState<Document | null>(null);
 
   const { data: docs = [], isLoading } = useQuery<Document[]>({
     queryKey: ['documents', processId],
@@ -1329,6 +1331,17 @@ function DocumentosTab({ processId, role }: { processId: string; role: string | 
                       </button>
                     </div>
                   )}
+                  {isAnalista && (
+                    <button
+                      className="ds-btn ghost sm"
+                      style={{ color: 'var(--text-faint)' }}
+                      onClick={() => setToDelete(doc)}
+                      title="Excluir documento"
+                      aria-label={`Excluir ${doc.label ?? doc.name}`}
+                    >
+                      <Icon.Trash size={13} />
+                    </button>
+                  )}
                 </div>
               );
             })}
@@ -1343,6 +1356,9 @@ function DocumentosTab({ processId, role }: { processId: string; role: string | 
           requestedLabels={new Set(docs.map(d => (d.label ?? d.name).toLowerCase()))}
           onClose={() => setShowSolicitar(false)}
         />
+      )}
+      {toDelete && (
+        <ExcluirDocumentoModal doc={toDelete} processId={processId} onClose={() => setToDelete(null)} />
       )}
     </div>
   );

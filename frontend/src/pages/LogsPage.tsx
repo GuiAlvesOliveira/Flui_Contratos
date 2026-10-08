@@ -33,6 +33,7 @@ const ACTION_LABELS: Record<string, string> = {
   process_reactivated: 'Processo reativado',
   document_upload: 'Envio de documento',
   documents_requested: 'Documentos solicitados',
+  document_deleted: 'Documento excluído (LGPD)',
   profile_update: 'Atualização de cadastro',
 };
 
@@ -67,7 +68,7 @@ function stateLabel(s: string | null) {
 }
 
 function actionColor(action: string): string {
-  if (action === 'process_deactivated') return 'var(--red)';
+  if (action === 'process_deactivated' || action === 'document_deleted') return 'var(--red)';
   if (action === 'process_reactivated') return 'var(--green, #22c55e)';
   if (action.endsWith('_undo')) return 'var(--amber, #f59e0b)';
   return 'var(--text-muted)';

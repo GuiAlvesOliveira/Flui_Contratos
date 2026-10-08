@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ForbiddenException,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { DataSource, Repository } from 'typeorm';
 import { DocumentsService } from './documents.service';
@@ -155,6 +156,100 @@ describe('DocumentsService.requestDocuments (BE-03 catalog)', () => {
     processRepo.findOne.mockResolvedValue(null);
     await expect(
       service.requestDocuments('p1', ['ty-rg'], caller('analista')),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+});
+
+describe('DocumentsService.removeDocument (BE-10, LGPD)', () => {
+  const withFile = {
+    id: 'd1',
+    tenantId: 't1',
+    processId: 'p1',
+    userId: 'cl1',
+    label: 'Holerite (mês 1)',
+    category: 'renda',
+    blobPath: 't1/p1/d1.pdf',
+  };
+
+  it('deletes the file in storage, the record, and the file name from old audit entries', async () => {
+    const { service, repo, azureStorage, manager } = makeService();
+    azureStorage.isAvailable = true;
+    repo.findOne.mockResolvedValue({ ...withFile });
+
+    const res = await service.removeDocument(
+      'd1',
+      { reason: '  Pedido do titular  ' },
+      caller('dono'),
+    );
+
+    expect(res).toEqual({ id: 'd1', deleted: true, fileRemoved: true });
+    expect(azureStorage.delete).toHaveBeenCalledWith('t1/p1/d1.pdf');
+    expect(manager.delete).toHaveBeenCalledWith(Document, {
+      id: 'd1',
+      tenantId: 't1',
+    });
+    const [scrubSql, scrubParams] = manager.query.mock.calls[0] as [
+      string,
+      unknown[],
+    ];
+    expect(scrubSql).toContain("metadata - 'fileName'");
+    expect(scrubParams).toEqual(['t1', 'd1']);
+    const [auditSql, auditParams] = manager.query.mock.calls[1] as [
+      string,
+      unknown[],
+    ];
+    expect(auditSql).toContain("'document_deleted'");
+    expect(auditParams.slice(0, 3)).toEqual(['t1', 'p1', 'u1']);
+    expect(JSON.parse(auditParams[3] as string)).toEqual({
+      docId: 'd1',
+      label: 'Holerite (mês 1)',
+      category: 'renda',
+      hadFile: true,
+      reason: 'Pedido do titular',
+    });
+  });
+
+  it('removes nothing if the storage is unavailable while the file exists', async () => {
+    const { service, repo, azureStorage, dataSource } = makeService();
+    azureStorage.isAvailable = false;
+    repo.findOne.mockResolvedValue({ ...withFile });
+    await expect(
+      service.removeDocument('d1', {}, caller('analista')),
+    ).rejects.toBeInstanceOf(ServiceUnavailableException);
+    expect(azureStorage.delete).not.toHaveBeenCalled();
+    expect(dataSource.transaction).not.toHaveBeenCalled();
+  });
+
+  it('a request without file is just removed (no storage call)', async () => {
+    const { service, repo, azureStorage, manager } = makeService();
+    repo.findOne.mockResolvedValue({ ...withFile, blobPath: null });
+    const res = await service.removeDocument('d1', {}, caller('analista'));
+    expect(res).toEqual({ id: 'd1', deleted: true, fileRemoved: false });
+    expect(azureStorage.delete).not.toHaveBeenCalled();
+    expect(manager.delete).toHaveBeenCalled();
+  });
+
+  it('logs a personal document on the viewed process only if it belongs to the same client', async () => {
+    const { service, repo, processRepo, manager } = makeService();
+    repo.findOne.mockResolvedValue({
+      ...withFile,
+      processId: null,
+      blobPath: null,
+    });
+    processRepo.findOne.mockResolvedValue({ id: 'p9' });
+    await service.removeDocument('d1', { processId: 'p9' }, caller('analista'));
+    expect(processRepo.findOne).toHaveBeenCalledWith({
+      where: { id: 'p9', tenantId: 't1', clientId: 'cl1' },
+    });
+    const audit = manager.query.mock.calls[1] as [string, unknown[]];
+    expect(audit[1][1]).toBe('p9');
+  });
+
+  it('404s for a document outside the caller tenant', async () => {
+    const { service, repo } = makeService();
+    repo.findOne.mockResolvedValue(null);
+    await expect(
+      service.removeDocument('d1', {}, caller('dono')),
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 });
