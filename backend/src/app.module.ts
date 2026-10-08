@@ -4,6 +4,7 @@ import { ThrottlerModule } from '@nestjs/throttler';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuditModule } from './audit/audit.module';
+import { DashboardModule } from './dashboard/dashboard.module';
 import { AuthModule } from './auth/auth.module';
 import { ParticipantsModule } from './participants/participants.module';
 import { ProcessParticipant } from './participants/participant.entity';
@@ -81,6 +82,7 @@ import { AddEmpreendimentoTeam1718500600000 } from './database/migrations/171850
     }),
     TypeOrmModule.forFeature([User, Tenant]),
     AuditModule,
+    DashboardModule,
     AuthModule,
     ParticipantsModule,
     DocumentsModule,

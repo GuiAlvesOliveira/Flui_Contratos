@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../api/axiosInstance';
 import * as Icon from '../components/icons';
@@ -149,6 +150,98 @@ function ConversionRow({ stage, reached, pctOfTotal, stepRate }: ConversionRowPr
       >
         {stepRate === null ? `${reached} proc.` : `↳ ${formatPct(stepRate)}`}
       </div>
+    </div>
+  );
+}
+
+// ── Tempo por etapa (BE-14) ──────────────────────────────────────────────────
+
+interface DashboardSummary {
+  days: number;
+  period: { newProcesses: number; stageChanges: number; signed: number };
+  avgDaysInStage: { stage: ProcessStage; avgDays: number | null; samples: number }[];
+}
+
+const PERIOD_OPTIONS = [7, 30, 90];
+const SIDE_STAGES: ProcessStage[] = ['cliente_inativo', 'credito_recusado', 'processo_pendencia'];
+
+function fmtDays(n: number) {
+  return `${n.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} dia${n === 1 ? '' : 's'}`;
+}
+
+// Quanto tempo, em média, os processos ficaram em cada etapa antes de sair dela
+// no período, e o movimento do período. Vem de GET /dashboard/summary, que
+// calcula pelo histórico de mudanças de etapa (log de auditoria).
+function StageTimeCard() {
+  const [days, setDays] = useState(30);
+  const { data: summary, isLoading, isError } = useQuery<DashboardSummary>({
+    queryKey: ['dashboard-summary', days],
+    queryFn: () => api.get<DashboardSummary>('/dashboard/summary', { params: { days } }).then(r => r.data),
+    staleTime: 5 * 60_000, // a API guarda o resumo por 5 minutos
+  });
+  const rows = (summary?.avgDaysInStage ?? []).filter(r => !SIDE_STAGES.includes(r.stage) || r.samples > 0);
+  const max = Math.max(1, ...rows.map(r => r.avgDays ?? 0));
+
+  return (
+    <div className="ds-card">
+      <div className="ds-card-hdr">
+        <h3>Tempo médio por etapa</h3>
+        <div className="ds-seg" role="group" aria-label="Período">
+          {PERIOD_OPTIONS.map(d => (
+            <button
+              key={d}
+              className={`ds-seg-btn ${days === d ? 'active' : ''}`}
+              aria-pressed={days === d}
+              onClick={() => setDays(d)}
+            >
+              {d} dias
+            </button>
+          ))}
+        </div>
+      </div>
+      {isError ? (
+        <div style={{ padding: 20, textAlign: 'center', color: 'var(--red)', fontSize: 13 }}>
+          Não foi possível carregar os indicadores do período
+        </div>
+      ) : isLoading || !summary ? (
+        <div style={{ padding: 20, textAlign: 'center', color: 'var(--text-faint)', fontSize: 13 }}>Carregando...</div>
+      ) : (
+        <>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', borderBottom: '1px solid var(--border)' }}>
+            {[
+              { label: 'Processos novos', value: summary.period.newProcesses },
+              { label: 'Mudanças de etapa', value: summary.period.stageChanges },
+              { label: 'Contratos assinados', value: summary.period.signed },
+            ].map(m => (
+              <div key={m.label} style={{ padding: '10px 14px' }}>
+                <div className="ds-kpi-label">{m.label}</div>
+                <div style={{ fontSize: 20, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{m.value}</div>
+              </div>
+            ))}
+          </div>
+          {rows.map(r => (
+            <div className="ds-phase-row" key={r.stage} data-testid={`tempo-${r.stage}`}>
+              <div className="ds-phase-name">
+                <span className="ds-phase-dot" style={{ background: STAGE_COLORS[r.stage] }} />
+                {STAGE_LABELS[r.stage]}
+              </div>
+              <div className="ds-phase-bar">
+                <span style={{ width: `${((r.avgDays ?? 0) / max) * 100}%`, background: STAGE_COLORS[r.stage] }} />
+              </div>
+              <div className="ds-phase-count" style={{ minWidth: 64 }}>
+                {r.avgDays === null ? '—' : fmtDays(r.avgDays)}
+              </div>
+              <div
+                className="ds-phase-count"
+                style={{ minWidth: 64, color: 'var(--text-muted)', fontWeight: 400, fontSize: 12 }}
+                title="Processos que saíram da etapa no período"
+              >
+                {r.samples} saída{r.samples !== 1 ? 's' : ''}
+              </div>
+            </div>
+          ))}
+        </>
+      )}
     </div>
   );
 }
@@ -392,6 +485,11 @@ export function DashboardPage({ onNavigate }: DashboardPageProps) {
               </div>
             )}
           </div>
+        </div>
+
+        {/* Tempo médio por etapa e movimento do período (BE-14) */}
+        <div className="ds-col-12">
+          <StageTimeCard />
         </div>
 
         {/* Processos atrasados */}
