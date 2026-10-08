@@ -274,7 +274,7 @@ input, select, textarea { font-family: inherit; }
 .ds-tb-search input::placeholder { color: var(--text-muted); }
 .ds-tb-search:focus-within { background: #fff; border-color: var(--accent); cursor: text; }
 .ds-search-dd {
-  position: absolute; top: 36px; left: 0; z-index: 40;
+  position: absolute; top: 36px; right: 0; z-index: 40; /* abre para a esquerda: o campo fica no canto direito */
   width: 380px; max-height: 70vh; overflow: auto;
   background: #fff; border: 1px solid var(--border); border-radius: var(--radius);
   box-shadow: var(--shadow-lg);
