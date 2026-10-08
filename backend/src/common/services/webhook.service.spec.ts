@@ -1,6 +1,6 @@
 import { ConfigService } from '@nestjs/config';
 import { Logger } from '@nestjs/common';
-import { WebhookService } from './webhook.service';
+import { stageEventType, WebhookService } from './webhook.service';
 
 function makeService(nodeEnv: string) {
   const config = {
@@ -51,5 +51,19 @@ describe('WebhookService.fireAndForget (RN-08/09, REL-01)', () => {
     expect(() => makeService('production').fireAndForget('x', {})).not.toThrow();
     await flush();
     expect(fetchMock).toHaveBeenCalled();
+  });
+});
+
+describe('BE-15: event_type of each stage', () => {
+  it('maps the stages of the six n8n points', () => {
+    expect(stageEventType('credito_recusado')).toBe('credit_refused');
+    expect(stageEventType('analise_credito')).toBe('bank_analysis');
+    expect(stageEventType('credito_aprovado')).toBe('bank_analysis');
+    expect(stageEventType('processo_pendencia')).toBe('pending_alert');
+    expect(stageEventType('assinatura')).toBe('signature');
+    expect(stageEventType('analise_juridica')).toBe('issuance');
+    expect(stageEventType('cartorio')).toBe('issuance');
+    expect(stageEventType('cadastro')).toBe('stage_changed');
+    expect(stageEventType('cliente_inativo')).toBe('stage_changed');
   });
 });

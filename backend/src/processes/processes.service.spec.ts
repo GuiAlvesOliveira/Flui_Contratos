@@ -18,7 +18,7 @@ function makeService(process: Partial<Process> | null) {
       .fn()
       .mockImplementation(async (cb: (m: unknown) => unknown) => cb(manager)),
   };
-  const webhook = { fireAndForget: jest.fn() };
+  const webhook = { fireAndForget: jest.fn(), fireEvent: jest.fn() };
   const email = { sendStageChange: jest.fn() };
   const service = new ProcessesService(
     repo as unknown as Repository<Process>,
@@ -156,7 +156,7 @@ describe('ProcessesService.advanceStage', () => {
     });
     const res = await service.advanceStage('p1', dto('cadastro'), caller);
     expect(res).toEqual({ id: 'p1', fromStage: 'inicial', toStage: 'cadastro' });
-    expect(webhook.fireAndForget).toHaveBeenCalledTimes(1);
+    expect(webhook.fireEvent).toHaveBeenCalledTimes(1);
   });
 });
 

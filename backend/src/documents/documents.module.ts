@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AzureStorageService } from '../common/services/azure-storage.service';
+import { WebhookService } from '../common/services/webhook.service';
 import { EmailModule } from '../email/email.module';
 import { Process } from '../processes/process.entity';
 import { User } from '../users/user.entity';
@@ -17,7 +18,12 @@ import { DocumentsService } from './documents.service';
     EmailModule,
   ],
   controllers: [DocumentsController, DocumentTypesController],
-  providers: [DocumentsService, DocumentTypesService, AzureStorageService],
+  providers: [
+    DocumentsService,
+    DocumentTypesService,
+    AzureStorageService,
+    WebhookService,
+  ],
   exports: [DocumentsService],
 })
 export class DocumentsModule {}

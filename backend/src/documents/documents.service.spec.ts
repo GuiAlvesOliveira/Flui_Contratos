@@ -36,6 +36,7 @@ function makeService() {
       .mockImplementation((cb: (m: unknown) => unknown) => cb(manager)),
   };
   const email = { sendDocumentRejected: jest.fn() };
+  const webhook = { fireEvent: jest.fn() };
   const service = new DocumentsService(
     repo as unknown as Repository<Document>,
     typeRepo as unknown as Repository<DocumentType>,
@@ -44,6 +45,7 @@ function makeService() {
     azureStorage as never,
     dataSource as unknown as DataSource,
     email as never,
+    webhook as never,
   );
   return {
     service,
@@ -55,6 +57,7 @@ function makeService() {
     dataSource,
     manager,
     email,
+    webhook,
   };
 }
 

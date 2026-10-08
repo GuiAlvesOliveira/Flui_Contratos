@@ -10,6 +10,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, IsNull, Repository } from 'typeorm';
 import { RequestUserFull } from '../auth/supabase.guard';
 import { AzureStorageService } from '../common/services/azure-storage.service';
+import { WebhookService } from '../common/services/webhook.service';
 import { EmailService } from '../email/email.service';
 import { Process } from '../processes/process.entity';
 import { User } from '../users/user.entity';
@@ -48,6 +49,7 @@ export class DocumentsService {
     private readonly azureStorage: AzureStorageService,
     private readonly dataSource: DataSource,
     private readonly email: EmailService,
+    private readonly webhook: WebhookService,
   ) {}
 
   async getForProcess(processId: string, caller: RequestUserFull) {
@@ -127,6 +129,24 @@ export class DocumentsService {
           caller.userId,
           JSON.stringify({ labels: created.map((d) => d.label) }),
         ],
+      );
+      // BE-15: n8n asks the client for the documents (point 1 of the flow)
+      const client = await this.userRepo.findOne({
+        where: { id: process.clientId },
+      });
+      this.webhook.fireEvent(
+        'documents-requested',
+        'documents_requested',
+        { processId, tenantId },
+        {
+          labels: created.map((d) => d.label),
+          actorId: caller.userId,
+          clientId: process.clientId,
+          clientName: client?.name ?? null,
+          clientEmail: client?.email ?? null,
+          clientPhone: client?.telefone ?? null,
+          recipients: ['cliente'],
+        },
       );
     }
 

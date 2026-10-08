@@ -9,7 +9,10 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { RequestUserFull } from '../auth/supabase.guard';
 import { EmailService } from '../email/email.service';
-import { WebhookService } from '../common/services/webhook.service';
+import {
+  stageEventType,
+  WebhookService,
+} from '../common/services/webhook.service';
 import { User } from '../users/user.entity';
 import { AdvanceStageDto } from './dto/advance-stage.dto';
 import { CreateProcessDto } from './dto/create-process.dto';
@@ -279,17 +282,38 @@ export class ProcessesService {
 
     // Load client info so n8n and ACS email have everything needed
     const client = await this.userRepo.findOne({ where: { id: process.clientId } });
-    this.webhook.fireAndForget('stage-change', {
-      processId: id,
-      tenantId: caller.tenantId,
-      fromStage,
-      toStage: dto.toStage,
-      actorId: caller.userId,
-      clientId: process.clientId,
-      clientName: client?.name ?? null,
-      clientEmail: client?.email ?? null,
-      clientPhone: client?.telefone ?? null,
-    });
+    // BE-15: event_type of the n8n point; a pendência alerts the client AND the
+    // analista at the same time (RN-10, "disparo duplo").
+    const eventType = stageEventType(dto.toStage);
+    const dual = eventType === 'pending_alert';
+    const analista =
+      dual && process.analistaId
+        ? await this.userRepo.findOne({ where: { id: process.analistaId } })
+        : null;
+    this.webhook.fireEvent(
+      'stage-change',
+      eventType,
+      { processId: id, tenantId: caller.tenantId },
+      {
+        processId: id,
+        tenantId: caller.tenantId,
+        fromStage,
+        toStage: dto.toStage,
+        actorId: caller.userId,
+        clientId: process.clientId,
+        clientName: client?.name ?? null,
+        clientEmail: client?.email ?? null,
+        clientPhone: client?.telefone ?? null,
+        recipients: dual ? ['cliente', 'analista'] : ['cliente'],
+        ...(dual
+          ? {
+              analistaName: analista?.name ?? null,
+              analistaEmail: analista?.email ?? null,
+              analistaPhone: analista?.telefone ?? null,
+            }
+          : {}),
+      },
+    );
     if (client?.email && client?.name) {
       this.email.sendStageChange(client.email, client.name, fromStage, dto.toStage);
     }
