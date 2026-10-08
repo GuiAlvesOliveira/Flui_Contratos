@@ -11,6 +11,13 @@ export type EmpreendimentoStatus =
   | 'concluido'
   | 'sem_processos';
 
+export interface TeamMember {
+  id: string;
+  name: string | null;
+  email: string;
+  role: string;
+}
+
 interface ProcessCountRow {
   empreendimento_id: string;
   total: string;
@@ -99,6 +106,54 @@ export class EmpreendimentosService {
     const emp = await this.repo.findOne({ where: { id, tenantId: caller.tenantId! } });
     if (!emp) throw new NotFoundException('Empreendimento não encontrado');
     return emp;
+  }
+
+  // FE-27: analistas assigned to the empreendimento. Add and remove return the
+  // updated team so the page can show it right away.
+  async listTeam(id: string, caller: RequestUserFull): Promise<TeamMember[]> {
+    await this.findOne(id, caller);
+    return this.dataSource.query<TeamMember[]>(
+      `SELECT u.id, u.name, u.email, u.role
+         FROM empreendimento_team t
+         JOIN users u ON u.id = t.user_id
+        WHERE t.empreendimento_id = $1 AND t.tenant_id = $2
+        ORDER BY u.name NULLS LAST, u.email`,
+      [id, caller.tenantId],
+    );
+  }
+
+  async addTeamMember(id: string, userId: string, caller: RequestUserFull) {
+    await this.findOne(id, caller);
+    const [user] = await this.dataSource.query<
+      { id: string; role: string; status: string }[]
+    >(`SELECT id, role, status FROM users WHERE id = $1 AND tenant_id = $2`, [
+      userId,
+      caller.tenantId,
+    ]);
+    if (!user) throw new NotFoundException('Usuário não encontrado');
+    if (user.role !== 'analista') {
+      throw new BadRequestException('Só analistas fazem parte da equipe');
+    }
+    if (user.status === 'disabled') {
+      throw new BadRequestException('Usuário desativado');
+    }
+    await this.dataSource.query(
+      `INSERT INTO empreendimento_team (tenant_id, empreendimento_id, user_id, added_by)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (empreendimento_id, user_id) DO NOTHING`,
+      [caller.tenantId, id, userId, caller.userId],
+    );
+    return this.listTeam(id, caller);
+  }
+
+  async removeTeamMember(id: string, userId: string, caller: RequestUserFull) {
+    await this.findOne(id, caller);
+    await this.dataSource.query(
+      `DELETE FROM empreendimento_team
+        WHERE empreendimento_id = $1 AND user_id = $2 AND tenant_id = $3`,
+      [id, userId, caller.tenantId],
+    );
+    return this.listTeam(id, caller);
   }
 
   async update(id: string, dto: UpdateEmpreendimentoDto, caller: RequestUserFull) {

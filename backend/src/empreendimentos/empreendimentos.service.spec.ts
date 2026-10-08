@@ -141,4 +141,94 @@ describe('EmpreendimentosService', () => {
     expect(res).toEqual({ id: 'e1', deleted: true });
     expect(repo.save).toHaveBeenCalledWith(expect.objectContaining({ active: false }));
   });
+
+  describe('FE-27: team', () => {
+    const team = [
+      { id: 'a1', name: 'Rafael', email: 'r@x.dev', role: 'analista' },
+    ];
+
+    it('lists the team inside the caller tenant only', async () => {
+      const { service, repo, dataSource } = makeService();
+      repo.findOne.mockResolvedValue({ id: 'e1', tenantId: 't1' });
+      dataSource.query.mockResolvedValue(team);
+      expect(await service.listTeam('e1', caller)).toEqual(team);
+      expect(repo.findOne).toHaveBeenCalledWith({
+        where: { id: 'e1', tenantId: 't1' },
+      });
+      const [sql, params] = dataSource.query.mock.calls[0] as [
+        string,
+        unknown[],
+      ];
+      expect(sql).toContain('t.tenant_id = $2');
+      expect(params).toEqual(['e1', 't1']);
+    });
+
+    it('404s for an empreendimento of another tenant without touching the team', async () => {
+      const { service, repo, dataSource } = makeService();
+      repo.findOne.mockResolvedValue(null);
+      await expect(service.listTeam('e1', caller)).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+      await expect(
+        service.addTeamMember('e1', 'a1', caller),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      await expect(
+        service.removeTeamMember('e1', 'a1', caller),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      expect(dataSource.query).not.toHaveBeenCalled();
+    });
+
+    it('adds an analista of the same tenant (idempotent) and returns the team', async () => {
+      const { service, repo, dataSource } = makeService();
+      repo.findOne.mockResolvedValue({ id: 'e1', tenantId: 't1' });
+      dataSource.query
+        .mockResolvedValueOnce([
+          { id: 'a1', role: 'analista', status: 'active' },
+        ])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce(team);
+      expect(await service.addTeamMember('e1', 'a1', caller)).toEqual(team);
+      const calls = dataSource.query.mock.calls as [string, unknown[]][];
+      expect(calls[0][1]).toEqual(['a1', 't1']); // user looked up in the tenant
+      expect(calls[1][0]).toContain(
+        'ON CONFLICT (empreendimento_id, user_id) DO NOTHING',
+      );
+      expect(calls[1][1]).toEqual(['t1', 'e1', 'a1', 'u1']);
+    });
+
+    it('refuses users outside the tenant, non-analistas and disabled accounts', async () => {
+      const { service, repo, dataSource } = makeService();
+      repo.findOne.mockResolvedValue({ id: 'e1', tenantId: 't1' });
+      dataSource.query.mockResolvedValueOnce([]);
+      await expect(
+        service.addTeamMember('e1', 'x', caller),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      dataSource.query.mockResolvedValueOnce([
+        { id: 'c1', role: 'cliente', status: 'active' },
+      ]);
+      await expect(
+        service.addTeamMember('e1', 'c1', caller),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      dataSource.query.mockResolvedValueOnce([
+        { id: 'a2', role: 'analista', status: 'disabled' },
+      ]);
+      await expect(
+        service.addTeamMember('e1', 'a2', caller),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(dataSource.query).toHaveBeenCalledTimes(3); // nothing inserted
+    });
+
+    it('removes a member scoped to the tenant', async () => {
+      const { service, repo, dataSource } = makeService();
+      repo.findOne.mockResolvedValue({ id: 'e1', tenantId: 't1' });
+      dataSource.query.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+      expect(await service.removeTeamMember('e1', 'a1', caller)).toEqual([]);
+      const [sql, params] = dataSource.query.mock.calls[0] as [
+        string,
+        unknown[],
+      ];
+      expect(sql).toContain('DELETE FROM empreendimento_team');
+      expect(params).toEqual(['e1', 'a1', 't1']);
+    });
+  });
 });

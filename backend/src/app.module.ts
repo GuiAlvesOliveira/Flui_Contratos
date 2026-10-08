@@ -30,6 +30,7 @@ import { AddStageBeforePendencia1718500200000 } from './database/migrations/1718
 import { AddUserStatus1718500300000 } from './database/migrations/1718500300000-AddUserStatus';
 import { AddUserDataNascimento1718500400000 } from './database/migrations/1718500400000-AddUserDataNascimento';
 import { AddDocumentTypes1718500500000 } from './database/migrations/1718500500000-AddDocumentTypes';
+import { AddEmpreendimentoTeam1718500600000 } from './database/migrations/1718500600000-AddEmpreendimentoTeam';
 
 @Module({
   imports: [
@@ -67,6 +68,7 @@ import { AddDocumentTypes1718500500000 } from './database/migrations/17185005000
           AddUserStatus1718500300000,
           AddUserDataNascimento1718500400000,
           AddDocumentTypes1718500500000,
+          AddEmpreendimentoTeam1718500600000,
         ],
         migrationsRun: true,
         synchronize: false,

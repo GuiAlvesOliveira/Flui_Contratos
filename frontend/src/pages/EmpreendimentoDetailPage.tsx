@@ -6,7 +6,7 @@ import { useAuth } from '../auth/useAuth';
 
 // ── Shared drawer sub-components ───────────────────────────────────────────────
 
-interface UserOpt { id: string; name: string | null; email: string; cpf: string | null }
+interface UserOpt { id: string; name: string | null; email: string; cpf: string | null; status?: string }
 type ClienteMode = 'existente' | 'novo';
 
 function NovaUnidadeDrawer({ empId, onClose }: { empId: string; onClose: () => void }) {
@@ -735,6 +735,126 @@ function InformacoesTab({ emp, empId }: { emp: Empreendimento; empId: string }) 
   );
 }
 
+// ── Equipe do empreendimento (FE-27) ──────────────────────────────────────────
+
+interface TeamMember { id: string; name: string | null; email: string; role: string }
+
+const TEAM_ROLE_LABELS: Record<string, string> = { analista: 'Analista', dono: 'Gestor' };
+
+function apiErrorMessage(e: unknown) {
+  const msg = (e as { response?: { data?: { message?: string | string[] } } })?.response?.data?.message;
+  return Array.isArray(msg) ? msg.join('; ') : (msg ?? 'Não foi possível atualizar a equipe');
+}
+
+// Analistas atribuídos ao empreendimento; o gestor adiciona e remove. A API
+// devolve a equipe atualizada, que entra na tela na hora.
+function TeamRow({ empId }: { empId: string }) {
+  const { role } = useAuth();
+  const isDono = role === 'dono';
+  const qc = useQueryClient();
+  const [adding, setAdding] = useState(false);
+  const [error, setError] = useState('');
+
+  const { data: team = [] } = useQuery<TeamMember[]>({
+    queryKey: ['empreendimento-team', empId],
+    queryFn: () => api.get(`/empreendimentos/${empId}/team`).then(r => r.data),
+  });
+  const { data: analistas = [] } = useQuery<UserOpt[]>({
+    queryKey: ['users', 'analista'],
+    queryFn: () => api.get('/users', { params: { role: 'analista' } }).then(r => r.data),
+    enabled: isDono,
+  });
+  const candidates = analistas.filter(a => a.status !== 'disabled' && !team.some(m => m.id === a.id));
+
+  const onTeamChange = {
+    onSuccess: (data: TeamMember[]) => {
+      qc.setQueryData(['empreendimento-team', empId], data);
+      setError('');
+    },
+    onError: (e: unknown) => setError(apiErrorMessage(e)),
+  };
+  const addMut = useMutation({
+    mutationFn: (userId: string) =>
+      api.post(`/empreendimentos/${empId}/team`, { userId }).then(r => r.data as TeamMember[]),
+    ...onTeamChange,
+  });
+  const removeMut = useMutation({
+    mutationFn: (userId: string) =>
+      api.delete(`/empreendimentos/${empId}/team/${userId}`).then(r => r.data as TeamMember[]),
+    ...onTeamChange,
+  });
+
+  return (
+    <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
+      <div style={{ fontSize: 11, color: 'var(--text-faint)', marginBottom: 6 }}>Equipe</div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+        {team.length === 0 && (
+          <span style={{ fontSize: 12.5, color: 'var(--text-faint)' }}>Nenhum analista atribuído.</span>
+        )}
+        {team.map(m => (
+          <div
+            key={m.id}
+            data-testid="team-member"
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 8,
+              padding: '4px 8px 4px 4px', border: '1px solid var(--border)', borderRadius: 999,
+            }}
+          >
+            <div className="ds-kb-avatar" style={{ width: 24, height: 24, fontSize: 10, background: 'var(--accent)' }}>
+              {initials(m.name ?? m.email)}
+            </div>
+            <div style={{ lineHeight: 1.2 }}>
+              <div style={{ fontSize: 12.5, fontWeight: 500 }}>{m.name ?? m.email}</div>
+              <div style={{ fontSize: 11, color: 'var(--text-faint)' }}>{TEAM_ROLE_LABELS[m.role] ?? m.role}</div>
+            </div>
+            {isDono && (
+              <button
+                className="ds-btn ghost sm"
+                style={{ padding: '2px 4px' }}
+                title="Remover da equipe"
+                aria-label={`Remover ${m.name ?? m.email} da equipe`}
+                disabled={removeMut.isPending}
+                onClick={() => removeMut.mutate(m.id)}
+              >
+                <Icon.X size={12} />
+              </button>
+            )}
+          </div>
+        ))}
+        {isDono && (adding ? (
+          <select
+            className="ds-input"
+            aria-label="Adicionar analista à equipe"
+            autoFocus
+            value=""
+            onChange={e => {
+              if (e.target.value) addMut.mutate(e.target.value);
+              setAdding(false);
+            }}
+            onBlur={() => setAdding(false)}
+            style={{ width: 220 }}
+          >
+            <option value="">Escolher analista...</option>
+            {candidates.map(a => (
+              <option key={a.id} value={a.id}>{a.name ?? a.email}</option>
+            ))}
+          </select>
+        ) : (
+          <button
+            className="ds-btn ghost sm"
+            onClick={() => setAdding(true)}
+            disabled={candidates.length === 0 || addMut.isPending}
+            title={candidates.length === 0 ? 'Nenhum analista disponível para adicionar' : undefined}
+          >
+            <Icon.Plus size={12} /> Adicionar
+          </button>
+        ))}
+      </div>
+      {error && <div role="alert" style={{ fontSize: 11.5, color: 'var(--red)', marginTop: 6 }}>{error}</div>}
+    </div>
+  );
+}
+
 // ── Main ───────────────────────────────────────────────────────────────────────
 
 interface Props {
@@ -821,6 +941,7 @@ export function EmpreendimentoDetailPage({ empId, onBack, onOpenProcess }: Props
                 </div>
               ))}
             </div>
+            <TeamRow empId={empId} />
           </div>
         </div>
       </div>
