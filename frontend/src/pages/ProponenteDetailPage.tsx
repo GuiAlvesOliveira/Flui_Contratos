@@ -1166,12 +1166,22 @@ function FichaTab({ process }: { process: ProcessDetail }) {
 
 // ── DocumentosTab ──────────────────────────────────────────────────────────────
 
-function ViewButton({ docId }: { docId: string }) {
-  const [loading, setLoading] = useState(false);
+const FILE_EXT: Record<string, string> = { 'application/pdf': 'pdf', 'image/jpeg': 'jpg', 'image/png': 'png' };
+
+// FE-21: o arquivo baixado leva o nome do documento e a extensão do tipo (o
+// Content-Disposition da API não chega ao browser por causa do CORS).
+function downloadName(label: string, contentType: string) {
+  const base = label.replace(/[\\/:*?"<>|]+/g, '-').trim() || 'documento';
+  const ext = FILE_EXT[contentType.split(';')[0].trim()];
+  return ext ? `${base}.${ext}` : base;
+}
+
+function DocFileButtons({ docId, label }: { docId: string; label: string }) {
+  const [loading, setLoading] = useState<'view' | 'download' | null>(null);
   const [error, setError] = useState('');
 
-  const handleView = async () => {
-    setLoading(true);
+  const handleOpen = async (mode: 'view' | 'download') => {
+    setLoading(mode);
     setError('');
     let objectUrl: string | null = null;
     try {
@@ -1182,6 +1192,17 @@ function ViewButton({ docId }: { docId: string }) {
       const contentType: string = (resp.headers as Record<string, string>)['content-type'] ?? 'application/octet-stream';
       const blob = new Blob([resp.data as BlobPart], { type: contentType });
       objectUrl = URL.createObjectURL(blob);
+      if (mode === 'download') {
+        const a = document.createElement('a');
+        a.href = objectUrl;
+        a.download = downloadName(label, contentType);
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        const url = objectUrl;
+        setTimeout(() => URL.revokeObjectURL(url), 10_000);
+        return;
+      }
       // blob:// URLs are browser-session-local — cannot be shared or opened in another browser
       const win = window.open(objectUrl, '_blank', 'noopener');
       // Revoke after the tab had time to load the content
@@ -1192,22 +1213,32 @@ function ViewButton({ docId }: { docId: string }) {
       if (objectUrl) URL.revokeObjectURL(objectUrl);
       setError('Falha ao carregar documento');
     } finally {
-      setLoading(false);
+      setLoading(null);
     }
   };
 
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-      <button className="ds-btn ghost sm" onClick={handleView} disabled={loading}>
+      <button className="ds-btn ghost sm" onClick={() => handleOpen('view')} disabled={loading !== null}>
         <Icon.Paperclip size={12} />
-        {loading ? 'Aguarde...' : 'Visualizar'}
+        {loading === 'view' ? 'Aguarde...' : 'Visualizar'}
+      </button>
+      <button
+        className="ds-btn ghost sm"
+        onClick={() => handleOpen('download')}
+        disabled={loading !== null}
+        title="Baixar arquivo"
+        aria-label={`Baixar ${label}`}
+      >
+        <Icon.Download size={12} />
+        {loading === 'download' ? 'Aguarde...' : 'Baixar'}
       </button>
       {error && <span style={{ fontSize: 11, color: 'var(--red)' }}>{error}</span>}
     </span>
   );
 }
 
-function UploadButton({ docId, processId }: { docId: string; processId: string }) {
+function UploadButton({ docId, processId, label }: { docId: string; processId: string; label: string }) {
   const qc = useQueryClient();
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
@@ -1235,7 +1266,7 @@ function UploadButton({ docId, processId }: { docId: string; processId: string }
 
   return (
     <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
-      <input type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={handleFile} style={{ display: 'none' }} />
+      <input type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={handleFile} style={{ display: 'none' }} aria-label={`Enviar arquivo de ${label}`} />
       <span className="ds-btn ghost sm" style={{ pointerEvents: 'none' }}>
         {uploading ? 'Enviando...' : (
           <>
@@ -1264,7 +1295,10 @@ function DocumentosTab({ processId, role }: { processId: string; role: string | 
   const validateMut = useMutation({
     mutationFn: ({ docId, status, notes }: { docId: string; status: string; notes?: string }) =>
       api.patch(`/documents/${docId}`, { status, validatedByNotes: notes }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['documents', processId] }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['documents', processId] });
+      void qc.invalidateQueries({ queryKey: ['audit', processId] }); // validação entra na Atividade (FE-22)
+    },
   });
 
   if (isLoading) return <div style={{ color: 'var(--text-faint)', fontSize: 13, padding: 24 }}>Carregando...</div>;
@@ -1285,6 +1319,11 @@ function DocumentosTab({ processId, role }: { processId: string; role: string | 
           </div>
         </div>
       )}
+      {validateMut.isError && (
+        <div role="alert" style={{ fontSize: 12.5, color: 'var(--red)' }}>
+          Não foi possível atualizar o documento. Tente de novo.
+        </div>
+      )}
       {docs.length === 0 && !isAnalista && (
         <div className="ds-card">
           <div className="ds-card-body" style={{ textAlign: 'center', padding: 48, color: 'var(--text-faint)', fontSize: 13 }}>
@@ -1298,7 +1337,8 @@ function DocumentosTab({ processId, role }: { processId: string; role: string | 
           <div className="ds-card-body" style={{ padding: 0 }}>
             {catDocs.map((doc, idx) => {
               const badge = STATUS_BADGE[doc.status];
-              const canUpload = isCliente && (doc.status === 'pendente' || doc.status === 'rejeitado');
+              // FE-21: o analista também envia o arquivo pela linha (ex.: recebido por e-mail)
+              const canUpload = (isCliente || isAnalista) && (doc.status === 'pendente' || doc.status === 'rejeitado');
               return (
                 <div key={doc.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 16px', borderTop: idx === 0 ? 'none' : '1px solid var(--border)' }}>
                   <div style={{
@@ -1318,9 +1358,9 @@ function DocumentosTab({ processId, role }: { processId: string; role: string | 
                     {badge.label}
                   </span>
                   {doc.blobPath && !doc.blobPath.startsWith('local://') && (
-                    <ViewButton docId={doc.id} />
+                    <DocFileButtons docId={doc.id} label={doc.label ?? doc.name} />
                   )}
-                  {canUpload && <UploadButton docId={doc.id} processId={processId} />}
+                  {canUpload && <UploadButton docId={doc.id} processId={processId} label={doc.label ?? doc.name} />}
                   {isAnalista && doc.status === 'recebido' && (
                     <div style={{ display: 'flex', gap: 4 }}>
                       <button className="ds-btn ghost sm" style={{ color: '#16a34a' }}
