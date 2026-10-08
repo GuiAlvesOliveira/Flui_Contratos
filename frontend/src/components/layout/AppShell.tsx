@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '../../auth/useAuth';
 import { api } from '../../api/axiosInstance';
@@ -97,16 +97,34 @@ function roleLabel(role: string | null): string {
   return role ?? '';
 }
 
-function breadcrumb(route: Route): string {
-  if (route.page === 'empreendimento-detail') return 'Empreendimentos / Detalhe';
-  if (route.page === 'proponente-detail') {
-    const origin = route.back?.page;
-    if (origin === 'empreendimento-detail') return 'Empreendimentos / Processo';
-    if (origin === 'proponentes') return 'Proponentes / Detalhe';
-    return 'Workflow / Processo';
+// FE-28: cada nível do breadcrumb é um link para a página correspondente da
+// hierarquia; o último é a página atual (sem link).
+interface Crumb { label: string; to?: Route }
+
+function breadcrumb(route: Route, isCliente: boolean): Crumb[] {
+  if (isCliente) {
+    return route.page === 'proponente-detail'
+      ? [{ label: 'Meus Processos', to: { page: 'client-processes' } }, { label: 'Processo' }]
+      : [{ label: 'Meus Processos' }];
   }
-  if (route.page in PAGE_LABELS) return PAGE_LABELS[route.page as NavPage];
-  return '';
+  if (route.page === 'empreendimento-detail') {
+    return [{ label: 'Empreendimentos', to: { page: 'empreendimentos' } }, { label: 'Detalhe' }];
+  }
+  if (route.page === 'proponente-detail') {
+    const back = route.back;
+    if (back?.page === 'empreendimento-detail') {
+      return [
+        { label: 'Empreendimentos', to: { page: 'empreendimentos' } },
+        { label: 'Empreendimento', to: back },
+        { label: 'Processo' },
+      ];
+    }
+    if (back?.page === 'proponentes') return [{ label: 'Proponentes', to: back }, { label: 'Detalhe' }];
+    if (back?.page === 'logs') return [{ label: 'Log de Ações', to: back }, { label: 'Processo' }];
+    return [{ label: 'Workflow', to: { page: 'workflow' } }, { label: 'Processo' }];
+  }
+  if (route.page in PAGE_LABELS) return [{ label: PAGE_LABELS[route.page as NavPage] }];
+  return [];
 }
 
 function activeNavPage(route: Route): NavPage {
@@ -254,9 +272,7 @@ export function AppShell() {
       : { page: 'client-processes' };
 
   const active = activeNavPage(view);
-  const crumb = isCliente
-    ? (view.page === 'proponente-detail' ? 'Meus Processos / Processo' : 'Meus Processos')
-    : breadcrumb(view);
+  const crumbs = breadcrumb(view, isCliente);
 
   return (
     <div className="ds-app">
@@ -341,7 +357,18 @@ export function AppShell() {
             {navOpen ? <Icon.X size={16} /> : <Icon.Menu size={16} />}
           </button>
           <div className="ds-crumb">
-            <span className="cur">{crumb}</span>
+            <nav aria-label="Navegação" style={{ display: 'contents' }}>
+              {crumbs.map((c, i) => (
+                <Fragment key={`${c.label}-${i}`}>
+                  {i > 0 && <span className="sep">/</span>}
+                  {c.to ? (
+                    <a role="link" href="#" onClick={e => { e.preventDefault(); navigate(c.to!); }}>{c.label}</a>
+                  ) : (
+                    <span className="cur" aria-current="page">{c.label}</span>
+                  )}
+                </Fragment>
+              ))}
+            </nav>
           </div>
           <div className="ds-tb-spacer" />
           <div className="ds-tb-search">
