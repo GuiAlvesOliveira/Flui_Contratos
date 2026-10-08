@@ -3,8 +3,10 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/axiosInstance';
 import * as Icon from '../components/icons';
 import { NovoProcessoDrawer } from '../components/NovoProcessoDrawer';
+import { Toast } from '../components/Toast';
 import { useAuth } from '../auth/useAuth';
 import { allowedTransitions, NEW_PROCESS_STAGES, type ProcessStage } from '../lib/processStages';
+import { useStageDrag } from '../lib/useStageDrag';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -262,13 +264,16 @@ function AdvanceDrawer({ process, onClose }: AdvanceDrawerProps) {
 
 // ── Kanban Card ───────────────────────────────────────────────────────────────
 
+type StageDrag = ReturnType<typeof useStageDrag>;
+
 interface KanbanCardProps {
   process: ProcessCard;
   onOpenProcess?: (id: string) => void;
   canMoveStage: boolean;
+  drag: StageDrag;
 }
 
-function KanbanCard({ process, onOpenProcess, canMoveStage }: KanbanCardProps) {
+function KanbanCard({ process, onOpenProcess, canMoveStage, drag }: KanbanCardProps) {
   const [showDrawer, setShowDrawer] = useState(false);
   const clientName = process.client.name ?? process.client.email;
   const progress = STAGE_PROGRESS[process.stage];
@@ -276,7 +281,12 @@ function KanbanCard({ process, onOpenProcess, canMoveStage }: KanbanCardProps) {
 
   return (
     <>
-      <div className="ds-kb-card" onClick={() => onOpenProcess?.(process.id)} style={{ cursor: onOpenProcess ? 'pointer' : undefined }}>
+      <div
+        className="ds-kb-card"
+        {...drag.cardProps(process)}
+        onClick={() => onOpenProcess?.(process.id)}
+        style={{ cursor: onOpenProcess ? 'pointer' : undefined }}
+      >
         <div className="ds-kb-card-hdr">
           <span className="ds-kb-card-id">{process.id.slice(0, 8)}</span>
         </div>
@@ -325,16 +335,17 @@ interface KanbanColumnProps {
   onOpenProcess?: (id: string) => void;
   canMoveStage: boolean;
   onAdd?: () => void; // FE-25: novo processo já nesta etapa
+  drag: StageDrag;
 }
 
 const ADD_BLOCKED_TITLE =
   'Processos novos entram até Análise de Crédito: as etapas seguintes exigem documentos validados (RN-04)';
 
-function KanbanColumn({ stage, cards, onOpenProcess, canMoveStage, onAdd }: KanbanColumnProps) {
+function KanbanColumn({ stage, cards, onOpenProcess, canMoveStage, onAdd, drag }: KanbanColumnProps) {
   const color = STAGE_COLORS[stage];
   const canAdd = NEW_PROCESS_STAGES.includes(stage);
   return (
-    <div className="ds-kb-col">
+    <div className="ds-kb-col" data-stage={stage} {...drag.columnProps(stage)}>
       <div className="ds-kb-hdr">
         <div className="ds-kb-title">
           <span className="dot" style={{ background: color }} />
@@ -342,7 +353,9 @@ function KanbanColumn({ stage, cards, onOpenProcess, canMoveStage, onAdd }: Kanb
           <span className="ds-kb-count">· {cards.length}</span>
         </div>
       </div>
-      {cards.map(p => <KanbanCard key={p.id} process={p} onOpenProcess={onOpenProcess} canMoveStage={canMoveStage} />)}
+      {cards.map(p => (
+        <KanbanCard key={p.id} process={p} onOpenProcess={onOpenProcess} canMoveStage={canMoveStage} drag={drag} />
+      ))}
       {onAdd && (
         <button
           className="ds-kb-add"
@@ -375,6 +388,7 @@ export function WorkflowPage({ onOpenProcess }: WorkflowPageProps = {}) {
     setNovoStage(stage);
     setShowNovoProcesso(true);
   };
+  const drag = useStageDrag(canMoveStage);
 
   const { data: processes = [], isLoading, error } = useQuery<ProcessCard[]>({
     queryKey: ['processes'],
@@ -468,6 +482,7 @@ export function WorkflowPage({ onOpenProcess }: WorkflowPageProps = {}) {
                 onOpenProcess={onOpenProcess}
                 canMoveStage={canMoveStage}
                 onAdd={role === 'analista' ? () => openNovo(stage) : undefined}
+                drag={drag}
               />
             ))}
           </div>
@@ -532,6 +547,8 @@ export function WorkflowPage({ onOpenProcess }: WorkflowPageProps = {}) {
           )}
         </>
       )}
+
+      <Toast toast={drag.toast} onClose={drag.dismissToast} />
 
       {showNovoProcesso && (
         <NovoProcessoDrawer

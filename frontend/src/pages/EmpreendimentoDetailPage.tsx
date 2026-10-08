@@ -3,6 +3,9 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/axiosInstance';
 import * as Icon from '../components/icons';
 import { useAuth } from '../auth/useAuth';
+import { Toast } from '../components/Toast';
+import type { ProcessStage } from '../lib/processStages';
+import { useStageDrag } from '../lib/useStageDrag';
 
 // ── Shared drawer sub-components ───────────────────────────────────────────────
 
@@ -382,7 +385,8 @@ interface Unidade {
 
 interface ProcessCard {
   id: string;
-  stage: string;
+  stage: ProcessStage;
+  stageBeforePendencia: ProcessStage | null;
   client: { id: string; name: string | null; email: string };
   analista: { id: string; name: string | null } | null;
   valorUnidade: number | null;
@@ -406,7 +410,7 @@ const STAGE_LABELS: Record<string, string> = {
   processo_pendencia: 'Pendência',
 };
 
-const MAIN_STAGES = [
+const MAIN_STAGES: ProcessStage[] = [
   'inicial', 'cadastro', 'analise_credito', 'credito_aprovado',
   'analise_juridica', 'juridico_aprovado', 'cartorio', 'assinatura',
 ];
@@ -428,6 +432,7 @@ function WorkflowTab({ empId, onOpenProcess }: { empId: string; onOpenProcess: (
   const qc = useQueryClient();
   const canCreate = role === 'dono' || role === 'analista';
   const [showNovo, setShowNovo] = useState(false);
+  const drag = useStageDrag(canCreate); // FE-24: arrastar entre colunas
   const { data: processes = [], isLoading } = useQuery<ProcessCard[]>({
     queryKey: ['processes', { empreendimentoId: empId }],
     queryFn: () => api.get('/processes', { params: { empreendimentoId: empId } }).then(r => r.data),
@@ -456,7 +461,7 @@ function WorkflowTab({ empId, onOpenProcess }: { empId: string; onOpenProcess: (
       )}
       <div className="ds-kanban" style={{ minHeight: 300 }}>
         {byStage.map(({ stage, cards }) => (
-          <div className="ds-kb-col" key={stage}>
+          <div className="ds-kb-col" key={stage} data-stage={stage} {...drag.columnProps(stage)}>
             <div className="ds-kb-hdr">
               <span className="ds-kb-title">{STAGE_LABELS[stage]}</span>
               <span className="ds-kb-count">{cards.length}</span>
@@ -466,6 +471,7 @@ function WorkflowTab({ empId, onOpenProcess }: { empId: string; onOpenProcess: (
                 <div
                   className="ds-kb-card"
                   key={p.id}
+                  {...drag.cardProps(p)}
                   onClick={() => onOpenProcess(p.id)}
                   style={{ cursor: 'pointer' }}
                 >
@@ -503,6 +509,7 @@ function WorkflowTab({ empId, onOpenProcess }: { empId: string; onOpenProcess: (
           </div>
         ))}
       </div>
+      <Toast toast={drag.toast} onClose={drag.dismissToast} />
       {/* FE-26: o processo novo entra na coluna Primeiro Contato deste Kanban */}
       {showNovo && (
         <AlocarClienteDrawer
