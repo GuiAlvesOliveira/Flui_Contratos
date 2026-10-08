@@ -4,7 +4,7 @@ import { api } from '../api/axiosInstance';
 import * as Icon from '../components/icons';
 import { NovoProcessoDrawer } from '../components/NovoProcessoDrawer';
 import { useAuth } from '../auth/useAuth';
-import { allowedTransitions, type ProcessStage } from '../lib/processStages';
+import { allowedTransitions, NEW_PROCESS_STAGES, type ProcessStage } from '../lib/processStages';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -324,10 +324,15 @@ interface KanbanColumnProps {
   cards: ProcessCard[];
   onOpenProcess?: (id: string) => void;
   canMoveStage: boolean;
+  onAdd?: () => void; // FE-25: novo processo já nesta etapa
 }
 
-function KanbanColumn({ stage, cards, onOpenProcess, canMoveStage }: KanbanColumnProps) {
+const ADD_BLOCKED_TITLE =
+  'Processos novos entram até Análise de Crédito: as etapas seguintes exigem documentos validados (RN-04)';
+
+function KanbanColumn({ stage, cards, onOpenProcess, canMoveStage, onAdd }: KanbanColumnProps) {
   const color = STAGE_COLORS[stage];
+  const canAdd = NEW_PROCESS_STAGES.includes(stage);
   return (
     <div className="ds-kb-col">
       <div className="ds-kb-hdr">
@@ -338,6 +343,17 @@ function KanbanColumn({ stage, cards, onOpenProcess, canMoveStage }: KanbanColum
         </div>
       </div>
       {cards.map(p => <KanbanCard key={p.id} process={p} onOpenProcess={onOpenProcess} canMoveStage={canMoveStage} />)}
+      {onAdd && (
+        <button
+          className="ds-kb-add"
+          onClick={onAdd}
+          disabled={!canAdd}
+          title={canAdd ? undefined : ADD_BLOCKED_TITLE}
+          aria-label={`Novo processo em ${STAGE_LABELS[stage]}`}
+        >
+          <Icon.Plus size={12} /> Novo processo
+        </button>
+      )}
     </div>
   );
 }
@@ -354,6 +370,11 @@ export function WorkflowPage({ onOpenProcess }: WorkflowPageProps = {}) {
   const canMoveStage = !isCliente;
   const [showSideStatuses, setShowSideStatuses] = useState(false);
   const [showNovoProcesso, setShowNovoProcesso] = useState(false);
+  const [novoStage, setNovoStage] = useState<ProcessStage | undefined>(undefined);
+  const openNovo = (stage?: ProcessStage) => {
+    setNovoStage(stage);
+    setShowNovoProcesso(true);
+  };
 
   const { data: processes = [], isLoading, error } = useQuery<ProcessCard[]>({
     queryKey: ['processes'],
@@ -379,7 +400,7 @@ export function WorkflowPage({ onOpenProcess }: WorkflowPageProps = {}) {
             </button>
           )}
           {!isCliente && (
-            <button className="ds-btn accent" onClick={() => setShowNovoProcesso(true)}>
+            <button className="ds-btn accent" onClick={() => openNovo()}>
               <Icon.Plus size={13} />
               Novo Processo
             </button>
@@ -440,7 +461,14 @@ export function WorkflowPage({ onOpenProcess }: WorkflowPageProps = {}) {
           {/* Kanban board */}
           <div className="ds-kanban">
             {MAIN_STAGES.map(stage => (
-              <KanbanColumn key={stage} stage={stage} cards={byStage(stage)} onOpenProcess={onOpenProcess} canMoveStage={canMoveStage} />
+              <KanbanColumn
+                key={stage}
+                stage={stage}
+                cards={byStage(stage)}
+                onOpenProcess={onOpenProcess}
+                canMoveStage={canMoveStage}
+                onAdd={role === 'analista' ? () => openNovo(stage) : undefined}
+              />
             ))}
           </div>
 
@@ -495,7 +523,7 @@ export function WorkflowPage({ onOpenProcess }: WorkflowPageProps = {}) {
               <div className="ds-card-body" style={{ padding: 60, textAlign: 'center', color: 'var(--text-faint)' }}>
                 <div style={{ fontSize: 13, marginBottom: 12 }}>Nenhum processo cadastrado ainda.</div>
                 {!isCliente && (
-                  <button className="ds-btn accent" onClick={() => setShowNovoProcesso(true)}>
+                  <button className="ds-btn accent" onClick={() => openNovo()}>
                     <Icon.Plus size={13} /> Criar primeiro processo
                   </button>
                 )}
@@ -507,6 +535,7 @@ export function WorkflowPage({ onOpenProcess }: WorkflowPageProps = {}) {
 
       {showNovoProcesso && (
         <NovoProcessoDrawer
+          initialStage={novoStage}
           onClose={() => setShowNovoProcesso(false)}
           onSuccess={(id) => {
             setShowNovoProcesso(false);

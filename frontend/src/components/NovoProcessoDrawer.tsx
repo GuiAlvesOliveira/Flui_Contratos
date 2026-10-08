@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/axiosInstance';
 import * as Icon from './icons';
+import { LINEAR_STAGES, STAGE_LABELS, type ProcessStage } from '../lib/processStages';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -30,10 +31,13 @@ function formatCurrency(v: number | null) {
 interface Props {
   onClose: () => void;
   onSuccess: (processId: string) => void;
+  // FE-25: aberto pela coluna do Kanban, o processo já vai para esta etapa
+  initialStage?: ProcessStage;
 }
 
-export function NovoProcessoDrawer({ onClose, onSuccess }: Props) {
+export function NovoProcessoDrawer({ onClose, onSuccess, initialStage }: Props) {
   const qc = useQueryClient();
+  const [moveError, setMoveError] = useState<{ id: string; message: string } | null>(null);
 
   const [form, setForm] = useState<FormState>({
     clienteId: '',
@@ -80,22 +84,37 @@ export function NovoProcessoDrawer({ onClose, onSuccess }: Props) {
   }, [form.empreendimentoId]);
 
   const createMut = useMutation({
-    mutationFn: () => {
+    mutationFn: async () => {
       const parseVal = (s: string) => {
         const n = parseFloat(s.replace(/\./g, '').replace(',', '.'));
         return isNaN(n) ? undefined : n;
       };
-      return api.post('/processes', {
+      const res = await api.post('/processes', {
         clientId: form.clienteId,
         analistaId: form.analistaId || undefined,
         unidadeId: form.unidadeId || undefined,
         valorUnidade: parseVal(form.valorUnidade),
         valorEmAberto: parseVal(form.valorEmAberto),
       });
+      const id = res.data.id as string;
+      // O processo nasce em Primeiro Contato e segue pelas mesmas mudanças de
+      // etapa da API (máquina de estados, log de auditoria e notificação).
+      const target = initialStage ? LINEAR_STAGES.indexOf(initialStage) : 0;
+      for (const toStage of LINEAR_STAGES.slice(1, target + 1)) {
+        try {
+          await api.patch(`/processes/${id}/stage`, { toStage });
+        } catch (e) {
+          const msg = (e as { response?: { data?: { message?: string | string[] } } })?.response?.data?.message;
+          const detail = Array.isArray(msg) ? msg.join('; ') : (msg ?? 'erro desconhecido');
+          return { id, moveError: `O processo foi criado, mas não entrou em ${STAGE_LABELS[toStage]}: ${detail}` };
+        }
+      }
+      return { id, moveError: null };
     },
-    onSuccess: (res) => {
+    onSuccess: ({ id, moveError: error }) => {
       qc.invalidateQueries({ queryKey: ['processes'] });
-      onSuccess(res.data.id);
+      if (error) setMoveError({ id, message: error });
+      else onSuccess(id);
     },
   });
 
@@ -118,6 +137,16 @@ export function NovoProcessoDrawer({ onClose, onSuccess }: Props) {
         </div>
 
         <div className="ds-drawer-body" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+          {initialStage && initialStage !== 'inicial' && (
+            <div className="ds-alert info" style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)' }}>
+              <div className="ds-alert-icon"><Icon.Info size={14} /></div>
+              <div className="ds-alert-desc">
+                O processo entra em <strong>{STAGE_LABELS[initialStage]}</strong>. A mudança de etapa fica no
+                log de auditoria e o cliente é notificado.
+              </div>
+            </div>
+          )}
+
           {/* Cliente */}
           <div className="ds-field">
             <label>Proponente / Cliente <span style={{ color: 'var(--red)' }}>*</span></label>
@@ -237,17 +266,31 @@ export function NovoProcessoDrawer({ onClose, onSuccess }: Props) {
               <span>Erro ao criar processo. Verifique os dados e tente novamente.</span>
             </div>
           )}
+          {moveError && (
+            <div className="ds-alert urgent" role="alert">
+              <Icon.AlertTriangle size={14} />
+              <span>{moveError.message}</span>
+            </div>
+          )}
         </div>
 
         <div className="ds-drawer-foot">
-          <button className="ds-btn ghost" onClick={onClose}>Cancelar</button>
-          <button
-            className="ds-btn accent"
-            onClick={() => createMut.mutate()}
-            disabled={!canSubmit || createMut.isPending}
-          >
-            {createMut.isPending ? 'Criando...' : 'Criar Processo'}
-          </button>
+          {moveError ? (
+            <button className="ds-btn accent" onClick={() => onSuccess(moveError.id)}>
+              Abrir processo
+            </button>
+          ) : (
+            <>
+              <button className="ds-btn ghost" onClick={onClose}>Cancelar</button>
+              <button
+                className="ds-btn accent"
+                onClick={() => createMut.mutate()}
+                disabled={!canSubmit || createMut.isPending}
+              >
+                {createMut.isPending ? 'Criando...' : 'Criar Processo'}
+              </button>
+            </>
+          )}
         </div>
       </div>
     </>

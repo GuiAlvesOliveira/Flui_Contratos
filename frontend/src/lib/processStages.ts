@@ -26,6 +26,11 @@ export const LINEAR_STAGES: ProcessStage[] = [
   'analise_juridica', 'juridico_aprovado', 'cartorio', 'assinatura',
 ];
 
+// FE-25: etapas em que um processo novo pode entrar pelo Kanban. Depois de
+// Análise de Crédito o avanço exige documentos validados (RN-04), que um
+// processo recém-criado ainda não tem.
+export const NEW_PROCESS_STAGES: ProcessStage[] = ['inicial', 'cadastro', 'analise_credito'];
+
 const ALLOWED_TRANSITIONS: Record<ProcessStage, ProcessStage[]> = {
   inicial: ['cadastro', 'cliente_inativo'],
   cadastro: ['analise_credito', 'cliente_inativo', 'processo_pendencia'],
