@@ -2,6 +2,7 @@ import {
   CanActivate,
   ExecutionContext,
   Injectable,
+  Logger,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -28,8 +29,10 @@ const REJECTED = new Set(['AuthInvalidJwtError', 'AuthApiError']);
 
 @Injectable()
 export class SupabaseGuard implements CanActivate {
+  private readonly logger = new Logger(SupabaseGuard.name);
   private readonly supabase: SupabaseClient;
   private readonly issuer: string;
+  private claimsMismatchLogged = false;
 
   constructor(
     private readonly config: ConfigService,
@@ -88,13 +91,19 @@ export class SupabaseGuard implements CanActivate {
     if (error) return REJECTED.has(error.name) ? null : this.viaGetUser(token);
 
     const claims = data?.claims;
-    const aud = Array.isArray(claims?.aud) ? claims.aud : [claims?.aud];
-    if (
-      !claims?.sub ||
-      !aud.includes('authenticated') ||
-      claims.iss !== this.issuer
-    ) {
-      return null;
+    if (!claims?.sub) return null;
+    const aud = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
+    if (!aud.includes('authenticated') || claims.iss !== this.issuer) {
+      // The signature already matched this project's keys, so a different
+      // aud/iss is either a non-user token or a config mismatch: Supabase
+      // decides (getUser), and the mismatch is logged once to be fixed.
+      if (!this.claimsMismatchLogged) {
+        this.claimsMismatchLogged = true;
+        this.logger.warn(
+          `Token com aud/iss inesperado (iss=${String(claims.iss)}); validado pelo Supabase`,
+        );
+      }
+      return this.viaGetUser(token);
     }
     const email = typeof claims.email === 'string' ? claims.email : '';
     return { externalId: claims.sub, email };

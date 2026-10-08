@@ -1,4 +1,8 @@
-import { ExecutionContext, UnauthorizedException } from '@nestjs/common';
+import {
+  ExecutionContext,
+  Logger,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
 import { createHmac, webcrypto } from 'crypto';
@@ -179,21 +183,32 @@ describe('SEC-03: JWT verified locally (JWKS), with getUser fallback', () => {
     expect(median).toBeLessThan(5);
   });
 
-  it('rejects a tampered token, an expired one, wrong aud or wrong iss — without asking /user', async () => {
+  it('rejects a tampered, expired or malformed token without asking /user', async () => {
     const g = guard();
     const valid = await es256({});
     const [h, , s] = valid.split('.');
     const forged = `${h}.${b64(JSON.stringify({ sub: 'admin', aud: 'authenticated', iss: `${base}/auth/v1`, exp: now() + 3600 }))}.${s}`;
     await reject(g, forged);
     await reject(g, await es256({ exp: now() - 10 }));
-    await reject(g, await es256({ aud: 'anon' }));
-    await reject(
-      g,
-      await es256({ iss: 'https://outro-projeto.supabase.co/auth/v1' }),
-    );
     await reject(g, 'nao-e-um-jwt');
     await reject(g, undefined);
     expect(userHits).toBe(0);
+  });
+
+  it('wrong aud or iss: Supabase decides (getUser), so a config mismatch never locks everyone out', async () => {
+    const warn = jest
+      .spyOn(Logger.prototype, 'warn')
+      .mockImplementation(() => undefined);
+    const g = guard();
+    const anon = await es256({ aud: 'anon' });
+    const otherIss = await es256({ iss: 'https://outro.supabase.co/auth/v1' });
+    await reject(g, anon); // Supabase rejects it
+    await reject(g, otherIss);
+    expect(userHits).toBe(2);
+    knownByServer.set(otherIss, { id: 'u-1', email: 'ana@x.dev' });
+    await pass(g, otherIss); // e.g. SUPABASE_URL written differently in the config
+    expect(warn).toHaveBeenCalledTimes(1);
+    jest.restoreAllMocks();
   });
 
   it('a key that is not in the JWKS falls back to getUser', async () => {
