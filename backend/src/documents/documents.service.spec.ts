@@ -255,6 +255,57 @@ describe('DocumentsService.removeDocument (BE-10, LGPD)', () => {
 });
 
 describe('DocumentsService.update (authorization)', () => {
+  it('FE-22: validating a process document writes it to the activity log', async () => {
+    const { service, repo, dataSource } = makeService();
+    repo.findOne.mockResolvedValue({
+      id: 'd1',
+      tenantId: 't1',
+      processId: 'p1',
+      userId: 'cl1',
+      label: 'Holerite (mês 1)',
+    });
+    await service.update('d1', { status: 'validado' }, caller('analista'));
+    const [sql, params] = dataSource.query.mock.calls[0] as [string, unknown[]];
+    expect(sql).toContain('INSERT INTO audit_logs');
+    expect(params).toEqual([
+      't1',
+      'p1',
+      'u1',
+      'document_validated',
+      JSON.stringify({ docId: 'd1', label: 'Holerite (mês 1)' }),
+    ]);
+  });
+
+  it('FE-22: rejection is logged too; personal docs and notes-only edits are not', async () => {
+    const { service, repo, dataSource } = makeService();
+    repo.findOne.mockResolvedValueOnce({
+      id: 'd1',
+      tenantId: 't1',
+      processId: 'p1',
+      label: 'IRPF',
+    });
+    await service.update('d1', { status: 'rejeitado' }, caller('dono'));
+    expect((dataSource.query.mock.calls[0] as [string, unknown[]])[1][3]).toBe(
+      'document_rejected',
+    );
+    dataSource.query.mockClear();
+    repo.findOne.mockResolvedValueOnce({
+      id: 'd2',
+      tenantId: 't1',
+      processId: null,
+      label: 'RG',
+    });
+    await service.update('d2', { status: 'validado' }, caller('analista'));
+    repo.findOne.mockResolvedValueOnce({
+      id: 'd3',
+      tenantId: 't1',
+      processId: 'p1',
+      label: 'RG',
+    });
+    await service.update('d3', { notes: 'ok' }, caller('analista'));
+    expect(dataSource.query).not.toHaveBeenCalled();
+  });
+
   it('forbids a cliente from touching a document that is not theirs', async () => {
     const { service, repo } = makeService();
     repo.findOne.mockResolvedValue({ id: 'd1', tenantId: 't1', userId: 'someone-else' });

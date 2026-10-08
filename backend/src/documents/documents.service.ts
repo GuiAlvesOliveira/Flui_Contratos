@@ -240,7 +240,31 @@ export class DocumentsService {
       }
     }
 
-    return this.repo.save(doc);
+    const saved = await this.repo.save(doc);
+
+    // FE-22: validation and rejection show up in the process activity timeline
+    // (RN-07). Personal docs have no process of their own, so they are skipped.
+    if (
+      isAnalista &&
+      doc.processId &&
+      (dto.status === 'validado' || dto.status === 'rejeitado')
+    ) {
+      await this.dataSource.query(
+        `INSERT INTO audit_logs (tenant_id, process_id, actor_id, action, metadata)
+         VALUES ($1, $2, $3, $4, $5::jsonb)`,
+        [
+          caller.tenantId,
+          doc.processId,
+          caller.userId,
+          dto.status === 'validado'
+            ? 'document_validated'
+            : 'document_rejected',
+          JSON.stringify({ docId, label: doc.label ?? doc.name }),
+        ],
+      );
+    }
+
+    return saved;
   }
 
   async uploadFile(docId: string, file: Express.Multer.File, caller: RequestUserFull) {

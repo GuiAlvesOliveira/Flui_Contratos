@@ -8,6 +8,7 @@ import {
   normalizeTelefone, onlyDigits, todayIso,
 } from '../lib/validators';
 import { CATEGORY_LABELS, groupByCategory } from '../lib/documentCatalog';
+import { actionLabel, stateLabel } from '../lib/auditActions';
 import { SolicitarDocumentosModal } from '../components/SolicitarDocumentosModal';
 import { ExcluirDocumentoModal } from '../components/ExcluirDocumentoModal';
 
@@ -53,6 +54,7 @@ interface AuditEntry {
   to_state: string | null;
   actor_name: string | null;
   created_at: string;
+  metadata?: { label?: string; labels?: string[]; fields?: string; reason?: string | null } | null;
 }
 
 interface Document {
@@ -1366,7 +1368,23 @@ function DocumentosTab({ processId, role }: { processId: string; role: string | 
 
 // ── AtividadeTab ───────────────────────────────────────────────────────────────
 
+const ACTIVITY_PAGE = 20;
+
+// Detalhe de cada evento: etapas de/para, documento(s) envolvido(s) ou campos alterados.
+function activityDetail(e: AuditEntry): string | null {
+  if (e.from_state && e.to_state) return `${stateLabel(e.from_state)} → ${stateLabel(e.to_state)}`;
+  const m = e.metadata;
+  if (!m) return null;
+  if (m.labels?.length) return m.labels.join(', ');
+  if (m.label) return m.reason ? `${m.label} · motivo: ${m.reason}` : m.label;
+  if (m.fields) return `Campos: ${m.fields}`;
+  return null;
+}
+
+// FE-22: linha do tempo de tudo o que aconteceu no processo (etapas, documentos,
+// cadastro), com ator, ação, etapa anterior/nova e data em pt-BR; 20 por página.
 function AtividadeTab({ processId }: { processId: string }) {
+  const [page, setPage] = useState(0);
   const { data: audit = [], isLoading } = useQuery<AuditEntry[]>({
     queryKey: ['audit', processId],
     queryFn: () => api.get(`/processes/${processId}/audit`).then(r => r.data),
@@ -1384,28 +1402,48 @@ function AtividadeTab({ processId }: { processId: string }) {
     );
   }
 
+  const totalPages = Math.ceil(audit.length / ACTIVITY_PAGE);
+  const current = Math.min(page, totalPages - 1);
+  const first = current * ACTIVITY_PAGE;
+  const visible = audit.slice(first, first + ACTIVITY_PAGE);
+
   return (
     <div className="ds-card">
-      <div className="ds-card-hdr">Histórico completo</div>
-      <div className="ds-card-body" style={{ padding: 0 }}>
-        {audit.map((entry, idx) => (
-          <div key={entry.id} style={{ display: 'flex', gap: 14, padding: '12px 20px', borderTop: idx === 0 ? 'none' : '1px solid var(--border)' }}>
-            <div style={{ width: 28, height: 28, borderRadius: '50%', background: '#f0f0f0', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
-              <Icon.Activity size={12} style={{ color: 'var(--text-muted)' }} />
-            </div>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 13, fontWeight: 500 }}>
-                {entry.from_state && entry.to_state
-                  ? `${STAGE_LABELS[entry.from_state as ProcessStage] ?? entry.from_state} → ${STAGE_LABELS[entry.to_state as ProcessStage] ?? entry.to_state}`
-                  : entry.action}
-              </div>
-              <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 2 }}>
-                {entry.actor_name ?? 'Sistema'} · {fmtDate(entry.created_at)}
-              </div>
-            </div>
-          </div>
-        ))}
+      <div className="ds-card-hdr">
+        Histórico completo
+        <span style={{ marginLeft: 'auto', fontSize: 11.5, color: 'var(--text-faint)' }}>
+          {audit.length} evento{audit.length !== 1 ? 's' : ''}
+        </span>
       </div>
+      <div className="ds-card-body" style={{ padding: 0 }}>
+        {visible.map((entry, idx) => {
+          const detail = activityDetail(entry);
+          return (
+            <div key={entry.id} data-testid="atividade" style={{ display: 'flex', gap: 14, padding: '12px 20px', borderTop: idx === 0 ? 'none' : '1px solid var(--border)' }}>
+              <div style={{ width: 28, height: 28, borderRadius: '50%', background: '#f0f0f0', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+                <Icon.Activity size={12} style={{ color: 'var(--text-muted)' }} />
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 500 }}>{actionLabel(entry.action)}</div>
+                {detail && <div style={{ fontSize: 12.5, color: 'var(--text)', marginTop: 1 }}>{detail}</div>}
+                <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 2 }}>
+                  {entry.actor_name ?? 'Sistema'} · {fmtDate(entry.created_at)}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {totalPages > 1 && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '10px 16px', borderTop: '1px solid var(--border)', fontSize: 12, color: 'var(--text-muted)' }}>
+          <span style={{ fontVariantNumeric: 'tabular-nums' }}>Mostrando {first + 1}–{first + visible.length} de {audit.length} eventos</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <button className="ds-btn ghost sm" disabled={current === 0} onClick={() => setPage(current - 1)}>← Anterior</button>
+            <span style={{ fontVariantNumeric: 'tabular-nums' }}>Página {current + 1} de {totalPages}</span>
+            <button className="ds-btn ghost sm" disabled={current + 1 >= totalPages} onClick={() => setPage(current + 1)}>Próxima →</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -2,6 +2,7 @@ import { Fragment, useState } from 'react';
 import { keepPreviousData, useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/axiosInstance';
 import * as Icon from '../components/icons';
+import { ACTION_LABELS, stateLabel } from '../lib/auditActions';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -26,32 +27,6 @@ interface AuditLog {
 
 const PAGE_SIZE = 25;
 
-const ACTION_LABELS: Record<string, string> = {
-  stage_change: 'Mudança de etapa',
-  stage_change_undo: 'Desfez mudança de etapa',
-  process_deactivated: 'Processo removido',
-  process_reactivated: 'Processo reativado',
-  document_upload: 'Envio de documento',
-  documents_requested: 'Documentos solicitados',
-  document_deleted: 'Documento excluído (LGPD)',
-  profile_update: 'Atualização de cadastro',
-};
-
-const STAGE_LABELS: Record<string, string> = {
-  inicial: 'Primeiro Contato',
-  cadastro: 'Cadastro',
-  analise_credito: 'Análise de Crédito',
-  credito_aprovado: 'Crédito Aprovado',
-  analise_juridica: 'Análise Jurídica',
-  juridico_aprovado: 'Jurídico Aprovado',
-  cartorio: 'Cartório',
-  assinatura: 'Assinatura',
-  cliente_inativo: 'Inativo',
-  credito_recusado: 'Crédito Recusado',
-  processo_pendencia: 'Pendência',
-  active: 'Ativo',
-  inactive: 'Inativo',
-};
 
 const UNDOABLE_ACTIONS = new Set(['stage_change', 'process_deactivated']);
 
@@ -60,11 +35,6 @@ function fmtDate(iso: string) {
     day: '2-digit', month: '2-digit', year: '2-digit',
     hour: '2-digit', minute: '2-digit',
   }).format(new Date(iso));
-}
-
-function stateLabel(s: string | null) {
-  if (!s) return '—';
-  return STAGE_LABELS[s] ?? s;
 }
 
 function actionColor(action: string): string {
