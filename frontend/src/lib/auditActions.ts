@@ -14,6 +14,7 @@ export const ACTION_LABELS: Record<string, string> = {
   document_deleted: 'Documento excluído (LGPD)',
   profile_update: 'Atualização de cadastro',
   processes_exported: 'Exportação de processos (CSV)',
+  users_imported: 'Importação de usuários (CSV)',
   form_submitted: 'Formulário enviado',
 };
 

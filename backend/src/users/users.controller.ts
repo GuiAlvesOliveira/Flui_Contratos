@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -9,9 +10,13 @@ import {
   Post,
   Query,
   Request,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { RequestUserFull } from '../auth/supabase.guard';
 import { Roles } from '../common/decorators/roles.decorator';
+import { BulkCreateUsersDto } from './dto/bulk-create-users.dto';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { UpdateUserStatusDto } from './dto/update-user-status.dto';
@@ -33,10 +38,26 @@ export class UsersController {
   @Post('bulk')
   @Roles('admin', 'dono', 'analista')
   createBulk(
-    @Body() body: { users: CreateUserDto[] },
+    @Body() body: BulkCreateUsersDto,
     @Request() req: { user: RequestUserFull },
   ) {
     return this.usersService.createBulk(body.users, req.user);
+  }
+
+  // BE-01: importação em lote pelo arquivo CSV (campo "file", até 1 MB)
+  @Post('import')
+  @Roles('dono', 'analista')
+  @UseInterceptors(
+    FileInterceptor('file', { limits: { fileSize: 1024 * 1024 } }),
+  )
+  importCsv(
+    @UploadedFile() file: Express.Multer.File | undefined,
+    @Request() req: { user: RequestUserFull },
+  ) {
+    if (!file || !/\.(csv|txt)$/i.test(file.originalname)) {
+      throw new BadRequestException('Envie um arquivo .csv no campo "file"');
+    }
+    return this.usersService.importCsv(file.buffer, req.user);
   }
 
   @Get()

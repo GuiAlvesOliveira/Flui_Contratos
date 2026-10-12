@@ -380,3 +380,92 @@ describe('UsersService invalidates the TenantGuard cache (AUTH-09)', () => {
     expect(userCache.invalidateUser).not.toHaveBeenCalled();
   });
 });
+
+describe('UsersService.importCsv (BE-01)', () => {
+  const csv = (...lines: string[]) =>
+    Buffer.from(['nome;email;cpf;perfil', ...lines].join('\r\n'), 'utf-8');
+
+  function setup() {
+    const ctx = makeService();
+    ctx.userRepo.findOne.mockImplementation(
+      ({ where }: { where: { email?: string } }) =>
+        Promise.resolve(
+          where.email === 'carla@exemplo.dev' ? { id: 'existente' } : null,
+        ),
+    );
+    ctx.userRepo.create.mockImplementation((u: object) => u);
+    ctx.userRepo.save.mockImplementation((u: { email: string }) =>
+      Promise.resolve({ ...u, id: `id-${u.email}` }),
+    );
+    ctx.supabaseAdmin.createUser.mockResolvedValue('ext-novo');
+    ctx.dataSource.query.mockResolvedValue([]);
+    return ctx;
+  }
+
+  it('creates each valid line through create() and reports the others', async () => {
+    const { service, supabaseAdmin, dataSource } = setup();
+    const res = await service.importCsv(
+      csv(
+        'Ana;ana@exemplo.dev;52998224725;analista',
+        'Bruno;bruno@;52998224725;cliente',
+        'Carla;carla@exemplo.dev;52998224725;cliente',
+      ),
+      caller('dono'),
+    );
+    expect(res).toMatchObject({ total: 3, created: 1, failed: 2 });
+    expect(res.results).toEqual([
+      expect.objectContaining({
+        line: 2,
+        email: 'ana@exemplo.dev',
+        success: true,
+      }),
+      expect.objectContaining({
+        line: 3,
+        success: false,
+        error: 'E-mail inválido',
+      }),
+      expect.objectContaining({
+        line: 4,
+        success: false,
+        error: 'Email já cadastrado',
+      }),
+    ]);
+    expect(res.results[0].temporaryPassword).toMatch(/^[0-9a-f]{32}$/);
+    expect(supabaseAdmin.createUser).toHaveBeenCalledTimes(1);
+    const [sql, params] = dataSource.query.mock.calls.at(-1) as [
+      string,
+      unknown[],
+    ];
+    expect(sql).toContain("'users_imported'");
+    expect(params).toEqual([
+      't1',
+      'u1',
+      JSON.stringify({ total: 3, created: 1 }),
+    ]);
+  });
+
+  it('keeps the creation hierarchy: an analista only imports clientes', async () => {
+    const { service, supabaseAdmin } = setup();
+    const res = await service.importCsv(
+      csv(
+        'Ana;ana@exemplo.dev;52998224725;analista',
+        'Davi;davi@exemplo.dev;52998224725;cliente',
+      ),
+      caller('analista'),
+    );
+    expect(res.results.map((r) => r.error ?? 'ok')).toEqual([
+      'Seu perfil não pode cadastrar analistas',
+      'ok',
+    ]);
+    expect(supabaseAdmin.createUser).toHaveBeenCalledTimes(1);
+  });
+
+  it('a file without the required columns creates no one', async () => {
+    const { service, userRepo, dataSource } = setup();
+    await expect(
+      service.importCsv(Buffer.from('nome;cpf\nAna;1'), caller('dono')),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(userRepo.save).not.toHaveBeenCalled();
+    expect(dataSource.query).not.toHaveBeenCalled();
+  });
+});

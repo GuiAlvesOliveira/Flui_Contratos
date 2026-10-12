@@ -19,11 +19,28 @@ import { User } from './user.entity';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { UpdateUserStatusDto } from './dto/update-user-status.dto';
+import { decodeCsv, parseUsersCsv } from './users-csv';
+
+export interface ImportLineResult {
+  line: number;
+  name: string;
+  email: string;
+  role: string;
+  success: boolean;
+  error?: string;
+  temporaryPassword?: string;
+}
 
 const ALLOWED_CREATION: Record<string, string[]> = {
   admin: ['dono'],
   dono: ['analista', 'cliente'],
   analista: ['cliente'],
+};
+
+const ROLE_PLURAL: Record<string, string> = {
+  dono: 'gestores',
+  analista: 'analistas',
+  cliente: 'clientes',
 };
 
 @Injectable()
@@ -162,6 +179,62 @@ export class UsersService {
       }
     }
     return results;
+  }
+
+  // BE-01: one account per CSV line, through the same create() as the form
+  // (hierarchy, CPF, unique e-mail, temporary password or invite). A failing
+  // line is reported and does not stop the others.
+  async importCsv(file: Buffer, caller: RequestUserFull) {
+    const rows = parseUsersCsv(decodeCsv(file));
+    const results: ImportLineResult[] = [];
+    for (const row of rows) {
+      const base = {
+        line: row.line,
+        name: row.name,
+        email: row.email,
+        role: row.role,
+      };
+      if (!row.dto) {
+        results.push({ ...base, success: false, error: row.error });
+        continue;
+      }
+      try {
+        const created: { temporaryPassword?: string } = await this.create(
+          row.dto,
+          caller,
+        );
+        results.push({
+          ...base,
+          success: true,
+          temporaryPassword: created.temporaryPassword,
+        });
+      } catch (err: unknown) {
+        const error =
+          err instanceof ForbiddenException
+            ? `Seu perfil não pode cadastrar ${ROLE_PLURAL[row.dto.role]}`
+            : err instanceof Error
+              ? err.message
+              : String(err);
+        results.push({ ...base, success: false, error });
+      }
+    }
+
+    const created = results.filter((r) => r.success).length;
+    await this.dataSource.query(
+      `INSERT INTO audit_logs (tenant_id, actor_id, action, metadata)
+       VALUES ($1, $2, 'users_imported', $3::jsonb)`,
+      [
+        caller.tenantId,
+        caller.userId,
+        JSON.stringify({ total: results.length, created }),
+      ],
+    );
+    return {
+      total: results.length,
+      created,
+      failed: results.length - created,
+      results,
+    };
   }
 
   async findAll(caller: RequestUserFull, tenantId?: string, role?: string) {
