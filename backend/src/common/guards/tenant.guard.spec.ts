@@ -150,7 +150,7 @@ describe('TenantGuard', () => {
           (e.getResponse() as { code?: string }).code ?? e.message,
       );
 
-    it.each(['analista', 'cliente'])(
+    it.each(['analista', 'cliente'] as const)(
       'blocks a %s without onboarding on a regular route',
       async (role) => {
         setReflector();

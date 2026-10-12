@@ -37,6 +37,8 @@ const ALLOWED_CREATION: Record<string, string[]> = {
   analista: ['cliente'],
 };
 
+type UserResponse = ReturnType<UsersService['toResponse']>;
+
 const ROLE_PLURAL: Record<string, string> = {
   dono: 'gestores',
   analista: 'analistas',
@@ -56,7 +58,11 @@ export class UsersService {
     private readonly userCache: UserContextCache,
   ) {}
 
-  async create(dto: CreateUserDto, caller: RequestUserFull) {
+  // analista/cliente come back with the temporaryPassword; a dono gets an invite
+  async create(
+    dto: CreateUserDto,
+    caller: RequestUserFull,
+  ): Promise<UserResponse & { temporaryPassword?: string }> {
     if (!ALLOWED_CREATION[caller.role]?.includes(dto.role)) {
       throw new ForbiddenException('Hierarquia de criação inválida');
     }
@@ -199,10 +205,7 @@ export class UsersService {
         continue;
       }
       try {
-        const created: { temporaryPassword?: string } = await this.create(
-          row.dto,
-          caller,
-        );
+        const created = await this.create(row.dto, caller);
         results.push({
           ...base,
           success: true,
