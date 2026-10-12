@@ -203,6 +203,15 @@ export class UsersService {
     // The validated DTO declares every optional field (as undefined); keep only
     // the ones actually sent, so the audit entry lists real changes (RN-07).
     const { processId, ...sent } = dto;
+    // RN-01: processId comes from the body; the entry only goes to a process of
+    // the same tenant whose client is the user being edited.
+    if (processId) {
+      const [owned] = await this.dataSource.query<{ id: string }[]>(
+        `SELECT id FROM processes WHERE id = $1 AND tenant_id = $2 AND client_id = $3 LIMIT 1`,
+        [processId, user.tenantId, id],
+      );
+      if (!owned) throw new NotFoundException('Processo não encontrado');
+    }
     const fields = Object.fromEntries(
       Object.entries(sent).filter(([, value]) => value !== undefined),
     );

@@ -237,3 +237,45 @@ describe('ProcessesService.exportCsv (BE-17)', () => {
     expect(logParams).toEqual(['t1', 'g1', JSON.stringify({ count: 1 })]);
   });
 });
+
+describe('ProcessesService.getAuditLog (RN-01)', () => {
+  const cliente = {
+    tenantId: 't1',
+    userId: 'c1',
+    role: 'cliente',
+  } as RequestUserFull;
+
+  it('a cliente only reads the log of their own process', async () => {
+    const { service, repo, dataSource } = makeService(null);
+    await expect(
+      service.getAuditLog('p-outro', cliente),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(repo.findOne).toHaveBeenCalledWith({
+      where: { id: 'p-outro', tenantId: 't1', clientId: 'c1' },
+    });
+    expect(dataSource.query).not.toHaveBeenCalled();
+  });
+
+  it('staff of the tenant read any process of the tenant', async () => {
+    const { service, repo, dataSource } = makeService({
+      id: 'p1',
+      clientId: 'c9',
+    });
+    dataSource.query.mockResolvedValue([{ id: 'log1' }]);
+    await expect(service.getAuditLog('p1', caller)).resolves.toEqual([
+      { id: 'log1' },
+    ]);
+    expect(repo.findOne).toHaveBeenCalledWith({
+      where: { id: 'p1', tenantId: 't1' },
+    });
+  });
+
+  it('the entries are filtered by the tenant as well as the process', async () => {
+    const { service, dataSource } = makeService({ id: 'p1', clientId: 'c1' });
+    dataSource.query.mockResolvedValue([]);
+    await service.getAuditLog('p1', cliente);
+    const [sql, params] = dataSource.query.mock.calls[0] as [string, unknown[]];
+    expect(sql).toContain('al.tenant_id = $2');
+    expect(params).toEqual(['p1', 't1']);
+  });
+});

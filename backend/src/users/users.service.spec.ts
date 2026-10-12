@@ -261,6 +261,7 @@ describe('UsersService.updateProfile — ficha cadastral (FE-20)', () => {
     const { service, userRepo, dataSource } = makeService();
     userRepo.findOne.mockResolvedValue(cliente());
     userRepo.save.mockImplementation((u: User) => Promise.resolve(u));
+    dataSource.query.mockResolvedValueOnce([{ id: 'p1' }]);
     await service.updateProfile(
       'u2',
       { rg: '123456789', dataNascimento: '1990-05-17', processId: 'p1' },
@@ -272,8 +273,26 @@ describe('UsersService.updateProfile — ficha cadastral (FE-20)', () => {
         dataNascimento: '1990-05-17',
       }),
     );
-    const [, params] = dataSource.query.mock.calls[0] as [string, unknown[]];
+    const [, params] = dataSource.query.mock.calls[1] as [string, unknown[]];
     expect(params[3]).toBe(JSON.stringify({ fields: 'rg, dataNascimento' }));
+  });
+
+  it('RN-01: refuses a processId of another tenant or client and saves nothing', async () => {
+    const { service, userRepo, dataSource } = makeService();
+    userRepo.findOne.mockResolvedValue(cliente());
+    dataSource.query.mockResolvedValueOnce([]);
+    await expect(
+      service.updateProfile(
+        'u2',
+        { rg: '1', processId: 'p-outro' },
+        caller('dono'),
+      ),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    const [sql, params] = dataSource.query.mock.calls[0] as [string, unknown[]];
+    expect(sql).toContain('tenant_id = $2 AND client_id = $3');
+    expect(params).toEqual(['p-outro', 't1', 'u2']);
+    expect(dataSource.query).toHaveBeenCalledTimes(1); // no audit insert
+    expect(userRepo.save).not.toHaveBeenCalled();
   });
 
   it('clears the birth date with null', async () => {
@@ -313,9 +332,10 @@ describe('UsersService.updateProfile — only sent fields (RN-07)', () => {
     userRepo.save.mockImplementation((u: User) => Promise.resolve(u));
     // Shape of a ValidationPipe instance: undeclared keys present as undefined
     const dto = { name: undefined, cpf: undefined, rg: '1', processId: 'p1' };
+    dataSource.query.mockResolvedValueOnce([{ id: 'p1' }]);
     const res = await service.updateProfile('u2', dto, caller('dono'));
     expect(res).toMatchObject({ name: 'Helena', cpf: '52998224725', rg: '1' });
-    const [, params] = dataSource.query.mock.calls[0] as [string, unknown[]];
+    const [, params] = dataSource.query.mock.calls[1] as [string, unknown[]];
     expect(params[3]).toBe(JSON.stringify({ fields: 'rg' }));
   });
 });

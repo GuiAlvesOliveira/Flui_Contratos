@@ -335,19 +335,24 @@ export class ProcessesService {
     return { id, active: false };
   }
 
+  // RN-01: same visibility as findOne — a cliente only reads their own process.
   async getAuditLog(id: string, caller: RequestUserFull) {
-    const process = await this.repo.findOne({
-      where: { id, tenantId: caller.tenantId! },
-    });
+    const where: { id: string; tenantId: string; clientId?: string } = {
+      id,
+      tenantId: caller.tenantId!,
+    };
+    if (caller.role === 'cliente') where.clientId = caller.userId;
+
+    const process = await this.repo.findOne({ where });
     if (!process) throw new NotFoundException('Processo não encontrado');
 
     return this.dataSource.query(
       `SELECT al.*, u.name as actor_name
        FROM audit_logs al
        LEFT JOIN users u ON u.id = al.actor_id
-       WHERE al.process_id = $1
+       WHERE al.process_id = $1 AND al.tenant_id = $2
        ORDER BY al.created_at DESC`,
-      [id],
+      [id, caller.tenantId],
     );
   }
 
