@@ -14,12 +14,32 @@ const Loading = () => (
   </div>
 );
 
+const needsOnboarding = (role: string | null) => role === 'analista' || role === 'cliente';
+
+// AUTH-08: abrir /analista ou /cliente direto não pula a troca de senha nem o
+// onboarding (a API também recusa, com ONBOARDING_REQUIRED).
 function RoleRoute({ allowed, children }: { allowed: string; children: React.ReactNode }) {
-  const { isAuthenticated, role, isLoadingAuth } = useAuth();
+  const { isAuthenticated, role, isLoadingAuth, mustChangePassword, onboardingCompleted } = useAuth();
 
   if (isLoadingAuth) return <Loading />;
   if (!isAuthenticated) return <Navigate to="/" replace />;
   if (role !== allowed) return <Forbidden />;
+  if (mustChangePassword) return <Navigate to="/change-password" replace />;
+  if (!onboardingCompleted && needsOnboarding(role)) {
+    return <Navigate to={`/${role}/onboarding`} replace />;
+  }
+
+  return <>{children}</>;
+}
+
+function OnboardingRoute({ allowed, children }: { allowed: string; children: React.ReactNode }) {
+  const { isAuthenticated, role, isLoadingAuth, mustChangePassword, onboardingCompleted } = useAuth();
+
+  if (isLoadingAuth) return <Loading />;
+  if (!isAuthenticated) return <Navigate to="/" replace />;
+  if (role !== allowed) return <Forbidden />;
+  if (mustChangePassword) return <Navigate to="/change-password" replace />;
+  if (onboardingCompleted) return <Navigate to={`/${role}`} replace />;
 
   return <>{children}</>;
 }
@@ -43,9 +63,8 @@ function RootRedirect() {
   if (!isAuthenticated) return <LoginPage />;
   if (mustChangePassword) return <Navigate to="/change-password" replace />;
 
-  if (!onboardingCompleted) {
-    if (role === 'analista') return <Navigate to="/analista/onboarding" replace />;
-    if (role === 'cliente') return <Navigate to="/cliente/onboarding" replace />;
+  if (!onboardingCompleted && needsOnboarding(role)) {
+    return <Navigate to={`/${role}/onboarding`} replace />;
   }
 
   if (role === 'dono') return <Navigate to="/dono" replace />;
@@ -61,8 +80,8 @@ export function AppRouter() {
       <Routes>
         <Route path="/" element={<RootRedirect />} />
         <Route path="/change-password" element={<ChangePasswordPage />} />
-        <Route path="/analista/onboarding" element={<AnalistaOnboardingPage />} />
-        <Route path="/cliente/onboarding" element={<ClienteOnboardingPage />} />
+        <Route path="/analista/onboarding" element={<OnboardingRoute allowed="analista"><AnalistaOnboardingPage /></OnboardingRoute>} />
+        <Route path="/cliente/onboarding" element={<OnboardingRoute allowed="cliente"><ClienteOnboardingPage /></OnboardingRoute>} />
         <Route path="/dono" element={<RoleRoute allowed="dono"><AppShell /></RoleRoute>} />
         <Route path="/analista" element={<RoleRoute allowed="analista"><AppShell /></RoleRoute>} />
         <Route path="/cliente" element={<RoleRoute allowed="cliente"><AppShell /></RoleRoute>} />

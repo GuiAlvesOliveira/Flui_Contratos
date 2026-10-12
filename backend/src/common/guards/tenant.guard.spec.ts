@@ -5,6 +5,7 @@ import { TenantGuard } from './tenant.guard';
 import { UserContextCache } from '../../auth/user-context.cache';
 import { User } from '../../users/user.entity';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
+import { ONBOARDING_EXEMPT_KEY } from '../decorators/onboarding-exempt.decorator';
 import { PASSWORD_CHANGE_EXEMPT_KEY } from '../decorators/password-change-exempt.decorator';
 
 function makeContext(req: unknown) {
@@ -37,10 +38,17 @@ describe('TenantGuard', () => {
   let reflector: { getAllAndOverride: jest.Mock };
   let cache: UserContextCache;
 
-  const setReflector = (isPublic = false, isExempt = false) => {
-    reflector.getAllAndOverride.mockImplementation((key: string) =>
-      key === IS_PUBLIC_KEY ? isPublic : key === PASSWORD_CHANGE_EXEMPT_KEY ? isExempt : undefined,
-    );
+  const setReflector = (
+    isPublic = false,
+    isExempt = false,
+    onboardingExempt = false,
+  ) => {
+    const meta: Record<string, boolean> = {
+      [IS_PUBLIC_KEY]: isPublic,
+      [PASSWORD_CHANGE_EXEMPT_KEY]: isExempt,
+      [ONBOARDING_EXEMPT_KEY]: onboardingExempt,
+    };
+    reflector.getAllAndOverride.mockImplementation((key: string) => meta[key]);
   };
 
   beforeEach(() => {
@@ -91,8 +99,8 @@ describe('TenantGuard', () => {
     expect(userRepo.update).not.toHaveBeenCalled();
   });
 
-  it('activates an invited user on first login', async () => {
-    setReflector();
+  it('activates an invited user on first login (GET /me)', async () => {
+    setReflector(false, true, true);
     userRepo.findOne.mockResolvedValue(makeUser({ status: 'invited', onboardingCompleted: false }));
     const req = { user: { externalId: 'ext1', email: 'a@x.com' } };
     await expect(guard.canActivate(makeContext(req))).resolves.toBe(true);
@@ -131,6 +139,85 @@ describe('TenantGuard', () => {
     userRepo.findOne.mockResolvedValue(makeUser({ mustChangePassword: true }));
     const req = { user: { externalId: 'ext1', email: 'a@x.com' } };
     await expect(guard.canActivate(makeContext(req))).resolves.toBe(true);
+  });
+
+  describe('AUTH-08: onboarding required for analista and cliente', () => {
+    const req = () => ({ user: { externalId: 'ext1', email: 'a@x.com' } });
+    const code = async (p: Promise<unknown>) =>
+      p.then(
+        () => 'passou',
+        (e: ForbiddenException) =>
+          (e.getResponse() as { code?: string }).code ?? e.message,
+      );
+
+    it.each(['analista', 'cliente'])(
+      'blocks a %s without onboarding on a regular route',
+      async (role) => {
+        setReflector();
+        userRepo.findOne.mockResolvedValue(
+          makeUser({ role, onboardingCompleted: false }),
+        );
+        expect(await code(guard.canActivate(makeContext(req())))).toBe(
+          'ONBOARDING_REQUIRED',
+        );
+      },
+    );
+
+    it('lets them reach the onboarding routes (GET /me, PATCH /me/onboarding)', async () => {
+      setReflector(false, false, true);
+      userRepo.findOne.mockResolvedValue(
+        makeUser({ role: 'cliente', onboardingCompleted: false }),
+      );
+      await expect(guard.canActivate(makeContext(req()))).resolves.toBe(true);
+    });
+
+    it('does not apply to the gestor (dono)', async () => {
+      setReflector();
+      userRepo.findOne.mockResolvedValue(
+        makeUser({ role: 'dono', onboardingCompleted: false }),
+      );
+      await expect(guard.canActivate(makeContext(req()))).resolves.toBe(true);
+    });
+
+    it('also blocks when the context comes from the cache', async () => {
+      setReflector(false, false, true); // GET /me caches the context
+      userRepo.findOne.mockResolvedValue(
+        makeUser({ onboardingCompleted: false }),
+      );
+      await guard.canActivate(makeContext(req()));
+      expect(cache.size).toBe(1);
+
+      setReflector(); // then a regular route
+      expect(await code(guard.canActivate(makeContext(req())))).toBe(
+        'ONBOARDING_REQUIRED',
+      );
+      expect(userRepo.findOne).toHaveBeenCalledTimes(1);
+    });
+
+    it('lets the user in right after the onboarding (cache invalidated)', async () => {
+      setReflector(false, false, true);
+      userRepo.findOne.mockResolvedValue(
+        makeUser({ onboardingCompleted: false }),
+      );
+      await guard.canActivate(makeContext(req()));
+
+      userRepo.findOne.mockResolvedValue(
+        makeUser({ onboardingCompleted: true }),
+      );
+      cache.invalidateUser('u1'); // what MeService.completeOnboarding does
+      setReflector();
+      await expect(guard.canActivate(makeContext(req()))).resolves.toBe(true);
+    });
+
+    it('the password change comes first', async () => {
+      setReflector();
+      userRepo.findOne.mockResolvedValue(
+        makeUser({ mustChangePassword: true, onboardingCompleted: false }),
+      );
+      expect(await code(guard.canActivate(makeContext(req())))).toBe(
+        'PASSWORD_CHANGE_REQUIRED',
+      );
+    });
   });
 
   describe('AUTH-09: shared cache with invalidation by userId', () => {

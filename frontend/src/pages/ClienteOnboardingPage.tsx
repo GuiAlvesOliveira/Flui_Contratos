@@ -1,12 +1,10 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { api } from '../api/axiosInstance';
 
 type FonteRenda = 'assalariado' | 'nao_assalariado';
 type EstadoCivil = 'casado' | 'solteiro' | 'divorciado';
 
 export function ClienteOnboardingPage() {
-  const navigate = useNavigate();
   const [form, setForm] = useState({
     name: '',
     surname: '',
@@ -43,7 +41,8 @@ export function ClienteOnboardingPage() {
         telefone: form.telefone.trim() || undefined,
         dataNascimento: form.dataNascimento || undefined,
       });
-      navigate('/cliente', { replace: true });
+      // Recarrega para o /me trazer onboardingCompleted = true (AUTH-08)
+      window.location.replace('/cliente');
     } catch {
       setError('Erro ao salvar. Tente novamente.');
       setLoading(false);

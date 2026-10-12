@@ -9,6 +9,7 @@ import { App } from 'supertest/types';
 import { RequestUserFull } from '../src/auth/supabase.guard';
 import { GLOBAL_GUARDS } from '../src/common/guards/global-guards';
 import { UserContextCache } from '../src/auth/user-context.cache';
+import { OnboardingExempt } from '../src/common/decorators/onboarding-exempt.decorator';
 import { Public } from '../src/common/decorators/public.decorator';
 import { Roles } from '../src/common/decorators/roles.decorator';
 import { User } from '../src/users/user.entity';
@@ -38,6 +39,13 @@ class TestController {
   me(@Req() req: { user: RequestUserFull }) {
     return req.user;
   }
+
+  @Get('onboarding')
+  @OnboardingExempt()
+  @Roles('analista', 'dono', 'cliente')
+  onboarding() {
+    return { ok: 'onboarding' };
+  }
 }
 
 function dbUser(externalId: string, role: string, id: string) {
@@ -60,6 +68,8 @@ mockGetUser.mockImplementation((token: string) => {
     return Promise.resolve({ data: { user: { id: 'ext-analista', email: 'an@x.com' } }, error: null });
   if (token === 'cliente-token')
     return Promise.resolve({ data: { user: { id: 'ext-cliente', email: 'cl@x.com' } }, error: null });
+  if (token === 'novato-token')
+    return Promise.resolve({ data: { user: { id: 'ext-novato', email: 'nv@x.com' } }, error: null });
   return Promise.resolve({ data: { user: null }, error: { message: 'invalid token' } });
 });
 
@@ -71,6 +81,11 @@ async function buildApp(throttleLimit: number): Promise<INestApplication<App>> {
     findOne: jest.fn(({ where }: { where: { externalId?: string } }) => {
       if (where.externalId === 'ext-analista') return Promise.resolve(dbUser('ext-analista', 'analista', 'u-an'));
       if (where.externalId === 'ext-cliente') return Promise.resolve(dbUser('ext-cliente', 'cliente', 'u-cli'));
+      if (where.externalId === 'ext-novato')
+        return Promise.resolve({
+          ...dbUser('ext-novato', 'analista', 'u-nv'),
+          onboardingCompleted: false,
+        });
       return Promise.resolve(null);
     }),
     update: jest.fn(),
@@ -142,6 +157,22 @@ describe('Guard chain (e2e): Throttler → Supabase → Tenant → Roles', () =>
       .set('Authorization', 'Bearer analista-token')
       .expect(200);
     expect(res.body).toMatchObject({ tenantId: 'tenant-1', role: 'analista', userId: 'u-an' });
+  });
+
+  it('AUTH-08: 403s an analista who has not completed the onboarding', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/test/analista-only')
+      .set('Authorization', 'Bearer novato-token')
+      .expect(403);
+    expect(res.body).toMatchObject({ code: 'ONBOARDING_REQUIRED' });
+  });
+
+  it('AUTH-08: the onboarding routes stay reachable for them', () => {
+    return request(app.getHttpServer())
+      .get('/test/onboarding')
+      .set('Authorization', 'Bearer novato-token')
+      .expect(200)
+      .expect({ ok: 'onboarding' });
   });
 });
 

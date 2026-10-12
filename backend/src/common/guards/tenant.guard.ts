@@ -9,10 +9,14 @@ import { Reflector } from '@nestjs/core';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
+import { ONBOARDING_EXEMPT_KEY } from '../decorators/onboarding-exempt.decorator';
 import { PASSWORD_CHANGE_EXEMPT_KEY } from '../decorators/password-change-exempt.decorator';
 import { RequestUser, RequestUserFull } from '../../auth/supabase.guard';
 import { UserContextCache } from '../../auth/user-context.cache';
 import { User } from '../../users/user.entity';
+
+// The gestor (dono) and the admin have no onboarding screen.
+const ONBOARDING_ROLES = new Set(['analista', 'cliente']);
 
 @Injectable()
 export class TenantGuard implements CanActivate {
@@ -34,6 +38,10 @@ export class TenantGuard implements CanActivate {
       PASSWORD_CHANGE_EXEMPT_KEY,
       [context.getHandler(), context.getClass()],
     );
+    const onboardingExempt = this.reflector.getAllAndOverride<boolean>(
+      ONBOARDING_EXEMPT_KEY,
+      [context.getHandler(), context.getClass()],
+    );
 
     const request = context.switchToHttp().getRequest<{ user?: RequestUser }>();
     const user = request.user;
@@ -45,6 +53,7 @@ export class TenantGuard implements CanActivate {
     const cached = this.cache.get(user.externalId);
     if (cached) {
       this.enforcePasswordChange(cached, passwordChangeExempt);
+      this.enforceOnboarding(cached, onboardingExempt);
       (request as { user: RequestUserFull }).user = cached;
       return true;
     }
@@ -102,8 +111,25 @@ export class TenantGuard implements CanActivate {
       this.cache.set(user.externalId, fullUser);
     }
     this.enforcePasswordChange(fullUser, passwordChangeExempt);
+    this.enforceOnboarding(fullUser, onboardingExempt);
     (request as { user: RequestUserFull }).user = fullUser;
     return true;
+  }
+
+  // AUTH-08: the frontend redirect alone could be skipped by opening a URL
+  // directly, so the API refuses everything else until the onboarding is done.
+  private enforceOnboarding(user: RequestUserFull, exempt: boolean): void {
+    if (
+      exempt ||
+      user.onboardingCompleted ||
+      !ONBOARDING_ROLES.has(user.role)
+    ) {
+      return;
+    }
+    throw new ForbiddenException({
+      code: 'ONBOARDING_REQUIRED',
+      message: 'Complete o seu cadastro antes de acessar o sistema',
+    });
   }
 
   private enforcePasswordChange(user: RequestUserFull, exempt: boolean): void {

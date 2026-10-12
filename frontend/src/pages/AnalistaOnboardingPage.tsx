@@ -1,9 +1,7 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { api } from '../api/axiosInstance';
 
 export function AnalistaOnboardingPage() {
-  const navigate = useNavigate();
   const [form, setForm] = useState({ name: '', surname: '', telefone: '', rg: '' });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -25,7 +23,8 @@ export function AnalistaOnboardingPage() {
         telefone: form.telefone.trim() || undefined,
         rg: form.rg.trim() || undefined,
       });
-      navigate('/analista', { replace: true });
+      // Recarrega para o /me trazer onboardingCompleted = true (AUTH-08)
+      window.location.replace('/analista');
     } catch {
       setError('Erro ao salvar. Tente novamente.');
       setLoading(false);
