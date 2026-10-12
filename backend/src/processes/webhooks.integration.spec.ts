@@ -2,6 +2,7 @@ import { createServer, type IncomingHttpHeaders, type Server } from 'http';
 import { AddressInfo } from 'net';
 import { ConfigService } from '@nestjs/config';
 import { DataSource, Repository } from 'typeorm';
+import { AuditService } from '../audit/audit.service';
 import { RequestUserFull } from '../auth/supabase.guard';
 import {
   signWebhook,
@@ -232,6 +233,45 @@ describe('BE-15/BE-16: n8n webhooks for the six points of the flow', () => {
     // a forged body does not match the signature
     expect(signWebhook(SECRET, ts, hit.raw.replace('p1', 'p2'))).not.toBe(
       hit.headers['x-flui-signature'],
+    );
+  });
+
+  it('RN-08: an undo in the Log de Ações also reaches n8n, flagged undo', async () => {
+    const audit = new AuditService(
+      {
+        query: jest
+          .fn()
+          .mockResolvedValueOnce([
+            {
+              action: 'stage_change',
+              process_id: 'p1',
+              from_state: 'analise_credito',
+              to_state: 'credito_recusado',
+            },
+          ])
+          .mockResolvedValueOnce([
+            { stage: 'credito_recusado', client_id: 'c1', analista_id: 'an1' },
+          ]),
+        transaction: jest.fn((cb: (m: unknown) => unknown) =>
+          cb({ query: jest.fn() }),
+        ),
+      } as unknown as DataSource,
+      processes('credito_recusado'),
+    );
+    await audit.undo('log1', { ...caller, role: 'dono' });
+    const [hit] = await waitFor(1);
+    expect(hit.path).toBe('/webhook/stage-change');
+    expect(hit.body).toMatchObject({
+      event_type: 'bank_analysis',
+      process_id: 'p1',
+      tenant_id: 't1',
+      fromStage: 'credito_recusado',
+      toStage: 'analise_credito',
+      undo: true,
+      clientEmail: 'helena@x.dev',
+    });
+    expect(hit.headers['x-flui-signature']).toBe(
+      signWebhook(SECRET, hit.headers['x-flui-timestamp'] as string, hit.raw),
     );
   });
 

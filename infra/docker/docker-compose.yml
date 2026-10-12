@@ -29,6 +29,10 @@ services:
       N8N_PORT: 5678
       N8N_PROTOCOL: http
       WEBHOOK_URL: http://localhost:5678/
+      # Nó "Validar assinatura (HMAC)" dos workflows em infra/n8n (BE-16)
+      NODE_FUNCTION_ALLOW_BUILTIN: crypto
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"
+      WEBHOOK_SECRET: ${WEBHOOK_SECRET}
     volumes:
       - n8n_data:/home/node/.n8n
 

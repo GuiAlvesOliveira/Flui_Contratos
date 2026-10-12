@@ -280,11 +280,35 @@ export class ProcessesService {
       );
     });
 
-    // Load client info so n8n and ACS email have everything needed
+    const client = await this.notifyStageChange(process, {
+      tenantId: caller.tenantId!,
+      fromStage,
+      toStage: dto.toStage,
+      actorId: caller.userId,
+    });
+    if (client?.email && client?.name) {
+      this.email.sendStageChange(client.email, client.name, fromStage, dto.toStage);
+    }
+
+    return { id, fromStage, toStage: dto.toStage };
+  }
+
+  // RN-08: every stage change goes to n8n — a move here or an undo in the Log
+  // de Ações (`undo: true`). Returns the client, loaded for the payload.
+  async notifyStageChange(
+    process: Pick<Process, 'id' | 'clientId' | 'analistaId'>,
+    change: {
+      tenantId: string;
+      fromStage: ProcessStage;
+      toStage: ProcessStage;
+      actorId: string;
+      undo?: boolean;
+    },
+  ): Promise<User | null> {
     const client = await this.userRepo.findOne({ where: { id: process.clientId } });
     // BE-15: event_type of the n8n point; a pendência alerts the client AND the
     // analista at the same time (RN-10, "disparo duplo").
-    const eventType = stageEventType(dto.toStage);
+    const eventType = stageEventType(change.toStage);
     const dual = eventType === 'pending_alert';
     const analista =
       dual && process.analistaId
@@ -293,13 +317,14 @@ export class ProcessesService {
     this.webhook.fireEvent(
       'stage-change',
       eventType,
-      { processId: id, tenantId: caller.tenantId },
+      { processId: process.id, tenantId: change.tenantId },
       {
-        processId: id,
-        tenantId: caller.tenantId,
-        fromStage,
-        toStage: dto.toStage,
-        actorId: caller.userId,
+        processId: process.id,
+        tenantId: change.tenantId,
+        fromStage: change.fromStage,
+        toStage: change.toStage,
+        actorId: change.actorId,
+        ...(change.undo ? { undo: true } : {}),
         clientId: process.clientId,
         clientName: client?.name ?? null,
         clientEmail: client?.email ?? null,
@@ -314,11 +339,7 @@ export class ProcessesService {
           : {}),
       },
     );
-    if (client?.email && client?.name) {
-      this.email.sendStageChange(client.email, client.name, fromStage, dto.toStage);
-    }
-
-    return { id, fromStage, toStage: dto.toStage };
+    return client;
   }
 
   async deactivate(id: string, caller: RequestUserFull) {

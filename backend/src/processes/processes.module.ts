@@ -10,5 +10,6 @@ import { Process } from './process.entity';
   imports: [TypeOrmModule.forFeature([Process, User])],
   controllers: [ProcessesController],
   providers: [ProcessesService, WebhookService],
+  exports: [ProcessesService],
 })
 export class ProcessesModule {}

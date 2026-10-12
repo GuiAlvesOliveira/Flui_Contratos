@@ -1,0 +1,531 @@
+{
+  "id": "FluiStageChange1",
+  "name": "Flui — Mudança de etapa (RN-08)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "stage-change",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "675c60d4-db57-491f-bda2-b796259f8096",
+      "name": "Webhook do Flui",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        300
+      ],
+      "webhookId": "015df2ec-3300-447c-a53a-dfa70887ab29"
+    },
+    {
+      "parameters": {
+        "jsCode": "// BE-16: confere a assinatura HMAC-SHA256 que o backend do Flui envia em\n// X-Flui-Signature sobre \"<X-Flui-Timestamp>.<corpo>\" e recusa pedidos com mais\n// de 5 minutos (reenvio). Sem o segredo configurado, nenhum pedido passa.\nconst crypto = require('crypto');\n\nlet secret;\ntry {\n  secret = $env.WEBHOOK_SECRET; // n8n self-hosted: variável de ambiente\n} catch (e) {\n  secret = undefined; // acesso a variáveis bloqueado nesta instância\n}\n// n8n Cloud não tem variáveis de ambiente: troque o texto abaixo pelo segredo.\nif (!secret) secret = 'COLE_AQUI_O_WEBHOOK_SECRET';\nif (secret === 'COLE_AQUI_O_WEBHOOK_SECRET') {\n  throw new Error('WEBHOOK_SECRET não configurado no n8n');\n}\n\nconst STAGE_LABELS = {\n  inicial: 'Primeiro Contato',\n  cadastro: 'Cadastro',\n  analise_credito: 'Análise de Crédito',\n  credito_aprovado: 'Crédito Aprovado',\n  analise_juridica: 'Análise Jurídica',\n  juridico_aprovado: 'Jurídico Aprovado',\n  cartorio: 'Cartório',\n  assinatura: 'Assinatura',\n  cliente_inativo: 'Inativo',\n  credito_recusado: 'Crédito Recusado',\n  processo_pendencia: 'Pendência',\n};\n\nreturn $input.all().map((item) => {\n  const { headers, body } = item.json;\n  const ts = String(headers['x-flui-timestamp'] || '');\n  const got = String(headers['x-flui-signature'] || '');\n  // o backend envia JSON compacto; reserializar o corpo dá os mesmos bytes\n  const expected =\n    'sha256=' +\n    crypto.createHmac('sha256', secret).update(ts + '.' + JSON.stringify(body)).digest('hex');\n  const fresh = Math.abs(Date.now() / 1000 - Number(ts)) < 300;\n  if (\n    !fresh ||\n    got.length !== expected.length ||\n    !crypto.timingSafeEqual(Buffer.from(got), Buffer.from(expected))\n  ) {\n    throw new Error('Webhook sem assinatura válida do Flui');\n  }\n  return {\n    json: {\n      ...body,\n      fromLabel: STAGE_LABELS[body.fromStage] || body.fromStage || '',\n      toLabel: STAGE_LABELS[body.toStage] || body.toStage || '',\n    },\n  };\n});"
+      },
+      "id": "82135c3b-2622-41e8-a4c4-79fe00ecbb95",
+      "name": "Validar assinatura (HMAC)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "04a99219-a6e0-42df-925b-89a7b881f22e",
+                    "leftValue": "={{ $json.event_type }}",
+                    "rightValue": "credit_refused",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Recusa de crédito"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "59eb41ec-506b-4ab4-989b-7319b57f5ebe",
+                    "leftValue": "={{ $json.event_type }}",
+                    "rightValue": "bank_analysis",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Análise bancária"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "c955b5a5-df3e-4684-a4d2-cda5ab28e10d",
+                    "leftValue": "={{ $json.event_type }}",
+                    "rightValue": "pending_alert",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Pendência"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "078a918d-2be1-4bd8-9afb-fe9aa8fdb28f",
+                    "leftValue": "={{ $json.event_type }}",
+                    "rightValue": "signature",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Assinatura"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "bd51a51d-3986-4dd5-8e38-e092e59c7da6",
+                    "leftValue": "={{ $json.event_type }}",
+                    "rightValue": "issuance",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Emissão"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "Outras etapas"
+        }
+      },
+      "id": "6662807b-70b9-43a8-bd65-177397cec99d",
+      "name": "Ponto do fluxo",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        460,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "3ca10114-8649-4ede-8e40-7809b2deb166",
+              "name": "to",
+              "value": "={{ $json.clientEmail }}",
+              "type": "string"
+            },
+            {
+              "id": "546af64f-9d13-4e30-96cd-6af87a83da64",
+              "name": "subject",
+              "value": "={{ $json.undo ? 'Flui Contratos — seu processo voltou para ' + $json.toLabel : 'Flui Contratos — resultado da análise de crédito' }}",
+              "type": "string"
+            },
+            {
+              "id": "7e4af4da-b90a-4729-9294-7bc58b939b70",
+              "name": "text",
+              "value": "={{ 'Olá, ' + ($json.clientName || 'cliente') + '!\\n\\n' + ($json.undo ? 'Seu processo voltou para a etapa ' + $json.toLabel + ' (correção feita pela assessoria).' : 'A análise de crédito do seu financiamento não foi aprovada pelo banco. Sua assessoria vai entrar em contato para explicar as alternativas.') + '\\n\\nAcompanhe pelo portal do Flui Contratos.\\nMensagem automática, não responda.' }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "f5ddc3c2-f4c1-4f32-bc10-1fa63cd465b7",
+      "name": "Recusa de crédito",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        720,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "ab6ab2e1-b46d-48af-8228-a3cf9cecfa6a",
+              "name": "to",
+              "value": "={{ $json.clientEmail }}",
+              "type": "string"
+            },
+            {
+              "id": "ace3d84d-ae3c-4e7f-b839-6ff8d1658917",
+              "name": "subject",
+              "value": "={{ $json.undo ? 'Flui Contratos — seu processo voltou para ' + $json.toLabel : $json.toStage === 'credito_aprovado' ? 'Flui Contratos — crédito aprovado' : 'Flui Contratos — seu processo está em análise no banco' }}",
+              "type": "string"
+            },
+            {
+              "id": "5738c28e-8e16-42db-acc8-62485d4143a7",
+              "name": "text",
+              "value": "={{ 'Olá, ' + ($json.clientName || 'cliente') + '!\\n\\n' + ($json.undo ? 'Seu processo voltou para a etapa ' + $json.toLabel + ' (correção feita pela assessoria).' : ($json.toStage === 'credito_aprovado' ? 'Boa notícia: o crédito do seu financiamento foi aprovado pelo banco!' : 'Seu processo entrou em Análise de Crédito: a documentação foi enviada ao banco.')) + '\\n\\nAcompanhe pelo portal do Flui Contratos.\\nMensagem automática, não responda.' }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "7989fc10-5e04-4515-9dec-20db5442acf4",
+      "name": "Análise bancária",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        720,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// RN-10: a pendência avisa o cliente E o analista do processo\nconst FOOTER = '\\n\\nMensagem automática do Flui Contratos, não responda.';\nreturn $input.all().flatMap(({ json }) => {\n  const out = [];\n  if (json.clientEmail) {\n    out.push({ json: {\n      to: json.clientEmail,\n      subject: json.undo\n        ? 'Flui Contratos — seu processo voltou para ' + json.toLabel\n        : 'Flui Contratos — pendência no seu processo',\n      text: 'Olá, ' + (json.clientName || 'cliente') + '!\\n\\n' + (json.undo\n        ? 'Seu processo voltou para a etapa ' + json.toLabel + ' (correção feita pela assessoria).'\n        : 'Há uma pendência no seu processo de financiamento. Acesse o portal para ver o que falta e enviar o que for pedido.') + FOOTER,\n    } });\n  }\n  if (json.analistaEmail) {\n    out.push({ json: {\n      to: json.analistaEmail,\n      subject: 'Flui — pendência no processo de ' + (json.clientName || 'cliente'),\n      text: 'Olá, ' + (json.analistaName || 'analista') + '!\\n\\nO processo de ' + (json.clientName || 'cliente') + ' foi para Pendência (etapa anterior: ' + json.fromLabel + ').' + FOOTER,\n    } });\n  }\n  return out;\n});"
+      },
+      "id": "ec4a30cd-8825-4a76-96aa-c2d464d0873c",
+      "name": "Pendência: cliente e analista",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "fa991690-5a47-470e-843c-38dd6e5d7675",
+              "name": "to",
+              "value": "={{ $json.clientEmail }}",
+              "type": "string"
+            },
+            {
+              "id": "b77ccc47-9160-4e1f-9826-32fd50919b96",
+              "name": "subject",
+              "value": "={{ $json.undo ? 'Flui Contratos — seu processo voltou para ' + $json.toLabel : 'Flui Contratos — contrato pronto para assinatura' }}",
+              "type": "string"
+            },
+            {
+              "id": "fba413f2-e0c6-4abb-b989-d16030c613e7",
+              "name": "text",
+              "value": "={{ 'Olá, ' + ($json.clientName || 'cliente') + '!\\n\\n' + ($json.undo ? 'Seu processo voltou para a etapa ' + $json.toLabel + ' (correção feita pela assessoria).' : 'Seu contrato está pronto para assinatura. A assessoria vai orientar o agendamento.') + '\\n\\nAcompanhe pelo portal do Flui Contratos.\\nMensagem automática, não responda.' }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "5910dd0a-f635-4c16-94fd-690d2c97f805",
+      "name": "Assinatura",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        720,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "e7f0efcf-3c2c-45f3-b380-0bfb7c42cb71",
+              "name": "to",
+              "value": "={{ $json.clientEmail }}",
+              "type": "string"
+            },
+            {
+              "id": "188d9b0a-b6b1-40da-ac7e-51558c3d4215",
+              "name": "subject",
+              "value": "={{ $json.undo ? 'Flui Contratos — seu processo voltou para ' + $json.toLabel : 'Flui Contratos — ' + $json.toLabel }}",
+              "type": "string"
+            },
+            {
+              "id": "24fb0076-fee5-43b7-a30e-b18dc6fca29b",
+              "name": "text",
+              "value": "={{ 'Olá, ' + ($json.clientName || 'cliente') + '!\\n\\n' + ($json.undo ? 'Seu processo voltou para a etapa ' + $json.toLabel + ' (correção feita pela assessoria).' : ({ analise_juridica: 'Seu processo entrou na análise jurídica, etapa que prepara a emissão do contrato.', juridico_aprovado: 'A análise jurídica foi aprovada e o contrato vai ser emitido.', cartorio: 'O contrato foi enviado para registro no cartório.' }[$json.toStage] || 'Seu processo está na etapa ' + $json.toLabel + '.')) + '\\n\\nAcompanhe pelo portal do Flui Contratos.\\nMensagem automática, não responda.' }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "401eb692-3b38-4d1e-8386-4ab51b00fd32",
+      "name": "Emissão",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        720,
+        640
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "60a7ed35-c235-424b-a52c-4e20113b1ebb",
+              "name": "to",
+              "value": "={{ $json.clientEmail }}",
+              "type": "string"
+            },
+            {
+              "id": "8b6e666e-2376-47b4-9b06-c8c6e962b154",
+              "name": "subject",
+              "value": "={{ $json.undo ? 'Flui Contratos — seu processo voltou para ' + $json.toLabel : 'Flui Contratos — seu processo está em ' + $json.toLabel }}",
+              "type": "string"
+            },
+            {
+              "id": "cc32baa4-c5ab-4406-9cc8-bd4ea65ce759",
+              "name": "text",
+              "value": "={{ 'Olá, ' + ($json.clientName || 'cliente') + '!\\n\\n' + ($json.undo ? 'Seu processo voltou para a etapa ' + $json.toLabel + ' (correção feita pela assessoria).' : 'Seu processo foi atualizado e agora está na etapa ' + $json.toLabel + '.') + '\\n\\nAcompanhe pelo portal do Flui Contratos.\\nMensagem automática, não responda.' }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "0e4075b7-93ff-45a3-b0b8-bc259e0c8e50",
+      "name": "Outras etapas",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        720,
+        800
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "Flui Contratos <noreply@fluicontratos.com.br>",
+        "toEmail": "={{ $json.to }}",
+        "subject": "={{ $json.subject }}",
+        "emailFormat": "text",
+        "text": "={{ $json.text }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "74cfe2e2-1e5f-40bf-a8e2-9362e628508e",
+      "name": "Enviar e-mail",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        1000,
+        300
+      ],
+      "webhookId": "17ee2c5c-6375-4b85-9e04-0cd225615c9b",
+      "credentials": {
+        "smtp": {
+          "id": "FluiSmtp0000001",
+          "name": "Flui SMTP (Brevo)"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook do Flui": {
+      "main": [
+        [
+          {
+            "node": "Validar assinatura (HMAC)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validar assinatura (HMAC)": {
+      "main": [
+        [
+          {
+            "node": "Ponto do fluxo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ponto do fluxo": {
+      "main": [
+        [
+          {
+            "node": "Recusa de crédito",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Análise bancária",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Pendência: cliente e analista",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Assinatura",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Emissão",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Outras etapas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recusa de crédito": {
+      "main": [
+        [
+          {
+            "node": "Enviar e-mail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Análise bancária": {
+      "main": [
+        [
+          {
+            "node": "Enviar e-mail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pendência: cliente e analista": {
+      "main": [
+        [
+          {
+            "node": "Enviar e-mail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assinatura": {
+      "main": [
+        [
+          {
+            "node": "Enviar e-mail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Emissão": {
+      "main": [
+        [
+          {
+            "node": "Enviar e-mail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Outras etapas": {
+      "main": [
+        [
+          {
+            "node": "Enviar e-mail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": false
+}
