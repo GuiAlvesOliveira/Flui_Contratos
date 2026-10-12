@@ -1,7 +1,8 @@
-import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Post, Query, Request } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Query, Request } from '@nestjs/common';
 import { RequestUserFull } from '../auth/supabase.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CreateUnidadeDto } from './dto/create-unidade.dto';
+import { UpdateUnidadeDto } from './dto/update-unidade.dto';
 import { UnidadesService } from './unidades.service';
 
 @Controller('unidades')
@@ -27,6 +28,16 @@ export class UnidadesController {
   @Roles('dono', 'analista')
   findOne(@Param('id', ParseUUIDPipe) id: string, @Request() req: { user: RequestUserFull }) {
     return this.service.findOne(id, req.user);
+  }
+
+  @Patch(':id')
+  @Roles('dono', 'analista')
+  update(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateUnidadeDto,
+    @Request() req: { user: RequestUserFull },
+  ) {
+    return this.service.update(id, dto, req.user);
   }
 
   @Delete(':id')

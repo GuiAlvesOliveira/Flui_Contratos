@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { Fragment, useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/axiosInstance';
 import * as Icon from '../components/icons';
@@ -12,15 +12,27 @@ import { useStageDrag } from '../lib/useStageDrag';
 interface UserOpt { id: string; name: string | null; email: string; cpf: string | null; status?: string }
 type ClienteMode = 'existente' | 'novo';
 
-function NovaUnidadeDrawer({ empId, onClose }: { empId: string; onClose: () => void }) {
+function valorInput(v: number | string | null): string {
+  if (v == null || v === '') return '';
+  return Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+// Sem `unidade`, cria uma nova; com ela, edita identificação e valor (BE-05).
+function UnidadeDrawer({ empId, unidade, onClose }: { empId: string; unidade?: Unidade; onClose: () => void }) {
   const qc = useQueryClient();
-  const [identificacao, setIdentificacao] = useState('');
-  const [valor, setValor] = useState('');
+  const [identificacao, setIdentificacao] = useState(unidade?.identificacao ?? '');
+  const [valor, setValor] = useState(valorInput(unidade?.valor ?? null));
   const [error, setError] = useState('');
 
   const mut = useMutation({
     mutationFn: () => {
       const n = parseFloat(valor.replace(/\./g, '').replace(',', '.'));
+      if (unidade) {
+        return api.patch(`/unidades/${unidade.id}`, {
+          identificacao: identificacao.trim(),
+          valor: isNaN(n) ? null : n,
+        });
+      }
       return api.post('/unidades', {
         empreendimentoId: empId,
         identificacao: identificacao.trim(),
@@ -43,21 +55,21 @@ function NovaUnidadeDrawer({ empId, onClose }: { empId: string; onClose: () => v
       <div className="ds-drawer-backdrop open" onClick={onClose} />
       <div className="ds-drawer open" style={{ width: 400 }}>
         <div className="ds-drawer-hdr">
-          <h2>Nova Unidade</h2>
+          <h2>{unidade ? 'Editar Unidade' : 'Nova Unidade'}</h2>
           <button className="ds-btn ghost sm" onClick={onClose}><Icon.X size={14} /></button>
         </div>
         <div className="ds-drawer-body" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div className="ds-field" style={{ marginBottom: 0 }}>
             <label>Identificação <span style={{ color: 'var(--red)' }}>*</span></label>
             <div className="ds-input">
-              <input placeholder="Ex: Apto 101, Casa 5, Lote 12" value={identificacao}
-                onChange={e => setIdentificacao(e.target.value)} style={{ flex: 1 }} autoFocus />
+              <input placeholder="Ex: Apto 101, Casa 5, Lote 12" value={identificacao} maxLength={100}
+                aria-label="Identificação" onChange={e => setIdentificacao(e.target.value)} style={{ flex: 1 }} autoFocus />
             </div>
           </div>
           <div className="ds-field" style={{ marginBottom: 0 }}>
             <label>Valor (R$)</label>
             <div className="ds-input">
-              <input placeholder="0,00" value={valor}
+              <input placeholder="0,00" value={valor} aria-label="Valor (R$)"
                 onChange={e => setValor(e.target.value)} style={{ flex: 1 }} />
             </div>
           </div>
@@ -72,7 +84,9 @@ function NovaUnidadeDrawer({ empId, onClose }: { empId: string; onClose: () => v
           <button className="ds-btn accent"
             disabled={!identificacao.trim() || mut.isPending}
             onClick={() => { setError(''); mut.mutate(); }}>
-            {mut.isPending ? 'Criando...' : 'Criar Unidade'}
+            {unidade
+              ? (mut.isPending ? 'Salvando...' : 'Salvar')
+              : (mut.isPending ? 'Criando...' : 'Criar Unidade')}
           </button>
         </div>
       </div>
@@ -532,6 +546,7 @@ function UnidadesTab({ empId, onOpenProcess }: { empId: string; onOpenProcess: (
     queryFn: () => api.get('/unidades', { params: { empreendimentoId: empId } }).then(r => r.data),
   });
   const [showNovaUnidade, setShowNovaUnidade] = useState(false);
+  const [editarUnidade, setEditarUnidade] = useState<Unidade | null>(null);
   const [alocarUnidade, setAlocarUnidade] = useState<Unidade | null>(null);
   const [deleteErrors, setDeleteErrors] = useState<Record<string, string>>({});
 
@@ -585,14 +600,18 @@ function UnidadesTab({ empId, onOpenProcess }: { empId: string; onOpenProcess: (
             </thead>
             <tbody>
               {unidades.map(u => (
-                <>
-                  <tr key={u.id}>
+                <Fragment key={u.id}>
+                  <tr>
                     <td style={{ fontWeight: 500 }}>{u.identificacao}</td>
                     <td style={{ fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(u.valor)}</td>
                     <td style={{ textAlign: 'right' }}>
                       <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
                         <button className="ds-btn ghost sm" onClick={() => setAlocarUnidade(u)}>
                           <Icon.Plus size={12} /> Alocar Cliente
+                        </button>
+                        <button className="ds-btn ghost sm" onClick={() => setEditarUnidade(u)}
+                          aria-label={`Editar unidade ${u.identificacao}`}>
+                          <Icon.Edit size={12} /> Editar
                         </button>
                         {isDono && (
                           <button
@@ -608,11 +627,11 @@ function UnidadesTab({ empId, onOpenProcess }: { empId: string; onOpenProcess: (
                     </td>
                   </tr>
                   {deleteErrors[u.id] && (
-                    <tr key={`err-${u.id}`}>
+                    <tr>
                       <td colSpan={3} style={{ padding: '0 16px 8px', fontSize: 11.5, color: 'var(--red)' }}>{deleteErrors[u.id]}</td>
                     </tr>
                   )}
-                </>
+                </Fragment>
               ))}
             </tbody>
           </table>
@@ -620,7 +639,11 @@ function UnidadesTab({ empId, onOpenProcess }: { empId: string; onOpenProcess: (
       </div>
 
       {showNovaUnidade && (
-        <NovaUnidadeDrawer empId={empId} onClose={() => setShowNovaUnidade(false)} />
+        <UnidadeDrawer empId={empId} onClose={() => setShowNovaUnidade(false)} />
+      )}
+
+      {editarUnidade && (
+        <UnidadeDrawer key={editarUnidade.id} empId={empId} unidade={editarUnidade} onClose={() => setEditarUnidade(null)} />
       )}
 
       {alocarUnidade && (

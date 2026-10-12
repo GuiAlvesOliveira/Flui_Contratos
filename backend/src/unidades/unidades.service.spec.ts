@@ -1,7 +1,12 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  NotFoundException,
+  ValidationPipe,
+} from '@nestjs/common';
 import { DataSource, Repository } from 'typeorm';
 import { UnidadesService } from './unidades.service';
 import { Unidade } from './unidade.entity';
+import { UpdateUnidadeDto } from './dto/update-unidade.dto';
 import { RequestUserFull } from '../auth/supabase.guard';
 
 function makeService() {
@@ -20,14 +25,114 @@ function makeService() {
   return { service, repo, dataSource };
 }
 
-const caller = { role: 'dono', tenantId: 't1', userId: 'u1' } as RequestUserFull;
+const caller = {
+  role: 'dono',
+  tenantId: 't1',
+  userId: 'u1',
+} as RequestUserFull;
 
 describe('UnidadesService', () => {
   it('creates a unidade scoped to the caller tenant', async () => {
-    const { service, repo } = makeService();
-    await service.create({ empreendimentoId: 'e1', identificacao: 'Apto 101', valor: 250000 }, caller);
+    const { service, repo, dataSource } = makeService();
+    dataSource.query.mockResolvedValue([{ id: 'e1' }]);
+    await service.create(
+      { empreendimentoId: 'e1', identificacao: 'Apto 101', valor: 250000 },
+      caller,
+    );
     expect(repo.save).toHaveBeenCalledWith(
-      expect.objectContaining({ tenantId: 't1', empreendimentoId: 'e1', identificacao: 'Apto 101' }),
+      expect.objectContaining({
+        tenantId: 't1',
+        empreendimentoId: 'e1',
+        identificacao: 'Apto 101',
+      }),
+    );
+  });
+
+  it('RN-01: refuses a unidade under an empreendimento of another tenant', async () => {
+    const { service, repo, dataSource } = makeService();
+    dataSource.query.mockResolvedValue([]);
+    await expect(
+      service.create(
+        { empreendimentoId: 'e-outro', identificacao: 'Apto 101' },
+        caller,
+      ),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(repo.save).not.toHaveBeenCalled();
+    const [sql, params] = dataSource.query.mock.calls[0] as [string, unknown[]];
+    expect(sql).toContain('tenant_id = $2');
+    expect(sql).toContain('active = true');
+    expect(params).toEqual(['e-outro', 't1']);
+  });
+
+  it('BE-05: edits identificação and valor, keeping the empreendimento', async () => {
+    const { service, repo } = makeService();
+    repo.findOne.mockResolvedValue({
+      id: 'un1',
+      tenantId: 't1',
+      empreendimentoId: 'e1',
+      identificacao: 'Apto 101',
+      valor: '250000.00',
+    });
+    await service.update(
+      'un1',
+      { identificacao: 'Apto 102', valor: null },
+      caller,
+    );
+    expect(repo.findOne).toHaveBeenCalledWith({
+      where: { id: 'un1', tenantId: 't1' },
+    });
+    expect(repo.save).toHaveBeenCalledWith({
+      id: 'un1',
+      tenantId: 't1',
+      empreendimentoId: 'e1',
+      identificacao: 'Apto 102',
+      valor: null,
+    });
+  });
+
+  it('BE-05: leaves the fields that were not sent untouched', async () => {
+    const { service, repo } = makeService();
+    repo.findOne.mockResolvedValue({
+      id: 'un1',
+      tenantId: 't1',
+      identificacao: 'Apto 101',
+      valor: '250000.00',
+    });
+    await service.update('un1', { valor: 300000 }, caller);
+    expect(repo.save).toHaveBeenCalledWith(
+      expect.objectContaining({ identificacao: 'Apto 101', valor: 300000 }),
+    );
+  });
+
+  it('BE-05: 404s when editing a unidade outside the tenant', async () => {
+    const { service, repo } = makeService();
+    repo.findOne.mockResolvedValue(null);
+    await expect(
+      service.update('un1', { identificacao: 'X' }, caller),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(repo.save).not.toHaveBeenCalled();
+  });
+
+  it('BE-05: the edit body cannot move the unidade to another empreendimento or tenant', async () => {
+    const pipe = new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true,
+    });
+    const meta = { type: 'body' as const, metatype: UpdateUnidadeDto };
+    await expect(
+      pipe.transform({ empreendimentoId: 'e2' }, meta),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    await expect(
+      pipe.transform({ tenantId: 't2' }, meta),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    await expect(
+      pipe.transform({ identificacao: 'x'.repeat(101) }, meta),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    await expect(
+      pipe.transform({ identificacao: 'Apto 9', valor: null }, meta),
+    ).resolves.toEqual(
+      expect.objectContaining({ identificacao: 'Apto 9', valor: null }),
     );
   });
 
@@ -62,14 +167,18 @@ describe('UnidadesService', () => {
   it('404s on findOne when the unidade is outside the tenant', async () => {
     const { service, repo } = makeService();
     repo.findOne.mockResolvedValue(null);
-    await expect(service.findOne('un1', caller)).rejects.toBeInstanceOf(NotFoundException);
+    await expect(service.findOne('un1', caller)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
   });
 
   it('blocks removal while an active process references the unidade', async () => {
     const { service, repo, dataSource } = makeService();
     repo.findOne.mockResolvedValue({ id: 'un1', tenantId: 't1' });
     dataSource.query.mockResolvedValue([{ count: '1' }]);
-    await expect(service.remove('un1', caller)).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.remove('un1', caller)).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
     expect(repo.delete).not.toHaveBeenCalled();
   });
 

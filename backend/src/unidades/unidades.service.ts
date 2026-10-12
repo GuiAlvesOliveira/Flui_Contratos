@@ -4,6 +4,7 @@ import { DataSource, Repository } from 'typeorm';
 import { RequestUserFull } from '../auth/supabase.guard';
 import { Unidade } from './unidade.entity';
 import { CreateUnidadeDto } from './dto/create-unidade.dto';
+import { UpdateUnidadeDto } from './dto/update-unidade.dto';
 
 @Injectable()
 export class UnidadesService {
@@ -13,6 +14,10 @@ export class UnidadesService {
   ) {}
 
   async create(dto: CreateUnidadeDto, caller: RequestUserFull) {
+    await this.assertEmpreendimentoInTenant(
+      dto.empreendimentoId,
+      caller.tenantId!,
+    );
     const unidade = this.repo.create({
       tenantId: caller.tenantId!,
       empreendimentoId: dto.empreendimentoId,
@@ -49,6 +54,14 @@ export class UnidadesService {
     return u;
   }
 
+  // The empreendimento of a unidade never changes; only its data does.
+  async update(id: string, dto: UpdateUnidadeDto, caller: RequestUserFull) {
+    const u = await this.findOne(id, caller);
+    if (dto.identificacao !== undefined) u.identificacao = dto.identificacao;
+    if (dto.valor !== undefined) u.valor = dto.valor;
+    return this.repo.save(u);
+  }
+
   async remove(id: string, caller: RequestUserFull) {
     const u = await this.repo.findOne({ where: { id, tenantId: caller.tenantId! } });
     if (!u) throw new NotFoundException('Unidade não encontrada');
@@ -63,5 +76,18 @@ export class UnidadesService {
 
     await this.repo.delete(id);
     return { id, deleted: true };
+  }
+
+  // RN-01: the empreendimentoId comes from the request body, so it is only
+  // used after checking it belongs to the caller's tenant.
+  private async assertEmpreendimentoInTenant(
+    empreendimentoId: string,
+    tenantId: string,
+  ) {
+    const [emp] = await this.dataSource.query<{ id: string }[]>(
+      `SELECT id FROM empreendimentos WHERE id = $1 AND tenant_id = $2 AND active = true LIMIT 1`,
+      [empreendimentoId, tenantId],
+    );
+    if (!emp) throw new NotFoundException('Empreendimento não encontrado');
   }
 }
