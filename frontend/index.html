@@ -16,6 +16,12 @@
       if (window.location.hash.includes('type=invite')) {
         sessionStorage.setItem('supabase_invite_flow', 'true');
       }
+      if (window.location.hash.includes('type=recovery')) {
+        sessionStorage.setItem('supabase_recovery_flow', 'true');
+      }
+      if (window.location.hash.includes('error_code=otp_expired')) {
+        sessionStorage.setItem('supabase_link_expired', 'true');
+      }
     </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>

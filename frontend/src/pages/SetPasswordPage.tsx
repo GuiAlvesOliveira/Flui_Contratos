@@ -2,7 +2,23 @@ import { useState } from 'react';
 import { api } from '../api/axiosInstance';
 import { supabase } from '../auth/supabaseClient';
 
-export function SetPasswordPage() {
+const TEXTS = {
+  invite: {
+    title: 'Criar senha',
+    subtitle: 'Bem-vindo! Defina sua senha para acessar a plataforma.',
+    expired: 'Link de convite expirado. Peça um novo convite.',
+  },
+  recovery: {
+    title: 'Redefinir senha',
+    subtitle: 'Escolha uma nova senha para a sua conta.',
+    expired: 'Link expirado. Peça um novo em "Esqueci minha senha".',
+  },
+};
+
+// Convite (definir a primeira senha) ou recuperação de senha (BE-08): os dois
+// chegam com uma sessão do Supabase pelo link do e-mail.
+export function SetPasswordPage({ mode = 'invite' }: { mode?: 'invite' | 'recovery' }) {
+  const texts = TEXTS[mode];
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [loading, setLoading] = useState(false);
@@ -19,7 +35,7 @@ export function SetPasswordPage() {
     const { data: { session } } = await supabase.auth.getSession();
     const email = session?.user.email;
     if (!email) {
-      setError('Link de convite expirado. Peça um novo convite.');
+      setError(texts.expired);
       setLoading(false);
       return;
     }
@@ -47,10 +63,8 @@ export function SetPasswordPage() {
     <div className="flex min-h-screen flex-col items-center justify-center bg-gray-50 px-4">
       <div className="w-full max-w-sm bg-white rounded-xl shadow-md p-8 space-y-6">
         <div>
-          <h1 className="text-xl font-semibold text-gray-900">Criar senha</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Bem-vindo! Defina sua senha para acessar a plataforma.
-          </p>
+          <h1 className="text-xl font-semibold text-gray-900">{texts.title}</h1>
+          <p className="text-sm text-gray-500 mt-1">{texts.subtitle}</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">

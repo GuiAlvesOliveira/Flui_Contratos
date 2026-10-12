@@ -47,6 +47,9 @@ function OnboardingRoute({ allowed, children }: { allowed: string; children: Rea
 // Set in index.html inline script (before Supabase clears the hash) — read it here.
 const isInviteSession = typeof window !== 'undefined' &&
   sessionStorage.getItem('supabase_invite_flow') === 'true';
+// BE-08: link de "esqueci minha senha" (type=recovery), mesmo mecanismo do convite
+const isRecoverySession = typeof window !== 'undefined' &&
+  sessionStorage.getItem('supabase_recovery_flow') === 'true';
 
 function RootRedirect() {
   const { isAuthenticated, role, isLoadingAuth, mustChangePassword, onboardingCompleted } = useAuth();
@@ -58,6 +61,10 @@ function RootRedirect() {
   if (isInviteSession) {
     sessionStorage.removeItem('supabase_invite_flow');
     return <SetPasswordPage />;
+  }
+  if (isRecoverySession) {
+    sessionStorage.removeItem('supabase_recovery_flow');
+    return <SetPasswordPage mode="recovery" />;
   }
 
   if (!isAuthenticated) return <LoginPage />;

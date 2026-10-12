@@ -8,6 +8,7 @@ import { DashboardModule } from './dashboard/dashboard.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { SearchModule } from './search/search.module';
 import { AuthModule } from './auth/auth.module';
+import { PasswordResetModule } from './auth/password-reset.module';
 import { ParticipantsModule } from './participants/participants.module';
 import { ProcessParticipant } from './participants/participant.entity';
 import { DocumentsModule } from './documents/documents.module';
@@ -98,6 +99,7 @@ import { AddDocumentForms1718500800000 } from './database/migrations/17185008000
     NotificationsModule,
     SearchModule,
     AuthModule,
+    PasswordResetModule,
     ParticipantsModule,
     DocumentsModule,
     EmailModule,

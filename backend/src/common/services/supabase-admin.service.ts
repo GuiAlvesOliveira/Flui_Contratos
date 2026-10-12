@@ -35,6 +35,25 @@ export class SupabaseAdminService {
     };
   }
 
+  // BE-08: the link signs the user in with a recovery session and lands on the
+  // same page as the invite, which lets them choose a new password.
+  async generateRecoveryLink(email: string): Promise<string> {
+    const frontendUrl = primaryFrontendUrl(
+      this.config.get<string>('FRONTEND_URL'),
+    );
+    const { data, error } = await this.supabase.auth.admin.generateLink({
+      type: 'recovery',
+      email,
+      options: { redirectTo: `${frontendUrl}/set-password` },
+    });
+    if (error || !data?.properties?.action_link) {
+      throw new InternalServerErrorException(
+        error?.message ?? 'generateLink failed',
+      );
+    }
+    return data.properties.action_link;
+  }
+
   async createUser(email: string, password: string, role: string): Promise<string> {
     const { data, error } = await this.supabase.auth.admin.createUser({
       email,
