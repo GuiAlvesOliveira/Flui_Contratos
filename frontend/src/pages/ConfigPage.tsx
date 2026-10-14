@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/axiosInstance';
 import * as Icon from '../components/icons';
@@ -6,6 +6,7 @@ import {
   apiErrorMessage, CATEGORY_LABELS, CATEGORY_ORDER, groupByCategory,
   type DocumentCategory, type DocumentTypeItem,
 } from '../lib/documentCatalog';
+import { isValidCpf, onlyDigits } from '../lib/validators';
 
 interface Draft {
   label: string;
@@ -297,6 +298,175 @@ function ImportarUsuarios({ role }: { role: string | null }) {
   );
 }
 
+interface Analista {
+  id: string;
+  name: string | null;
+  surname: string | null;
+  email: string;
+  status: 'invited' | 'active' | 'disabled';
+  onboardingCompleted: boolean;
+  mustChangePassword: boolean;
+  createdAt: string;
+}
+
+interface NovoAnalista { name: string; surname: string; email: string; cpf: string }
+const NOVO_VAZIO: NovoAnalista = { name: '', surname: '', email: '', cpf: '' };
+
+function situacao(a: Analista): { label: string; color: string } {
+  if (a.status === 'disabled') return { label: 'Desativado', color: 'red' };
+  if (a.status === 'invited' || a.mustChangePassword) return { label: 'Aguardando primeiro acesso', color: 'amber' };
+  if (!a.onboardingCompleted) return { label: 'Cadastro incompleto', color: 'amber' };
+  return { label: 'Ativo', color: 'green' };
+}
+
+// Equipe: o gestor cadastra os analistas da assessoria (POST /users). A senha
+// temporária é aleatória (SEC-01), aparece uma vez e precisa ser trocada no
+// primeiro acesso; ela não fica salva em lugar nenhum.
+function EquipeAnalistas() {
+  const qc = useQueryClient();
+  const [aberto, setAberto] = useState(false);
+  const [form, setForm] = useState<NovoAnalista>(NOVO_VAZIO);
+  const [error, setError] = useState('');
+  const [criado, setCriado] = useState<{ nome: string; email: string; senha: string } | null>(null);
+  const [copiada, setCopiada] = useState(false);
+
+  const { data: analistas = [], isLoading } = useQuery<Analista[]>({
+    queryKey: ['users', 'analista'],
+    queryFn: () => api.get<Analista[]>('/users', { params: { role: 'analista' } }).then(r => r.data),
+  });
+
+  const mut = useMutation({
+    mutationFn: (f: NovoAnalista) =>
+      api.post<{ temporaryPassword?: string }>('/users', {
+        role: 'analista',
+        name: f.name.trim(),
+        ...(f.surname.trim() ? { surname: f.surname.trim() } : {}),
+        email: f.email.trim().toLowerCase(),
+        cpf: onlyDigits(f.cpf),
+      }).then(r => r.data),
+    onSuccess: (data, f) => {
+      setCriado({ nome: [f.name.trim(), f.surname.trim()].filter(Boolean).join(' '), email: f.email.trim().toLowerCase(), senha: data.temporaryPassword ?? '' });
+      setCopiada(false);
+      setForm(NOVO_VAZIO);
+      setAberto(false);
+      setError('');
+      void qc.invalidateQueries({ queryKey: ['users'] });
+    },
+    onError: err => setError(apiErrorMessage(err, 'Não foi possível cadastrar o analista')),
+  });
+
+  const set = (k: keyof NovoAnalista) => (e: ChangeEvent<HTMLInputElement>) => {
+    const v = e.target.value;
+    setForm(f => ({ ...f, [k]: v }));
+  };
+
+  function enviar(e: FormEvent) {
+    e.preventDefault();
+    if (!form.name.trim()) return setError('Informe o nome do analista.');
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) return setError('Informe um e-mail válido.');
+    if (!isValidCpf(form.cpf)) return setError('CPF inválido. Confira os 11 dígitos.');
+    setError('');
+    mut.mutate(form);
+  }
+
+  async function copiar() {
+    if (!criado) return;
+    try {
+      await navigator.clipboard.writeText(criado.senha);
+      setCopiada(true);
+    } catch { /* sem acesso à área de transferência: o gestor copia à mão */ }
+  }
+
+  const ordenados = [...analistas].sort((a, b) => (a.name ?? a.email).localeCompare(b.name ?? b.email, 'pt-BR'));
+
+  return (
+    <div className="ds-card" style={{ marginBottom: 16 }}>
+      <div className="ds-card-hdr">
+        <h3>Equipe</h3>
+        <span className="meta">{analistas.length} analista{analistas.length !== 1 ? 's' : ''}</span>
+        {!aberto && (
+          <button className="ds-btn accent sm" style={{ marginLeft: 'auto' }}
+            onClick={() => { setAberto(true); setCriado(null); setError(''); }}>
+            <Icon.Plus size={12} /> Adicionar analista
+          </button>
+        )}
+      </div>
+      <div className="ds-card-body">
+        {aberto && (
+          <form onSubmit={enviar} aria-label="Novo analista" noValidate
+            style={{ display: 'grid', gridTemplateColumns: 'minmax(140px, 1fr) minmax(140px, 1fr) minmax(200px, 1.5fr) minmax(140px, 1fr)', gap: 8, alignItems: 'end', marginBottom: 12 }}
+            className="ds-doc-form">
+            <div className="ds-field" style={{ margin: 0 }}>
+              <label htmlFor="analista-nome">Nome</label>
+              <div className="ds-input"><input id="analista-nome" value={form.name} maxLength={100} onChange={set('name')} autoFocus /></div>
+            </div>
+            <div className="ds-field" style={{ margin: 0 }}>
+              <label htmlFor="analista-sobrenome">Sobrenome (opcional)</label>
+              <div className="ds-input"><input id="analista-sobrenome" value={form.surname} maxLength={100} onChange={set('surname')} /></div>
+            </div>
+            <div className="ds-field" style={{ margin: 0 }}>
+              <label htmlFor="analista-email">E-mail</label>
+              <div className="ds-input"><input id="analista-email" type="email" value={form.email} maxLength={255} placeholder="nome@assessoria.com.br" onChange={set('email')} /></div>
+            </div>
+            <div className="ds-field" style={{ margin: 0 }}>
+              <label htmlFor="analista-cpf">CPF</label>
+              <div className="ds-input"><input id="analista-cpf" value={form.cpf} maxLength={14} inputMode="numeric" placeholder="000.000.000-00" onChange={set('cpf')} /></div>
+            </div>
+            <div style={{ gridColumn: '1 / -1', display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button type="button" className="ds-btn ghost sm" onClick={() => { setAberto(false); setForm(NOVO_VAZIO); setError(''); }}>Cancelar</button>
+              <button type="submit" className="ds-btn accent sm" disabled={mut.isPending}>
+                {mut.isPending ? 'Cadastrando...' : 'Cadastrar analista'}
+              </button>
+            </div>
+          </form>
+        )}
+
+        {error && (
+          <div role="alert" style={{ fontSize: 12.5, color: 'var(--red)', padding: '8px 12px', background: 'var(--red-soft)', borderRadius: 'var(--radius-sm)', marginBottom: 12 }}>
+            {error}
+          </div>
+        )}
+
+        {criado && (
+          <div role="status" style={{ fontSize: 12.5, padding: '10px 12px', background: 'var(--amber-soft)', border: '1px solid var(--amber-soft-border)', borderRadius: 'var(--radius-sm)', marginBottom: 12 }}>
+            <div><strong>{criado.nome}</strong> foi cadastrado. Repasse ao analista o e-mail <strong>{criado.email}</strong> e a senha temporária abaixo; no primeiro acesso ele cria a própria senha.</div>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8, flexWrap: 'wrap' }}>
+              <code aria-label="Senha temporária" style={{ fontFamily: 'var(--font-mono, monospace)', fontSize: 13, padding: '4px 8px', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 6, wordBreak: 'break-all' }}>{criado.senha}</code>
+              <button type="button" className="ds-btn ghost sm" onClick={() => void copiar()}>
+                {copiada ? <><Icon.Check size={12} /> Copiada</> : 'Copiar senha'}
+              </button>
+            </div>
+            <div style={{ marginTop: 6 }}>A senha não fica salva: anote antes de sair desta tela.</div>
+          </div>
+        )}
+
+        {isLoading ? (
+          <div style={{ fontSize: 13, color: 'var(--text-faint)' }}>Carregando...</div>
+        ) : ordenados.length === 0 ? (
+          <div style={{ fontSize: 13, color: 'var(--text-faint)' }}>Nenhum analista cadastrado ainda.</div>
+        ) : (
+          <table className="ds-table" aria-label="Analistas da assessoria">
+            <thead><tr><th>Nome</th><th>E-mail</th><th>Situação</th><th>Cadastro</th></tr></thead>
+            <tbody>
+              {ordenados.map(a => {
+                const s = situacao(a);
+                return (
+                  <tr key={a.id}>
+                    <td style={{ fontWeight: 500 }}>{[a.name, a.surname].filter(Boolean).join(' ') || '—'}</td>
+                    <td>{a.email}</td>
+                    <td><span className={`ds-badge ${s.color}`}><span className="dot" />{s.label}</span></td>
+                    <td style={{ fontVariantNumeric: 'tabular-nums' }}>{new Date(a.createdAt).toLocaleDateString('pt-BR')}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function ConfigPage({ role }: { role: string | null }) {
   return (
     <div className="ds-page">
@@ -306,6 +476,7 @@ export function ConfigPage({ role }: { role: string | null }) {
           <p>Ajustes que valem para toda a assessoria.</p>
         </div>
       </div>
+      {role === 'dono' && <EquipeAnalistas />}
       <ListaDocumentos canEdit={role === 'dono'} />
       {(role === 'dono' || role === 'analista') && <ImportarUsuarios role={role} />}
     </div>
