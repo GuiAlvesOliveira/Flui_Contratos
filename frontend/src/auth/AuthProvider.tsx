@@ -30,6 +30,16 @@ const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 1000 * 60 * 5, retry: 1 } },
 });
 
+// Cached server data belongs to the user who fetched it. When the signed-in user
+// changes in the same tab (logout, then someone else logs in), drop it — otherwise
+// a cliente signing in right after the gestor would see the gestor's process list
+// (the whole tenant) until it went stale. Same user (token refresh) keeps the cache.
+let cacheOwner: string | null | undefined;
+function setCacheOwner(userId: string | null) {
+  if (userId !== cacheOwner) queryClient.clear();
+  cacheOwner = userId;
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [isLoadingAuth, setIsLoadingAuth] = useState(true);
@@ -42,12 +52,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Initialize session and subscribe to auth changes (single source of truth)
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
+      setCacheOwner(session?.user.id ?? null);
       setSession(session);
       if (!session) setIsLoadingAuth(false);
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'TOKEN_REFRESHED') return; // silent refresh — don't reset app state
+      setCacheOwner(session?.user.id ?? null);
       setSession(session);
       if (!session) {
         setRole(null);
