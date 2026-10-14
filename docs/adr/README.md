@@ -9,7 +9,8 @@ Cada ADR registra uma decisão técnica relevante: o contexto, o que foi decidid
 | [0003](0003-armazenamento-blob-privado.md) | Documentos em Azure Blob Storage privado, servidos só pela API | Aceito |
 | [0004](0004-maquina-de-estados-do-processo.md) | Enum de etapas unificado, com constraint no banco como fonte da verdade | Aceito |
 | [0005](0005-gate-de-documentos-na-api.md) | Gate de documentos (RN-04) aplicado na API, não só na interface | Aceito |
-| [0006](0006-automacao-n8n-webhooks.md) | Automação desacoplada via n8n, com webhooks *fire-and-forget* | Aceito |
+| [0006](0006-automacao-n8n-webhooks.md) | Automação desacoplada via n8n, com webhooks *fire-and-forget* | Substituído pelo 0008 |
 | [0007](0007-migrations-idempotentes.md) | Migrations idempotentes + seed como contrato de "banco recriável" | Aceito |
+| [0008](0008-mensageria-propria-outbox.md) | Mensageria no próprio backend: fila (*outbox*) no PostgreSQL + worker com novas tentativas | Aceito |
 
 Modelo para um ADR novo: copie qualquer arquivo desta pasta, numere em sequência e preencha **Contexto**, **Decisão** e **Consequências**.

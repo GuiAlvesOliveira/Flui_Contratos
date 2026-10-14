@@ -122,7 +122,7 @@ Documento de rastreamento dos componentes identificados no protótipo HTML e seu
 | **ClienteHero** | `.cli-hero`, `.cli-avatar`, `.cli-summary` | ⏳ Pendente | — |
 | **StageProgressBar** | `.cli-stages`, `.cli-stage`, `.cli-stage-node` | ⏳ Pendente | — |
 | **WorkflowEventList** | `.wf-event`, `.wf-event-node.done`, `.wf-event-hdr` | ⏳ Pendente | — |
-| **IntegrationRow** | `.intg-row` (API banco / N8N / App mobile) | ⏳ Pendente | — |
+| **IntegrationRow** | `.intg-row` (API banco / E-mail (mensageria) / App mobile) | ⏳ Pendente | — |
 | **CadastroTab** | `CadastroTab` em `cliente.jsx` | ⏳ Pendente | — |
 | **FichaTab** | `FichaTab` em `cliente.jsx` | ⏳ Pendente | — |
 | **DocsTab** | `DocsTab` em `cliente.jsx` | ⏳ Pendente | — |

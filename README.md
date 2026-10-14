@@ -2,7 +2,7 @@
 
 Plataforma SaaS multi-tenant para a gestão de processos de financiamento imobiliário em assessorias (TCC — FECAP).
 
-**Documentação:** [Diagnóstico do MVP e Product Backlog](docs/diagnostico_backlog.md) · [Decisões de arquitetura (ADR)](docs/adr/README.md) · [Métricas de uso](docs/metricas-de-uso.md) · [Webhooks do n8n](docs/n8n-webhooks.md) · [Validação com usuários](docs/validacao/README.md) · [Atas](docs/atas/README.md) · [Roteiro do vídeo](docs/demo/roteiro-video.md) · [Auditoria técnica](DIAGNOSTICO.md) · [Pendências de produção](PRODUCAO.md) · [Backlog no GitHub Projects](https://github.com/users/GuiAlvesOliveira/projects/2)
+**Documentação:** [Diagnóstico do MVP e Product Backlog](docs/diagnostico_backlog.md) · [Decisões de arquitetura (ADR)](docs/adr/README.md) · [Métricas de uso](docs/metricas-de-uso.md) · [Mensageria (e-mails automáticos)](docs/mensageria.md) · [Validação com usuários](docs/validacao/README.md) · [Atas](docs/atas/README.md) · [Roteiro do vídeo](docs/demo/roteiro-video.md) · [Auditoria técnica](DIAGNOSTICO.md) · [Pendências de produção](PRODUCAO.md) · [Backlog no GitHub Projects](https://github.com/users/GuiAlvesOliveira/projects/2)
 
 ## Estrutura
 
@@ -20,7 +20,7 @@ O `package.json` da raiz não tem dependências: só reúne atalhos que chamam o
 ### 1. Pré-requisitos
 
 - Node.js 20 ou superior (o CI usa o 24) e npm
-- Docker Desktop (Postgres, n8n e Azurite rodam em containers)
+- Docker Desktop (Postgres e Azurite rodam em containers)
 - Um projeto no [Supabase](https://supabase.com) para o login (o plano gratuito basta)
 
 ### 2. Variáveis de ambiente
@@ -45,7 +45,7 @@ Os dois arquivos `.env.local` são ignorados pelo Git; nunca versione chaves.
 
 ```bash
 npm run install:all     # npm ci no backend e no frontend
-npm run infra:up        # Postgres, n8n e Azurite (lê o .env.local da raiz)
+npm run infra:up        # Postgres e Azurite (lê o .env.local da raiz)
 npm run migration:run   # cria o schema no banco local
 docker compose -f infra/docker/docker-compose.yml --env-file .env.local exec -T postgres \
   sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"' < infra/db/seed.sql

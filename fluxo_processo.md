@@ -70,7 +70,7 @@ Duas etapas de preenchimento:
 ### 3.3 Ficha Cadastral e Documentação
 Após preenchimento completo da Ficha Cadastral, o sistema executa **simultaneamente**:
 1. Abertura de cadastro do cliente no app
-2. Solicitação automática de documentação via N8N
+2. Solicitação automática de documentação por e-mail (mensageria)
 
 **Documentos obrigatórios para todos:**
 - RG ou CNH
@@ -101,7 +101,7 @@ Após preenchimento completo da Ficha Cadastral, o sistema executa **simultaneam
 - Status: `credito_recusado`
 - Tentativa de defesa obrigatória com o banco
 - Registrar motivos da recusa
-- N8N: Notificação automática de recusa ao cliente
+- Mensageria: notificação automática de recusa ao cliente
 
 **APROVADO:**
 - Prosseguir para conferência e upload de documentos
@@ -117,19 +117,19 @@ Após preenchimento completo da Ficha Cadastral, o sistema executa **simultaneam
 
 Ambos convergem para:
 - Aguardar aprovação dos documentos e formulários pelo banco
-- N8N: Atualização de status de análise bancária
+- Mensageria: atualização de status de análise bancária
 
 ### 3.7 Verificação de Pendências
 
 **COM pendência:**
 - Status: `processo_pendencia`
-- N8N dispara alerta para cliente E analista simultaneamente
+- A mensageria alerta cliente E analista simultaneamente
 - Exibição de pendências no app
 - Aguardar resolução
 
 **SEM pendência:**
 - Status: `em_emissao`
-- N8N: Notificação de avanço
+- Mensageria: notificação de avanço
 - Processo segue para emissão do contrato
 
 ### 3.8 Assinatura
@@ -140,7 +140,7 @@ Ambos convergem para:
 
 **Não assinado:**
 - Mantém em `aguardando_assinatura`
-- N8N: Notificações de solicitação e confirmação de assinatura
+- Mensageria: notificações de solicitação e confirmação de assinatura
 
 ---
 
@@ -179,7 +179,9 @@ inicial
 
 ## Integrações Necessárias
 
-### N8N — 6 pontos obrigatórios
+### Mensageria (backend) — 6 pontos obrigatórios
+
+O próprio backend envia as notificações: cada evento entra numa fila no PostgreSQL (`message_outbox`) na mesma transação da mudança e um worker da API envia por SMTP, com novas tentativas. Detalhes em [`docs/mensageria.md`](docs/mensageria.md). Até 13/10/2026 isso era feito pelo n8n (ADR 0006, substituído pelo ADR 0008).
 
 | Evento | Trigger |
 |---|---|
@@ -190,11 +192,10 @@ inicial
 | Notificações de assinatura | Solicitação e confirmação |
 | Triggers de emissão | Notificação de entrada no jurídico |
 
-**Funcionalidades gerais do N8N:**
-- Disparos de e-mail e SMS
-- Webhooks para mudanças de status
-- Lembretes automáticos
-- Escalação de processos parados
+**Funcionalidades gerais da mensageria:**
+- Disparos de e-mail (feito); SMS e WhatsApp como canais novos (PROD-11_v2)
+- Notificação em toda mudança de status (RN-08_v2), inclusive no "desfazer"
+- Lembretes automáticos e escalação de processos parados (PROD-05_v2)
 
 ### API Bancária (fora do escopo TCC — documentado para referência)
 - Simulação automática em múltiplos bancos
@@ -223,11 +224,11 @@ inicial
 | RN-03 | Analista deve revisar todos os documentos antes do upload ao banco | Gate antes de `em_analise_banco` |
 | RN-04 | Tentativa de defesa obrigatória em caso de recusa bancária | Campo obrigatório em `credito_recusado` |
 | RN-05 | Motivo de desistência obrigatório para clientes inativos | Campo obrigatório em `cliente_inativo` |
-| RN-06 | Alertas N8N em pendências para cliente E analista simultaneamente | Webhook duplo |
+| RN-06 | Alertas em pendências para cliente E analista simultaneamente | Duas mensagens na fila (cliente e analista) |
 | RN-07 | Formulários DPS e Financiamento só disponíveis após `em_analise_banco` | Gate no app |
 | RN-08 | Abertura de app e solicitação de docs ocorrem simultaneamente após Ficha Cadastral | Execução paralela |
 | RN-09 | Status não retrocede sem justificativa registrada | Validação na mudança de status |
-| RN-10 | Pendências notificam cliente e analista ao mesmo tempo | Webhook duplo via N8N |
+| RN-10 | Pendências notificam cliente e analista ao mesmo tempo | Duas mensagens na fila da mensageria |
 
 ---
 

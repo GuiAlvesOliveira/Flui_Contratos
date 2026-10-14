@@ -92,6 +92,7 @@ distribuído (Redis) ou reduzir o TTL; adicionar limite de tamanho ao `Map`.
 - [ ] **Validação de JWT local** ou cache do `getUser` (item 3)
 - [ ] **Cache distribuído**, se houver mais de 1 instância (item 4)
 - [ ] Variáveis de ambiente de produção conferidas (`FRONTEND_URL`, segredos no Key Vault)
-- [ ] Assinatura HMAC no webhook do n8n (carrega PII — ver REL-01 no `DIAGNOSTICO.md`)
+- [x] ~~Assinatura HMAC no webhook do n8n~~ — o n8n saiu (ADR 0008): as notificações não saem mais do backend com dados pessoais; a fila tem retenção de 30 dias (BE-16_v2)
+- [ ] Domínio de envio autenticado (SPF/DKIM do `fluicontratos.com.br`) e `SMTP_FROM` com o remetente do domínio (INFRA-18)
 - [ ] Migrações: hoje `migrationsRun` aplica no boot (ok p/ instância única). Ao escalar
       para múltiplas instâncias, rodar as migrações como passo de deploy (evita corrida de boot)

@@ -1,6 +1,6 @@
 # ADR 0006 — Automação desacoplada via n8n, com webhooks *fire-and-forget*
 
-**Status:** Aceito · **Regras:** RN-08, RN-09 · **Itens:** BE-15, BE-16
+**Status:** Substituído pelo [ADR 0008](0008-mensageria-propria-outbox.md) em 13/10/2026 · **Regras:** RN-08, RN-09 · **Itens:** BE-15, BE-16
 
 ## Contexto
 As notificações ao cliente (e-mail, SMS) não podem travar nem derrubar a mudança de etapa de um processo.
@@ -14,4 +14,4 @@ Falha de notificação não afeta o núcleo, e as automações mudam sem redeplo
 - **BE-15:** todo webhook leva `event_type`, `process_id`, `tenant_id` e `timestamp`. Os 6 pontos do fluxo (documentos solicitados, recusa, análise bancária, pendência com disparo duplo, assinatura e emissão) têm cada um o seu `event_type`.
 - **BE-16:** cada chamada é assinada com HMAC-SHA256 (`X-Flui-Signature`) de `"<timestamp>.<corpo>"` com o `WEBHOOK_SECRET`, para o n8n conferir a origem e recusar reenvios antigos.
 
-Detalhes em [`docs/n8n-webhooks.md`](../n8n-webhooks.md).
+O guia `docs/n8n-webhooks.md` e os workflows de `infra/n8n/` foram removidos junto com o n8n; continuam no histórico do Git (commit 6fd76fe).
