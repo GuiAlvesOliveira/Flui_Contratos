@@ -3,6 +3,7 @@ import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { ActivitiesModule } from './activities/activities.module';
 import { AuditModule } from './audit/audit.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { NotificationsModule } from './notifications/notifications.module';
@@ -41,6 +42,7 @@ import { AddEmpreendimentoTeam1718500600000 } from './database/migrations/171850
 import { AddNotificationReads1718500700000 } from './database/migrations/1718500700000-AddNotificationReads';
 import { AddDocumentForms1718500800000 } from './database/migrations/1718500800000-AddDocumentForms';
 import { AddMessageOutbox1718500900000 } from './database/migrations/1718500900000-AddMessageOutbox';
+import { AddProcessActivities1718501000000 } from './database/migrations/1718501000000-AddProcessActivities';
 
 @Module({
   imports: [
@@ -82,6 +84,7 @@ import { AddMessageOutbox1718500900000 } from './database/migrations/17185009000
           AddNotificationReads1718500700000,
           AddDocumentForms1718500800000,
           AddMessageOutbox1718500900000,
+          AddProcessActivities1718501000000,
         ],
         migrationsRun: true,
         synchronize: false,
@@ -97,6 +100,7 @@ import { AddMessageOutbox1718500900000 } from './database/migrations/17185009000
       inject: [ConfigService],
     }),
     TypeOrmModule.forFeature([User, Tenant]),
+    ActivitiesModule,
     AuditModule,
     DashboardModule,
     NotificationsModule,

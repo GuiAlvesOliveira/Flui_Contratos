@@ -16,6 +16,10 @@ export const ACTION_LABELS: Record<string, string> = {
   processes_exported: 'Exportação de processos (CSV)',
   users_imported: 'Importação de usuários (CSV)',
   form_submitted: 'Formulário enviado',
+  // Histórico de Atividades: o registro em si fica na aba do processo; o log
+  // guarda as correções e exclusões (com o texto anterior e o motivo).
+  activity_edited: 'Atividade editada',
+  activity_deleted: 'Atividade excluída',
 };
 
 export const actionLabel = (action: string) => ACTION_LABELS[action] ?? action;

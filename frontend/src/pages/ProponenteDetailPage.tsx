@@ -7,10 +7,11 @@ import {
   ageOn, formatCpf, formatDateOnly, formatTelefone, isValidCpf, isValidTelefone,
   normalizeTelefone, onlyDigits, todayIso,
 } from '../lib/validators';
-import { CATEGORY_LABELS, groupByCategory } from '../lib/documentCatalog';
+import { apiErrorMessage, CATEGORY_LABELS, groupByCategory } from '../lib/documentCatalog';
 import { actionLabel, stateLabel } from '../lib/auditActions';
 import { SolicitarDocumentosModal } from '../components/SolicitarDocumentosModal';
 import { ExcluirDocumentoModal } from '../components/ExcluirDocumentoModal';
+import { ExcluirAtividadeModal } from '../components/ExcluirAtividadeModal';
 import { FormulariosTab } from '../components/FormulariosTab';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -1432,6 +1433,7 @@ function activityDetail(e: AuditEntry): string | null {
 
 // FE-22: linha do tempo de tudo o que aconteceu no processo (etapas, documentos,
 // cadastro), com ator, ação, etapa anterior/nova e data em pt-BR; 20 por página.
+// Fica abaixo do Histórico de Atividades, como "Eventos do processo".
 function AtividadeTab({ processId }: { processId: string }) {
   const [page, setPage] = useState(0);
   const { data: audit = [], isLoading } = useQuery<AuditEntry[]>({
@@ -1445,7 +1447,7 @@ function AtividadeTab({ processId }: { processId: string }) {
     return (
       <div className="ds-card">
         <div className="ds-card-body" style={{ textAlign: 'center', padding: 48, color: 'var(--text-faint)', fontSize: 13 }}>
-          Nenhuma atividade registrada ainda.
+          Nenhum evento registrado ainda.
         </div>
       </div>
     );
@@ -1459,7 +1461,7 @@ function AtividadeTab({ processId }: { processId: string }) {
   return (
     <div className="ds-card">
       <div className="ds-card-hdr">
-        Histórico completo
+        Eventos do processo
         <span style={{ marginLeft: 'auto', fontSize: 11.5, color: 'var(--text-faint)' }}>
           {audit.length} evento{audit.length !== 1 ? 's' : ''}
         </span>
@@ -1492,6 +1494,302 @@ function AtividadeTab({ processId }: { processId: string }) {
             <button className="ds-btn ghost sm" disabled={current + 1 >= totalPages} onClick={() => setPage(current + 1)}>Próxima →</button>
           </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+// ── Histórico de Atividades ────────────────────────────────────────────────────
+
+interface ProcessActivity {
+  id: string;
+  createdAt: string;
+  stage: ProcessStage;
+  description: string;
+  // Só para a equipe da assessoria: o cliente recebe data/hora, etapa e descrição.
+  editedAt?: string | null;
+  author?: { id: string; name: string | null };
+  canEdit?: boolean;
+  canDelete?: boolean;
+}
+
+interface ActivityHistory {
+  canCreate: boolean;
+  activities: ProcessActivity[];
+}
+
+const ACTIVITY_MIN = 3;
+const ACTIVITY_MAX = 2000;
+const HISTORY_PAGE = 20;
+
+function activityWhen(iso: string) {
+  const d = new Date(iso);
+  return {
+    date: d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' }),
+    time: d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+    full: d.toLocaleString('pt-BR'),
+  };
+}
+
+function StageTag({ stage }: { stage: ProcessStage }) {
+  const color = STAGE_COLORS[stage] ?? '#71717a';
+  return (
+    <span style={{
+      fontSize: 11, padding: '1px 8px', borderRadius: 12, whiteSpace: 'nowrap',
+      background: color + '18', color, border: `1px solid ${color}30`, fontWeight: 600,
+    }}>
+      {stateLabel(stage)}
+    </span>
+  );
+}
+
+// O analista responsável registra o que fez no acompanhamento (contato, cobrança
+// de documentos, mensagens). Data, hora e etapa vêm do servidor; a etapa é a do
+// momento do registro e não muda depois. O cliente lê no portal, sem editar.
+function HistoricoAtividadesCard({ processId, role, currentStage, analistaName }: {
+  processId: string;
+  role: string | null;
+  currentStage: ProcessStage;
+  analistaName: string | null | undefined; // undefined = processo sem analista
+}) {
+  const qc = useQueryClient();
+  const isCliente = role === 'cliente';
+  const [text, setText] = useState('');
+  const [formError, setFormError] = useState('');
+  const [editing, setEditing] = useState<{ id: string; text: string; error: string } | null>(null);
+  const [removing, setRemoving] = useState<ProcessActivity | null>(null);
+  const [shown, setShown] = useState(HISTORY_PAGE);
+
+  const { data, isLoading, isError } = useQuery<ActivityHistory>({
+    queryKey: ['activities', processId],
+    queryFn: () => api.get(`/processes/${processId}/activities`).then(r => r.data),
+  });
+  const activities = data?.activities ?? [];
+  const canCreate = data?.canCreate ?? false;
+
+  const createMut = useMutation({
+    mutationFn: (description: string) =>
+      api.post<ProcessActivity>(`/processes/${processId}/activities`, { description }).then(r => r.data),
+    onSuccess: created => {
+      // Aparece na hora, no topo do histórico; a recarga confirma com o servidor.
+      qc.setQueryData<ActivityHistory>(['activities', processId], old =>
+        old ? { ...old, activities: [created, ...old.activities] } : old);
+      void qc.invalidateQueries({ queryKey: ['activities', processId] });
+      setText('');
+      setFormError('');
+    },
+    onError: (err: unknown) => setFormError(apiErrorMessage(err, 'Erro ao registrar a atividade')),
+  });
+
+  const editMut = useMutation({
+    mutationFn: ({ id, description }: { id: string; description: string }) =>
+      api.patch(`/processes/${processId}/activities/${id}`, { description }).then(r => r.data),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['activities', processId] });
+      void qc.invalidateQueries({ queryKey: ['audit', processId] });
+      setEditing(null);
+    },
+    onError: (err: unknown) =>
+      setEditing(e => e && { ...e, error: apiErrorMessage(err, 'Erro ao salvar a edição') }),
+  });
+
+  const trimmed = text.trim();
+  const submit = (e?: React.FormEvent) => {
+    e?.preventDefault();
+    if (createMut.isPending) return;
+    if (trimmed.length < ACTIVITY_MIN) {
+      setFormError(`Descreva a atividade realizada (pelo menos ${ACTIVITY_MIN} caracteres).`);
+      return;
+    }
+    createMut.mutate(trimmed);
+  };
+
+  const saveEdit = () => {
+    if (!editing) return;
+    const description = editing.text.trim();
+    if (description.length < ACTIVITY_MIN) {
+      setEditing({ ...editing, error: `Descreva a atividade realizada (pelo menos ${ACTIVITY_MIN} caracteres).` });
+      return;
+    }
+    editMut.mutate({ id: editing.id, description });
+  };
+
+  // Para a equipe que lê sem poder registrar: quem registra e o que o gestor pode fazer.
+  const readOnlyNote = isCliente || canCreate ? null
+    : analistaName === undefined
+      ? 'Este processo ainda não tem analista responsável. Atribua um analista para que as atividades possam ser registradas.'
+      : `Somente o analista responsável${analistaName ? ` (${analistaName})` : ''} registra atividades neste processo.${
+        role === 'dono' ? ' Como gestor, você acompanha o histórico e pode excluir um registro indevido, informando o motivo.' : ''}`;
+
+  const visible = activities.slice(0, shown);
+
+  return (
+    <div className="ds-card" data-testid="historico-atividades">
+      <div className="ds-card-hdr">
+        Histórico de Atividades
+        <span style={{ marginLeft: 'auto', fontSize: 11.5, color: 'var(--text-faint)' }}>
+          {activities.length} registro{activities.length !== 1 ? 's' : ''}
+        </span>
+      </div>
+
+      {isCliente && (
+        <div style={{ padding: '10px 20px', fontSize: 12.5, color: 'var(--text-muted)', borderBottom: '1px solid var(--border)' }}>
+          Ações registradas pela sua assessoria no acompanhamento do seu financiamento.
+        </div>
+      )}
+
+      {readOnlyNote && (
+        <div style={{
+          display: 'flex', gap: 8, alignItems: 'flex-start', padding: '10px 20px',
+          fontSize: 12.5, color: 'var(--text-muted)', background: 'var(--bg-subtle)', borderBottom: '1px solid var(--border)',
+        }}>
+          <Icon.Info size={13} style={{ flexShrink: 0, marginTop: 2 }} />
+          <span>{readOnlyNote}</span>
+        </div>
+      )}
+
+      {canCreate && (
+        <form onSubmit={submit} style={{ padding: '14px 20px', display: 'flex', flexDirection: 'column', gap: 8, borderBottom: '1px solid var(--border)' }}>
+          <label htmlFor="nova-atividade" style={{ fontSize: 12.5, fontWeight: 600 }}>Registrar atividade</label>
+          <textarea
+            id="nova-atividade"
+            className="ds-input"
+            rows={3}
+            maxLength={ACTIVITY_MAX}
+            value={text}
+            placeholder="Ex.: Enviei mensagem para o cliente cobrando os documentos pendentes para dar continuidade à análise de crédito."
+            onChange={e => { setText(e.target.value); if (formError) setFormError(''); }}
+            onKeyDown={e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) submit(); }}
+            aria-describedby="nova-atividade-ajuda"
+            style={{ height: 'auto', padding: 8, resize: 'vertical', width: '100%', lineHeight: 1.45 }}
+          />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <span id="nova-atividade-ajuda" style={{ fontSize: 12, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', flex: 1, minWidth: 220 }}>
+              <Icon.Clock size={12} />
+              Data, hora e etapa (<StageTag stage={currentStage} />) são registradas automaticamente.
+            </span>
+            <span style={{ fontSize: 11.5, color: text.length >= ACTIVITY_MAX ? 'var(--red)' : 'var(--text-faint)', fontVariantNumeric: 'tabular-nums' }}>
+              {text.length}/{ACTIVITY_MAX}
+            </span>
+            <button type="submit" className="ds-btn accent sm" disabled={!trimmed || createMut.isPending} style={{ gap: 6 }}>
+              <Icon.Plus size={12} />
+              {createMut.isPending ? 'Salvando...' : 'Salvar atividade'}
+            </button>
+          </div>
+          {formError && <div role="alert" style={{ fontSize: 12, color: 'var(--red)' }}>{formError}</div>}
+        </form>
+      )}
+
+      {isLoading ? (
+        <div style={{ padding: '16px 20px', fontSize: 13, color: 'var(--text-faint)' }}>Carregando...</div>
+      ) : isError ? (
+        <div style={{ padding: '16px 20px', fontSize: 13, color: 'var(--red)' }}>Não foi possível carregar o histórico.</div>
+      ) : activities.length === 0 ? (
+        <div style={{ padding: '24px 20px', fontSize: 13, color: 'var(--text-faint)', textAlign: 'center' }}>
+          {isCliente
+            ? 'Sua assessoria ainda não registrou atividades neste processo.'
+            : canCreate
+              ? 'Nenhuma atividade registrada ainda. Use o campo acima para registrar a primeira.'
+              : 'Nenhuma atividade registrada ainda.'}
+        </div>
+      ) : (
+        <ol style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+          {visible.map((a, idx) => {
+            const when = activityWhen(a.createdAt);
+            const isEditing = editing?.id === a.id;
+            return (
+              <li key={a.id} data-testid="historico-atividade" style={{ display: 'flex', gap: 14, padding: '12px 20px', borderTop: idx === 0 ? 'none' : '1px solid var(--border)' }}>
+                <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'var(--accent-soft, #eff6ff)', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+                  <Icon.ClipboardList size={13} style={{ color: 'var(--accent)' }} />
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    <time dateTime={a.createdAt} title={when.full} style={{ fontSize: 12.5, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
+                      {when.date} · {when.time}
+                    </time>
+                    <StageTag stage={a.stage} />
+                    {!isEditing && (a.canEdit || a.canDelete) && (
+                      <span style={{ marginLeft: 'auto', display: 'flex', gap: 4 }}>
+                        {a.canEdit && (
+                          <button
+                            className="ds-btn ghost sm"
+                            title="Editar descrição (até 24 horas após o registro)"
+                            aria-label="Editar atividade"
+                            onClick={() => setEditing({ id: a.id, text: a.description, error: '' })}
+                          >
+                            <Icon.Edit size={12} />
+                          </button>
+                        )}
+                        {a.canDelete && (
+                          <button
+                            className="ds-btn ghost sm"
+                            style={{ color: 'var(--red)' }}
+                            title="Excluir atividade"
+                            aria-label="Excluir atividade"
+                            onClick={() => setRemoving(a)}
+                          >
+                            <Icon.Trash size={12} />
+                          </button>
+                        )}
+                      </span>
+                    )}
+                  </div>
+
+                  {isEditing ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 6 }}>
+                      <textarea
+                        className="ds-input"
+                        aria-label="Descrição da atividade"
+                        rows={3}
+                        maxLength={ACTIVITY_MAX}
+                        value={editing.text}
+                        onChange={e => setEditing({ ...editing, text: e.target.value, error: '' })}
+                        style={{ height: 'auto', padding: 8, resize: 'vertical', width: '100%', lineHeight: 1.45 }}
+                      />
+                      {editing.error && <div role="alert" style={{ fontSize: 12, color: 'var(--red)' }}>{editing.error}</div>}
+                      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                        <button className="ds-btn ghost sm" onClick={() => setEditing(null)}>Cancelar</button>
+                        <button className="ds-btn accent sm" disabled={editMut.isPending} onClick={saveEdit}>
+                          {editMut.isPending ? 'Salvando...' : 'Salvar edição'}
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: 13, marginTop: 4, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', lineHeight: 1.45 }}>
+                      {a.description}
+                    </div>
+                  )}
+
+                  {!isCliente && a.author && (
+                    <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 3 }}>
+                      por {a.author.name ?? 'usuário removido'}
+                      {a.editedAt && (
+                        <span title={`Editado em ${activityWhen(a.editedAt).full}`}> · editado</span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </li>
+            );
+          })}
+        </ol>
+      )}
+
+      {activities.length > shown && (
+        <div style={{ padding: '10px 20px', borderTop: '1px solid var(--border)', textAlign: 'center' }}>
+          <button className="ds-btn ghost sm" onClick={() => setShown(s => s + HISTORY_PAGE)}>
+            Mostrar mais ({activities.length - shown})
+          </button>
+        </div>
+      )}
+
+      {removing && (
+        <ExcluirAtividadeModal
+          processId={processId}
+          activity={removing}
+          reasonRequired={role === 'dono'}
+          onClose={() => setRemoving(null)}
+        />
       )}
     </div>
   );
@@ -1545,7 +1843,7 @@ export function ProponenteDetailPage({ processId, onBack, role }: Props) {
     ...(formsAvailable(process.stage, process.stageBeforePendencia)
       ? [{ id: 'formularios' as Tab, label: 'Formulários' }]
       : []),
-    { id: 'atividade', label: 'Atividade' },
+    { id: 'atividade', label: 'Histórico de Atividades' },
   ];
 
   return (
@@ -1667,7 +1965,17 @@ export function ProponenteDetailPage({ processId, onBack, role }: Props) {
       {tab === 'ficha' && <FichaTab process={process} />}
       {tab === 'documentos' && <DocumentosTab processId={processId} role={role} />}
       {tab === 'formularios' && <FormulariosTab processId={processId} docs={docs} role={role} />}
-      {tab === 'atividade' && <AtividadeTab processId={processId} />}
+      {tab === 'atividade' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <HistoricoAtividadesCard
+            processId={processId}
+            role={role}
+            currentStage={process.stage}
+            analistaName={process.analista ? process.analista.name : undefined}
+          />
+          <AtividadeTab processId={processId} />
+        </div>
+      )}
 
       {showMoverEtapa && (
         <StageChangeModal process={process} onClose={() => setShowMoverEtapa(false)} />

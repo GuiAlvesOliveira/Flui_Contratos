@@ -313,11 +313,17 @@ export class ProcessesService {
     const process = await this.repo.findOne({ where });
     if (!process) throw new NotFoundException('Processo não encontrado');
 
+    // Edits and removals in the Histórico de Atividades are internal to the
+    // assessoria (they carry the previous text and the removal reason).
+    const internal =
+      caller.role === 'cliente'
+        ? `AND al.action NOT IN ('activity_edited', 'activity_deleted')`
+        : '';
     return this.dataSource.query(
       `SELECT al.*, u.name as actor_name
        FROM audit_logs al
        LEFT JOIN users u ON u.id = al.actor_id
-       WHERE al.process_id = $1 AND al.tenant_id = $2
+       WHERE al.process_id = $1 AND al.tenant_id = $2 ${internal}
        ORDER BY al.created_at DESC`,
       [id, caller.tenantId],
     );

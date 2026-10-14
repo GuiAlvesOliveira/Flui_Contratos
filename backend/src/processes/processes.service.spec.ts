@@ -323,4 +323,14 @@ describe('ProcessesService.getAuditLog (RN-01)', () => {
     expect(sql).toContain('al.tenant_id = $2');
     expect(params).toEqual(['p1', 't1']);
   });
+
+  it('edits and removals of the Histórico de Atividades stay internal to the assessoria', async () => {
+    const { service, dataSource } = makeService({ id: 'p1', clientId: 'c1' });
+    dataSource.query.mockResolvedValue([]);
+    await service.getAuditLog('p1', cliente);
+    await service.getAuditLog('p1', caller);
+    const [[asClient], [asStaff]] = dataSource.query.mock.calls as [string][];
+    expect(asClient).toContain("al.action NOT IN ('activity_edited', 'activity_deleted')");
+    expect(asStaff).not.toContain('NOT IN');
+  });
 });
