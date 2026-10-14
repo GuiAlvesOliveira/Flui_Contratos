@@ -7,6 +7,11 @@ import * as Icon from './icons';
 // financiamento preenchidos no app. Cada envio vira um documento do checklist
 // do processo, que o analista valida na aba Documentos (RN-04).
 
+// DPS em standby desde 13/10/2026 (decisão do PO): o formulário sai da tela,
+// mas o código, a rota da API e as DPS já enviadas continuam. Para reabrir,
+// troque para true.
+const DPS_ENABLED = false;
+
 export interface FormDoc {
   id: string;
   status: 'pendente' | 'recebido' | 'validado' | 'rejeitado';
@@ -299,7 +304,9 @@ export function FormulariosTab({ processId, docs, role }: { processId: string; d
   const fin = docs.find(d => d.formType === 'financiamento');
   return (
     <div className="ds-forms-grid">
-      <DpsCard key={`dps-${dps?.id ?? 'novo'}-${dps?.status ?? ''}`} processId={processId} doc={dps} />
+      {DPS_ENABLED && (
+        <DpsCard key={`dps-${dps?.id ?? 'novo'}-${dps?.status ?? ''}`} processId={processId} doc={dps} />
+      )}
       <FinanciamentoCard
         key={`fin-${fin?.id ?? 'novo'}-${fin?.status ?? ''}`}
         processId={processId}
