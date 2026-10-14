@@ -6,6 +6,7 @@ import { useAuth } from '../auth/useAuth';
 import { Toast } from '../components/Toast';
 import type { ProcessStage } from '../lib/processStages';
 import { useStageDrag } from '../lib/useStageDrag';
+import { useCepLookup } from '../lib/useCepLookup';
 
 // ── Shared drawer sub-components ───────────────────────────────────────────────
 
@@ -664,6 +665,7 @@ function UnidadesTab({ empId, onOpenProcess }: { empId: string; onOpenProcess: (
 function InformacoesTab({ emp, empId }: { emp: Empreendimento; empId: string }) {
   const qc = useQueryClient();
   const [editing, setEditing] = useState(false);
+  const cep = useCepLookup();
   const [form, setForm] = useState({
     nome: emp.nome,
     matriculaMae: emp.matriculaMae,
@@ -700,22 +702,34 @@ function InformacoesTab({ emp, empId }: { emp: Empreendimento; empId: string }) 
             {[
               { key: 'nome', label: 'Nome' },
               { key: 'matriculaMae', label: 'Matrícula Mãe' },
-              { key: 'endereco', label: 'Endereço' },
               { key: 'cep', label: 'CEP' },
+              { key: 'endereco', label: 'Endereço' },
               { key: 'bancoFinanciador', label: 'Banco Financiador' },
               { key: 'construtoraInfo', label: 'Construtora' },
               { key: 'incorporadoraContato', label: 'Contato Incorporadora' },
             ].map(({ key, label }) => (
               <div key={key} className="ds-field" style={{ marginBottom: 0 }}>
-                <label>{label}</label>
+                <label htmlFor={`emp-${key}`}>{label}</label>
                 <div className="ds-input">
                   <input
+                    id={`emp-${key}`}
                     type="text"
+                    inputMode={key === 'cep' ? 'numeric' : undefined}
                     value={form[key as keyof typeof form]}
-                    onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))}
+                    onChange={e => {
+                      const value = e.target.value;
+                      setForm(f => ({ ...f, [key]: value }));
+                      // PROD-06: só quando o CEP muda — abrir o formulário não troca o endereço salvo
+                      if (key === 'cep') cep.buscar(value, endereco => setForm(f => ({ ...f, endereco })));
+                    }}
                     style={{ flex: 1 }}
                   />
                 </div>
+                {key === 'endereco' && cep.mensagem && (
+                  <span role="status" style={{ fontSize: 11.5, color: cep.estado === 'ok' || cep.estado === 'buscando' ? 'var(--text-muted)' : 'var(--amber)' }}>
+                    {cep.mensagem}
+                  </span>
+                )}
               </div>
             ))}
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>

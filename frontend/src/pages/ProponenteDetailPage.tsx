@@ -14,6 +14,8 @@ import { ExcluirDocumentoModal } from '../components/ExcluirDocumentoModal';
 import { ExcluirAtividadeModal } from '../components/ExcluirAtividadeModal';
 import { FormulariosTab } from '../components/FormulariosTab';
 import { SenhaTemporaria } from '../components/SenhaTemporaria';
+import { cepDigits, formatCep } from '../lib/cep';
+import { useCepLookup } from '../lib/useCepLookup';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -40,6 +42,8 @@ interface ProcessDetail {
     rg: string | null;
     dataNascimento: string | null;
     telefone: string | null;
+    cep?: string | null;
+    endereco?: string | null;
     status?: 'invited' | 'active' | 'disabled';
     mustChangePassword?: boolean;
   };
@@ -132,7 +136,7 @@ const FONTE_RENDA_LABELS: Record<string, string> = {
 };
 
 // Dados pessoais editáveis na aba Cadastro (FE-20). O e-mail fica de fora: é o login.
-type ClientFormKey = 'name' | 'surname' | 'cpf' | 'rg' | 'dataNascimento' | 'telefone';
+type ClientFormKey = 'name' | 'surname' | 'cpf' | 'rg' | 'dataNascimento' | 'telefone' | 'cep' | 'endereco';
 type ClientFormErrors = Partial<Record<ClientFormKey, string>>;
 
 const CLIENT_FIELDS: { key: ClientFormKey; label: string; placeholder: string; type?: string; inputMode?: 'numeric' | 'tel' }[] = [
@@ -142,6 +146,9 @@ const CLIENT_FIELDS: { key: ClientFormKey; label: string; placeholder: string; t
   { key: 'rg', label: 'RG', placeholder: '00.000.000-0' },
   { key: 'dataNascimento', label: 'Data de nascimento', placeholder: '', type: 'date' },
   { key: 'telefone', label: 'Telefone', placeholder: '(11) 99999-9999', inputMode: 'tel' },
+  // PROD-06: o CEP preenche o endereço
+  { key: 'cep', label: 'CEP', placeholder: '00000-000', inputMode: 'numeric' },
+  { key: 'endereco', label: 'Endereço', placeholder: 'Rua, número, complemento, bairro, cidade' },
 ];
 
 // Campos opcionais: só valida o que foi preenchido.
@@ -152,6 +159,7 @@ function validateClientForm(f: Record<ClientFormKey, string>): ClientFormErrors 
   if (f.telefone.trim() && !isValidTelefone(f.telefone)) {
     errors.telefone = 'Telefone inválido. Use DDD + número, ex.: (11) 99999-9999.';
   }
+  if (f.cep.trim() && cepDigits(f.cep).length !== 8) errors.cep = 'CEP deve ter 8 dígitos.';
   if (f.dataNascimento && (f.dataNascimento > todayIso() || f.dataNascimento < '1900-01-01')) {
     errors.dataNascimento = 'Data de nascimento inválida.';
   }
@@ -166,6 +174,12 @@ const STATUS_BADGE: Record<Document['status'], { label: string; color: string; b
 };
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
+
+// PROD-06: "Rua X, 100, Bairro, Cidade - UF · CEP 00000-000"; null quando não há endereço
+function enderecoCompleto(c: { cep?: string | null; endereco?: string | null }): string | null {
+  if (!c.endereco) return null;
+  return c.cep ? `${c.endereco} · CEP ${formatCep(c.cep)}` : c.endereco;
+}
 
 function initials(name: string | null) {
   if (!name) return '?';
@@ -796,8 +810,11 @@ function CadastroTab({ process, role }: { process: ProcessDetail; role: string |
     rg: client.rg ?? '',
     dataNascimento: client.dataNascimento ?? '',
     telefone: client.telefone ? formatTelefone(client.telefone) : '',
+    cep: client.cep ? formatCep(client.cep) : '',
+    endereco: client.endereco ?? '',
   });
   const [clientForm, setClientForm] = useState(emptyClientForm);
+  const cep = useCepLookup();
   const [clientErrors, setClientErrors] = useState<ClientFormErrors>({});
   const [clientSaveError, setClientSaveError] = useState('');
 
@@ -820,6 +837,8 @@ function CadastroTab({ process, role }: { process: ProcessDetail; role: string |
         rg: dto.rg.trim(),
         telefone: normalizeTelefone(dto.telefone),
         dataNascimento: dto.dataNascimento || null,
+        cep: cepDigits(dto.cep),
+        endereco: dto.endereco.trim(),
         processId: process.id,
       }).then(r => r.data),
     onSuccess: () => {
@@ -898,12 +917,18 @@ function CadastroTab({ process, role }: { process: ProcessDetail; role: string |
                         const value = e.target.value;
                         setClientForm(f => ({ ...f, [key]: value }));
                         if (clientErrors[key]) setClientErrors(er => ({ ...er, [key]: undefined }));
+                        if (key === 'cep') cep.buscar(value, endereco => setClientForm(f => ({ ...f, endereco })));
                       }}
                       placeholder={placeholder} style={{ flex: 1 }}
                     />
                   </div>
                   {clientErrors[key] && (
                     <span id={`cli-${key}-err`} role="alert" style={{ fontSize: 11.5, color: 'var(--red)' }}>{clientErrors[key]}</span>
+                  )}
+                  {key === 'endereco' && cep.mensagem && (
+                    <span role="status" style={{ fontSize: 11.5, color: cep.estado === 'ok' || cep.estado === 'buscando' ? 'var(--text-muted)' : 'var(--amber)' }}>
+                      {cep.mensagem}
+                    </span>
                   )}
                 </div>
               ))}
@@ -929,6 +954,7 @@ function CadastroTab({ process, role }: { process: ProcessDetail; role: string |
               <dt>RG</dt><dd>{client.rg || '—'}</dd>
               <dt>Nascimento</dt><dd>{formatDateOnly(client.dataNascimento)}</dd>
               <dt>Telefone</dt><dd>{formatTelefone(client.telefone)}</dd>
+              <dt>Endereço</dt><dd>{enderecoCompleto(client) ?? '—'}</dd>
             </dl>
           )}
         </div>
@@ -1069,6 +1095,7 @@ function FichaTab({ process }: { process: ProcessDetail }) {
         ['Estado civil', process.estadoCivil ? (ESTADO_CIVIL_LABELS[process.estadoCivil] ?? process.estadoCivil) : null],
         ['E-mail', client.email],
         ['Telefone', client.telefone ? formatTelefone(client.telefone) : null],
+        ['Endereço', enderecoCompleto(client)],
       ],
     },
     {

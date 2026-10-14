@@ -426,6 +426,7 @@ export class UsersService {
     const fields = Object.fromEntries(
       Object.entries(sent).filter(([, value]) => value !== undefined),
     );
+    if (typeof fields.cep === 'string') fields.cep = fields.cep.replace(/\D/g, ''); // PROD-06
     Object.assign(user, fields);
     const saved = await this.userRepo.save(user);
     this.userCache.invalidateUser(id); // name shows up in request.user (AUTH-09)
@@ -516,6 +517,8 @@ export class UsersService {
       surname: user.surname,
       cpf: user.cpf,
       rg: user.rg,
+      cep: user.cep,
+      endereco: user.endereco,
       role: user.role,
       tenantId: user.tenantId,
       status: user.status,

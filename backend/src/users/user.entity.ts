@@ -60,6 +60,13 @@ export class User {
   @Column({ type: 'date', name: 'data_nascimento', nullable: true })
   dataNascimento: string | null;
 
+  // PROD-06: 8 digits, no hyphen
+  @Column({ type: 'varchar', length: 8, nullable: true })
+  cep: string | null;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  endereco: string | null;
+
   @Column({ name: 'created_by', type: 'uuid', nullable: true })
   createdBy: string | null;
 

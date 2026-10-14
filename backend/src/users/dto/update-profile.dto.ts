@@ -1,4 +1,10 @@
-import { IsOptional, IsString, IsUUID } from 'class-validator';
+import {
+  IsOptional,
+  IsString,
+  IsUUID,
+  Matches,
+  MaxLength,
+} from 'class-validator';
 import { IsBirthDate } from '../../common/decorators/is-birth-date.decorator';
 
 /**
@@ -28,6 +34,14 @@ export class UpdateProfileDto {
   /** YYYY-MM-DD; null clears it (FE-20). */
   @IsOptional() @IsBirthDate()
   dataNascimento?: string | null;
+
+  /** PROD-06: 00000-000 or 8 digits (stored as digits); empty clears it. */
+  @IsOptional()
+  @Matches(/^(\d{5}-?\d{3})?$/, { message: 'CEP deve ter 8 dígitos' })
+  cep?: string;
+
+  @IsOptional() @IsString() @MaxLength(255)
+  endereco?: string;
 
   /** Not persisted on the user — only used to attach an audit-log entry to a process. */
   @IsOptional() @IsUUID()

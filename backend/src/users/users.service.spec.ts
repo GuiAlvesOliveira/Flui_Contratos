@@ -350,6 +350,37 @@ describe('UsersService.updateProfile — only sent fields (RN-07)', () => {
   });
 });
 
+describe('UsersService.updateProfile — CEP e endereço (PROD-06)', () => {
+  it('stores the CEP as digits, keeps the address and returns both', async () => {
+    const { service, userRepo, dataSource } = makeService();
+    userRepo.findOne.mockResolvedValue({
+      id: 'u2',
+      tenantId: 't1',
+      role: 'cliente',
+      name: 'Helena',
+    });
+    userRepo.save.mockImplementation((u: User) => Promise.resolve(u));
+    dataSource.query.mockResolvedValueOnce([{ id: 'p1' }]);
+    const res = await service.updateProfile(
+      'u2',
+      { cep: '01310-100', endereco: 'Avenida Paulista, 1000', processId: 'p1' },
+      caller('analista'),
+    );
+    expect(userRepo.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cep: '01310100',
+        endereco: 'Avenida Paulista, 1000',
+      }),
+    );
+    expect(res).toMatchObject({
+      cep: '01310100',
+      endereco: 'Avenida Paulista, 1000',
+    });
+    const [, params] = dataSource.query.mock.calls[1] as [string, unknown[]];
+    expect(params[3]).toBe(JSON.stringify({ fields: 'cep, endereco' }));
+  });
+});
+
 describe('UsersService invalidates the TenantGuard cache (AUTH-09)', () => {
   const target = {
     id: 'u2',

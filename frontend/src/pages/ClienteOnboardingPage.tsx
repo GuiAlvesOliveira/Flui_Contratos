@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { api } from '../api/axiosInstance';
+import { cepDigits } from '../lib/cep';
+import { useCepLookup } from '../lib/useCepLookup';
 
 type FonteRenda = 'assalariado' | 'nao_assalariado';
 type EstadoCivil = 'casado' | 'solteiro' | 'divorciado';
@@ -12,10 +14,12 @@ export function ClienteOnboardingPage() {
     rg: '',
     telefone: '',
     dataNascimento: '',
+    cep: '',
     endereco: '',
     estadoCivil: '' as EstadoCivil | '',
     fonteRenda: '' as FonteRenda | '',
   });
+  const cep = useCepLookup();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -28,6 +32,7 @@ export function ClienteOnboardingPage() {
     if (!form.name.trim()) { setError('Nome é obrigatório'); return; }
     if (!form.estadoCivil) { setError('Estado civil é obrigatório'); return; }
     if (!form.fonteRenda) { setError('Fonte de renda é obrigatória'); return; }
+    if (form.cep.trim() && cepDigits(form.cep).length !== 8) { setError('CEP deve ter 8 dígitos'); return; }
 
     setLoading(true);
     setError('');
@@ -40,6 +45,8 @@ export function ClienteOnboardingPage() {
         rg: form.rg.trim() || undefined,
         telefone: form.telefone.trim() || undefined,
         dataNascimento: form.dataNascimento || undefined,
+        cep: form.cep.trim() ? cepDigits(form.cep) : undefined,
+        endereco: form.endereco.trim() || undefined,
       });
       // Recarrega para o /me trazer onboardingCompleted = true (AUTH-08)
       window.location.replace('/cliente');
@@ -130,12 +137,31 @@ export function ClienteOnboardingPage() {
 
           <fieldset className="space-y-4">
             <legend className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Endereço</legend>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Endereço completo</label>
-              <input type="text" value={form.endereco} onChange={set('endereco')}
-                placeholder="Rua, número, bairro, cidade – CEP"
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            {/* PROD-06: o CEP preenche o endereço; número e complemento continuam editáveis */}
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <label htmlFor="onb-cep" className="block text-sm font-medium text-gray-700 mb-1">CEP</label>
+                <input id="onb-cep" type="text" inputMode="numeric" maxLength={9} value={form.cep}
+                  placeholder="00000-000"
+                  onChange={e => {
+                    const v = e.target.value;
+                    setForm(prev => ({ ...prev, cep: v }));
+                    cep.buscar(v, endereco => setForm(prev => ({ ...prev, endereco })));
+                  }}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div className="col-span-2">
+                <label htmlFor="onb-endereco" className="block text-sm font-medium text-gray-700 mb-1">Endereço completo</label>
+                <input id="onb-endereco" type="text" maxLength={255} value={form.endereco} onChange={set('endereco')}
+                  placeholder="Rua, número, complemento, bairro, cidade"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
             </div>
+            {cep.mensagem && (
+              <p role="status" className={`text-xs ${cep.estado === 'ok' || cep.estado === 'buscando' ? 'text-gray-500' : 'text-amber-700'}`}>
+                {cep.mensagem}
+              </p>
+            )}
           </fieldset>
 
           {error && <p className="text-sm text-red-600">{error}</p>}

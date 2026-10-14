@@ -2,6 +2,7 @@ import { Fragment, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/axiosInstance';
 import * as Icon from './icons';
+import { useCepLookup } from '../lib/useCepLookup';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -104,6 +105,7 @@ export function NovoEmpreendimentoWizard({ onClose, onSuccess }: Props) {
     nome: '', matriculaMae: '', endereco: '', cep: '',
     bancoFinanciador: '', construtoraInfo: '', incorporadoraContato: '',
   });
+  const cep = useCepLookup();
   const [unidades, setUnidades] = useState<UnidadeDraft[]>([{ key: 1, identificacao: '', valor: '' }]);
   const [nextKey, setNextKey] = useState(2);
 
@@ -230,17 +232,16 @@ export function NovoEmpreendimentoWizard({ onClose, onSuccess }: Props) {
                     onChange={e => setEmp('matriculaMae', e.target.value)} style={{ flex: 1 }} />
                 </div>
               </Field>
-              <Field label="Endereço" required>
-                <div className="ds-input">
-                  <input placeholder="Rua, número, bairro, cidade" value={empForm.endereco}
-                    onChange={e => setEmp('endereco', e.target.value)} style={{ flex: 1 }} />
-                </div>
-              </Field>
+              {/* PROD-06: o CEP vem antes e preenche o endereço */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                 <Field label="CEP" required>
                   <div className="ds-input">
-                    <input placeholder="00000-000" value={empForm.cep}
-                      onChange={e => setEmp('cep', e.target.value)} style={{ flex: 1 }} />
+                    <input placeholder="00000-000" value={empForm.cep} inputMode="numeric" aria-label="CEP"
+                      onChange={e => {
+                        const v = e.target.value;
+                        setEmp('cep', v);
+                        cep.buscar(v, endereco => setEmp('endereco', endereco));
+                      }} style={{ flex: 1 }} />
                   </div>
                 </Field>
                 <Field label="Banco Financiador" required>
@@ -252,6 +253,17 @@ export function NovoEmpreendimentoWizard({ onClose, onSuccess }: Props) {
               </div>
               {cepLen > 0 && (cepLen < 8 || cepLen > 10) && (
                 <div style={{ fontSize: 11.5, color: 'var(--red)' }}>CEP deve ter 8 dígitos (com ou sem hífen).</div>
+              )}
+              <Field label="Endereço" required>
+                <div className="ds-input">
+                  <input placeholder="Rua, número, bairro, cidade" value={empForm.endereco} aria-label="Endereço"
+                    onChange={e => setEmp('endereco', e.target.value)} style={{ flex: 1 }} />
+                </div>
+              </Field>
+              {cep.mensagem && (
+                <div role="status" style={{ fontSize: 11.5, color: cep.estado === 'ok' || cep.estado === 'buscando' ? 'var(--text-muted)' : 'var(--amber)' }}>
+                  {cep.mensagem}
+                </div>
               )}
               <Field label="Construtora">
                 <div className="ds-input">

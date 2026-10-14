@@ -37,6 +37,8 @@ export class MeService {
     if (dto.dataNascimento !== undefined) {
       update.dataNascimento = dto.dataNascimento;
     }
+    if (dto.cep !== undefined) update.cep = dto.cep.replace(/\D/g, '');
+    if (dto.endereco !== undefined) update.endereco = dto.endereco.trim() || null;
 
     await this.userRepo.update(user.userId, update);
     // GET /me must report onboardingCompleted right away, or a reload sends the

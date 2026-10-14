@@ -22,6 +22,7 @@ import { AddMessageOutbox1718500900000 } from './migrations/1718500900000-AddMes
 import { AddProcessActivities1718501000000 } from './migrations/1718501000000-AddProcessActivities';
 import { AddActivityEditedBy1718501100000 } from './migrations/1718501100000-AddActivityEditedBy';
 import { AddUserTempPasswords1718501200000 } from './migrations/1718501200000-AddUserTempPasswords';
+import { AddUserAddress1718501300000 } from './migrations/1718501300000-AddUserAddress';
 
 // Standalone DataSource for the `typeorm migration:*` CLI. The running app builds
 // its own connection from ConfigService (app.module) and runs migrations on boot
@@ -60,6 +61,7 @@ export const AppDataSource = new DataSource({
     AddProcessActivities1718501000000,
     AddActivityEditedBy1718501100000,
     AddUserTempPasswords1718501200000,
+    AddUserAddress1718501300000,
   ],
   installExtensions: false, // same as app.module: gen_random_uuid() is built in
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: true } : false,

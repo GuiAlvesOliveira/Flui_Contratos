@@ -45,6 +45,21 @@ describe('MeService', () => {
     });
   });
 
+  it('completeOnboarding stores the CEP as digits and the address (PROD-06)', async () => {
+    const { service, userRepo } = makeService();
+    await service.completeOnboarding(user, {
+      name: 'João',
+      cep: '01310-100',
+      endereco: '  Avenida Paulista, 1000, Bela Vista, São Paulo - SP  ',
+    });
+    expect(userRepo.update).toHaveBeenCalledWith('u1', {
+      name: 'João',
+      onboardingCompleted: true,
+      cep: '01310100',
+      endereco: 'Avenida Paulista, 1000, Bela Vista, São Paulo - SP',
+    });
+  });
+
   it('completeOnboarding stores the birth date from the ficha (FE-20)', async () => {
     const { service, userRepo } = makeService();
     await service.completeOnboarding(user, {

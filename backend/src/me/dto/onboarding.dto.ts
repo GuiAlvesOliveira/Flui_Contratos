@@ -1,4 +1,11 @@
-import { IsOptional, IsString, Length, MinLength } from 'class-validator';
+import {
+  IsOptional,
+  IsString,
+  Length,
+  Matches,
+  MaxLength,
+  MinLength,
+} from 'class-validator';
 import { IsBirthDate } from '../../common/decorators/is-birth-date.decorator';
 
 export class OnboardingDto {
@@ -26,4 +33,14 @@ export class OnboardingDto {
   @IsOptional()
   @IsBirthDate()
   dataNascimento?: string;
+
+  // PROD-06: 00000-000 or 8 digits; stored as digits
+  @IsOptional()
+  @Matches(/^\d{5}-?\d{3}$/, { message: 'CEP deve ter 8 dígitos' })
+  cep?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  endereco?: string;
 }
