@@ -14,6 +14,7 @@ import { RequestUserFull } from '../auth/supabase.guard';
 import { UserContextCache } from '../auth/user-context.cache';
 import { Tenant } from '../tenants/tenant.entity';
 import { SupabaseAdminService } from '../common/services/supabase-admin.service';
+import { TemporaryPasswordStore } from '../common/services/temporary-password.store';
 import { EmailService } from '../email/email.service';
 import { User } from './user.entity';
 import { CreateUserDto } from './dto/create-user.dto';
@@ -37,6 +38,18 @@ const ALLOWED_CREATION: Record<string, string[]> = {
   analista: ['cliente'],
 };
 
+// BE-18: whose temporary password each role may see again (the analista only
+// for clientes they created or whose process they handle).
+const TEMP_PASSWORD_ACCESS: Record<string, string[]> = {
+  dono: ['analista', 'cliente'],
+  analista: ['cliente'],
+};
+
+export interface TemporaryPasswordView {
+  temporaryPassword: string | null;
+  createdAt: Date | null;
+}
+
 type UserResponse = ReturnType<UsersService['toResponse']>;
 
 const ROLE_PLURAL: Record<string, string> = {
@@ -56,6 +69,7 @@ export class UsersService {
     private readonly email: EmailService,
     private readonly dataSource: DataSource,
     private readonly userCache: UserContextCache,
+    private readonly tempPasswords: TemporaryPasswordStore,
   ) {}
 
   // analista/cliente come back with the temporaryPassword; a dono gets an invite
@@ -126,7 +140,128 @@ export class UsersService {
     }
 
     await this.userRepo.update(saved.id, { externalId });
+    await this.keepTemporaryPassword(
+      saved.id,
+      tenantId,
+      temporaryPassword,
+      createdBy,
+    );
     return { ...this.toResponse(saved), temporaryPassword };
+  }
+
+  // BE-18: the account is already created at this point; failing to keep the
+  // password only means it cannot be shown again (a new one can be generated).
+  private async keepTemporaryPassword(
+    userId: string,
+    tenantId: string,
+    password: string,
+    createdBy: string | null,
+  ) {
+    try {
+      await this.tempPasswords.save(userId, tenantId, password, createdBy);
+    } catch (err) {
+      this.logger.warn(
+        `Temporary password not kept for ${userId}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  // BE-18: a user still waiting for the first sign-in, that the caller may hand
+  // the temporary password to. Other tenants get the same 404 as a missing user.
+  private async pendingUserFor(
+    id: string,
+    caller: RequestUserFull,
+  ): Promise<User> {
+    const user = await this.userRepo.findOne({
+      where: { id, tenantId: caller.tenantId! },
+    });
+    if (!user) throw new NotFoundException('Usuário não encontrado');
+    if (!TEMP_PASSWORD_ACCESS[caller.role]?.includes(user.role)) {
+      throw new ForbiddenException(
+        'Sem permissão para ver a senha deste usuário',
+      );
+    }
+    if (caller.role === 'analista' && user.createdBy !== caller.userId) {
+      const [{ count }] = await this.dataSource.query<[{ count: string }]>(
+        `SELECT COUNT(*) AS count FROM processes
+          WHERE client_id = $1 AND analista_id = $2 AND tenant_id = $3`,
+        [id, caller.userId, caller.tenantId],
+      );
+      if (Number(count) === 0) {
+        throw new ForbiddenException(
+          'Sem permissão para ver a senha deste usuário',
+        );
+      }
+    }
+    if (user.status === 'disabled') {
+      throw new ConflictException('Usuário desativado');
+    }
+    if (!user.mustChangePassword) {
+      await this.tempPasswords.remove(user.id);
+      throw new ConflictException(
+        'Esta pessoa já criou a própria senha; a senha temporária não vale mais',
+      );
+    }
+    return user;
+  }
+
+  private async auditTemporaryPassword(
+    action: 'temp_password_viewed' | 'temp_password_regenerated',
+    user: User,
+    caller: RequestUserFull,
+  ) {
+    await this.dataSource.query(
+      `INSERT INTO audit_logs (tenant_id, actor_id, action, metadata)
+       VALUES ($1, $2, $3, $4::jsonb)`,
+      [
+        caller.tenantId,
+        caller.userId,
+        action,
+        JSON.stringify({ userId: user.id, role: user.role }),
+      ],
+    );
+  }
+
+  async getTemporaryPassword(
+    id: string,
+    caller: RequestUserFull,
+  ): Promise<TemporaryPasswordView> {
+    const user = await this.pendingUserFor(id, caller);
+    const kept = await this.tempPasswords.read(user.id);
+    if (!kept) return { temporaryPassword: null, createdAt: null };
+    await this.auditTemporaryPassword('temp_password_viewed', user, caller);
+    return { temporaryPassword: kept.password, createdAt: kept.createdAt };
+  }
+
+  // BE-18: for accounts whose password was not kept (created before BE-18, or
+  // unreadable after a key change). The old temporary password stops working.
+  async regenerateTemporaryPassword(
+    id: string,
+    caller: RequestUserFull,
+  ): Promise<TemporaryPasswordView> {
+    const user = await this.pendingUserFor(id, caller);
+    if (!user.externalId) {
+      throw new ConflictException(
+        'Usuário sem conta de acesso; cadastre-o novamente',
+      );
+    }
+    const temporaryPassword = randomBytes(16).toString('hex');
+    await this.supabaseAdmin.updateUserPassword(
+      user.externalId,
+      temporaryPassword,
+    );
+    await this.tempPasswords.save(
+      user.id,
+      caller.tenantId!,
+      temporaryPassword,
+      caller.userId,
+    );
+    await this.auditTemporaryPassword(
+      'temp_password_regenerated',
+      user,
+      caller,
+    );
+    return { temporaryPassword, createdAt: new Date() };
   }
 
   private async createWithInvite(dto: CreateUserDto, tenantId: string, createdBy: string) {
@@ -339,6 +474,7 @@ export class UsersService {
     }
 
     await this.userRepo.update(id, { status: 'disabled' });
+    await this.tempPasswords.remove(id);
     this.userCache.invalidateUser(id);
 
     if (user.externalId) {

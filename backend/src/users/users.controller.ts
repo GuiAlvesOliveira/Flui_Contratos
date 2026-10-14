@@ -79,6 +79,25 @@ export class UsersController {
     return this.usersService.findOne(id, req.user);
   }
 
+  // BE-18: senha temporária de quem ainda não fez o primeiro acesso
+  @Get(':id/temporary-password')
+  @Roles('dono', 'analista')
+  getTemporaryPassword(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Request() req: { user: RequestUserFull },
+  ) {
+    return this.usersService.getTemporaryPassword(id, req.user);
+  }
+
+  @Post(':id/temporary-password')
+  @Roles('dono', 'analista')
+  regenerateTemporaryPassword(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Request() req: { user: RequestUserFull },
+  ) {
+    return this.usersService.regenerateTemporaryPassword(id, req.user);
+  }
+
   @Patch(':id/profile')
   @Roles('admin', 'dono', 'analista', 'cliente')
   updateProfile(

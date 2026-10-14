@@ -203,7 +203,7 @@ function AlocarClienteDrawer({
               <div>
                 <div className="ds-alert-title">Repasse o acesso ao cliente</div>
                 <div className="ds-alert-desc">
-                  A senha temporária é exibida só agora. No primeiro acesso, o cliente será obrigado a trocá-la.
+                  No primeiro acesso, o cliente será obrigado a trocá-la. Até lá, a senha temporária também aparece na página do processo, em “Ver senha temporária”.
                 </div>
               </div>
             </div>

@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
@@ -10,6 +11,7 @@ import { Tenant } from '../tenants/tenant.entity';
 import { CreateUserDto } from './dto/create-user.dto';
 import { RequestUserFull } from '../auth/supabase.guard';
 import { UserContextCache } from '../auth/user-context.cache';
+import { TemporaryPasswordStore } from '../common/services/temporary-password.store';
 
 function makeService() {
   const userRepo = {
@@ -23,10 +25,16 @@ function makeService() {
     createUser: jest.fn(),
     generateInviteLink: jest.fn(),
     deleteUser: jest.fn(),
+    updateUserPassword: jest.fn(),
   };
   const email = { sendInvite: jest.fn() };
   const dataSource = { query: jest.fn() };
   const userCache = { invalidateUser: jest.fn() };
+  const tempPasswords = {
+    save: jest.fn().mockResolvedValue(undefined),
+    read: jest.fn().mockResolvedValue(null),
+    remove: jest.fn().mockResolvedValue(undefined),
+  };
   const service = new UsersService(
     userRepo as unknown as Repository<User>,
     tenantRepo as unknown as Repository<Tenant>,
@@ -34,6 +42,7 @@ function makeService() {
     email as never,
     dataSource as unknown as DataSource,
     userCache as unknown as UserContextCache,
+    tempPasswords as unknown as TemporaryPasswordStore,
   );
   return {
     service,
@@ -42,6 +51,7 @@ function makeService() {
     supabaseAdmin,
     dataSource,
     userCache,
+    tempPasswords,
   };
 }
 
@@ -467,5 +477,215 @@ describe('UsersService.importCsv (BE-01)', () => {
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(userRepo.save).not.toHaveBeenCalled();
     expect(dataSource.query).not.toHaveBeenCalled();
+  });
+});
+
+describe('UsersService — senha temporária até o primeiro acesso (BE-18)', () => {
+  const pending = (overrides: Partial<User> = {}) =>
+    ({
+      id: 'u2',
+      tenantId: 't1',
+      role: 'analista',
+      status: 'invited',
+      mustChangePassword: true,
+      externalId: 'ext2',
+      createdBy: 'u1',
+      ...overrides,
+    }) as User;
+  const KEPT = {
+    password: 'a1b2c3d4e5f60718293a4b5c6d7e8f90',
+    createdAt: new Date('2026-10-14T12:00:00Z'),
+  };
+
+  it('keeps the temporary password of every analista/cliente created', async () => {
+    const ctx = creationSetup();
+    const res = await ctx.service.create(
+      { ...dto('cliente'), cpf: '52998224725' },
+      { role: 'analista', tenantId: 't1', userId: 'an1' } as RequestUserFull,
+    );
+    expect(ctx.tempPasswords.save).toHaveBeenCalledWith(
+      'new-user',
+      't1',
+      res.temporaryPassword,
+      'an1',
+    );
+  });
+
+  it('still creates the user when the password cannot be kept', async () => {
+    const ctx = creationSetup();
+    ctx.tempPasswords.save.mockRejectedValue(new Error('db down'));
+    const res = await ctx.service.create(
+      { ...dto('analista'), cpf: '52998224725' },
+      caller('dono'),
+    );
+    expect(res.temporaryPassword).toMatch(/^[0-9a-f]{32}$/);
+  });
+
+  it('the gestor sees the password of an analista and of a cliente; each view is audited', async () => {
+    for (const role of ['analista', 'cliente'] as const) {
+      const { service, userRepo, tempPasswords, dataSource } = makeService();
+      userRepo.findOne.mockResolvedValue(pending({ role }));
+      tempPasswords.read.mockResolvedValue(KEPT);
+      await expect(
+        service.getTemporaryPassword('u2', caller('dono')),
+      ).resolves.toEqual({
+        temporaryPassword: KEPT.password,
+        createdAt: KEPT.createdAt,
+      });
+      expect(userRepo.findOne).toHaveBeenCalledWith({
+        where: { id: 'u2', tenantId: 't1' },
+      });
+      const [sql, params] = dataSource.query.mock.calls[0] as [
+        string,
+        unknown[],
+      ];
+      expect(sql).toContain('INSERT INTO audit_logs');
+      expect(params).toEqual([
+        't1',
+        'u1',
+        'temp_password_viewed',
+        JSON.stringify({ userId: 'u2', role }),
+      ]);
+      expect(JSON.stringify(params)).not.toContain(KEPT.password);
+    }
+  });
+
+  it('the analista sees the password of a cliente they created or whose process they handle', async () => {
+    const analista = {
+      role: 'analista',
+      tenantId: 't1',
+      userId: 'an1',
+    } as RequestUserFull;
+    const own = makeService();
+    own.userRepo.findOne.mockResolvedValue(
+      pending({ role: 'cliente', createdBy: 'an1' }),
+    );
+    own.tempPasswords.read.mockResolvedValue(KEPT);
+    await expect(
+      own.service.getTemporaryPassword('u2', analista),
+    ).resolves.toMatchObject({ temporaryPassword: KEPT.password });
+
+    const handled = makeService();
+    handled.userRepo.findOne.mockResolvedValue(
+      pending({ role: 'cliente', createdBy: 'outro' }),
+    );
+    handled.dataSource.query.mockResolvedValueOnce([{ count: '1' }]);
+    handled.tempPasswords.read.mockResolvedValue(KEPT);
+    await expect(
+      handled.service.getTemporaryPassword('u2', analista),
+    ).resolves.toMatchObject({ temporaryPassword: KEPT.password });
+    expect(
+      (handled.dataSource.query.mock.calls[0] as [string, unknown[]])[1],
+    ).toEqual(['u2', 'an1', 't1']);
+  });
+
+  it('refuses a cliente of another analista, another analista, and the cliente role', async () => {
+    const analista = {
+      role: 'analista',
+      tenantId: 't1',
+      userId: 'an1',
+    } as RequestUserFull;
+    const other = makeService();
+    other.userRepo.findOne.mockResolvedValue(
+      pending({ role: 'cliente', createdBy: 'outro' }),
+    );
+    other.dataSource.query.mockResolvedValueOnce([{ count: '0' }]);
+    await expect(
+      other.service.getTemporaryPassword('u2', analista),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(other.tempPasswords.read).not.toHaveBeenCalled();
+
+    const colleague = makeService();
+    colleague.userRepo.findOne.mockResolvedValue(pending({ role: 'analista' }));
+    await expect(
+      colleague.service.getTemporaryPassword('u2', analista),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+
+    const cliente = makeService();
+    cliente.userRepo.findOne.mockResolvedValue(pending({ role: 'cliente' }));
+    await expect(
+      cliente.service.getTemporaryPassword('u2', caller('cliente')),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('RN-01: a user of another tenant is not found and nothing is read', async () => {
+    const { service, userRepo, tempPasswords } = makeService();
+    userRepo.findOne.mockResolvedValue(null); // the query is scoped by the caller's tenant
+    await expect(
+      service.getTemporaryPassword('u2', caller('dono')),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(tempPasswords.read).not.toHaveBeenCalled();
+  });
+
+  it('after the first sign-in (own password set) the password is gone for good', async () => {
+    const { service, userRepo, tempPasswords } = makeService();
+    userRepo.findOne.mockResolvedValue(
+      pending({ mustChangePassword: false, status: 'active' }),
+    );
+    await expect(
+      service.getTemporaryPassword('u2', caller('dono')),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(tempPasswords.remove).toHaveBeenCalledWith('u2');
+    expect(tempPasswords.read).not.toHaveBeenCalled();
+  });
+
+  it('a disabled account has no password to show', async () => {
+    const { service, userRepo } = makeService();
+    userRepo.findOne.mockResolvedValue(pending({ status: 'disabled' }));
+    await expect(
+      service.getTemporaryPassword('u2', caller('dono')),
+    ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('reports "not kept" (null) without auditing when there is nothing stored', async () => {
+    const { service, userRepo, dataSource } = makeService();
+    userRepo.findOne.mockResolvedValue(pending());
+    await expect(
+      service.getTemporaryPassword('u2', caller('dono')),
+    ).resolves.toEqual({ temporaryPassword: null, createdAt: null });
+    expect(dataSource.query).not.toHaveBeenCalled();
+  });
+
+  it('generates a new temporary password: changes it in Supabase, keeps it and audits', async () => {
+    const { service, userRepo, supabaseAdmin, tempPasswords, dataSource } =
+      makeService();
+    userRepo.findOne.mockResolvedValue(pending());
+    const res = await service.regenerateTemporaryPassword('u2', caller('dono'));
+    expect(res.temporaryPassword).toMatch(/^[0-9a-f]{32}$/);
+    expect(supabaseAdmin.updateUserPassword).toHaveBeenCalledWith(
+      'ext2',
+      res.temporaryPassword,
+    );
+    expect(tempPasswords.save).toHaveBeenCalledWith(
+      'u2',
+      't1',
+      res.temporaryPassword,
+      'u1',
+    );
+    expect((dataSource.query.mock.calls[0] as [string, unknown[]])[1]).toEqual([
+      't1',
+      'u1',
+      'temp_password_regenerated',
+      JSON.stringify({ userId: 'u2', role: 'analista' }),
+    ]);
+  });
+
+  it('does not generate a new password for someone who already set their own', async () => {
+    const { service, userRepo, supabaseAdmin } = makeService();
+    userRepo.findOne.mockResolvedValue(
+      pending({ mustChangePassword: false, status: 'active' }),
+    );
+    await expect(
+      service.regenerateTemporaryPassword('u2', caller('dono')),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(supabaseAdmin.updateUserPassword).not.toHaveBeenCalled();
+  });
+
+  it('removing a cliente also discards the kept password', async () => {
+    const { service, userRepo, dataSource, tempPasswords } = makeService();
+    userRepo.findOne.mockResolvedValue(pending({ role: 'cliente' }));
+    dataSource.query.mockResolvedValue([{ count: '0' }]);
+    await service.remove('u2', caller('dono'));
+    expect(tempPasswords.remove).toHaveBeenCalledWith('u2');
   });
 });

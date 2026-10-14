@@ -8,12 +8,14 @@ function makeService() {
   const userRepo = { update: jest.fn() };
   const supabaseAdmin = { updateUserPassword: jest.fn() };
   const userCache = { invalidateUser: jest.fn() };
+  const tempPasswords = { remove: jest.fn() };
   const service = new MeService(
     userRepo as unknown as Repository<User>,
     supabaseAdmin as never,
     userCache as unknown as UserContextCache,
+    tempPasswords as never,
   );
-  return { service, userRepo, supabaseAdmin, userCache };
+  return { service, userRepo, supabaseAdmin, userCache, tempPasswords };
 }
 
 const user = { userId: 'u1', externalId: 'ext1', tenantId: 't1', role: 'cliente' } as RequestUserFull;
@@ -24,6 +26,12 @@ describe('MeService', () => {
     await service.changePassword(user, 'nova-senha-123');
     expect(supabaseAdmin.updateUserPassword).toHaveBeenCalledWith('ext1', 'nova-senha-123');
     expect(userRepo.update).toHaveBeenCalledWith('u1', { mustChangePassword: false });
+  });
+
+  it('changePassword discards the kept temporary password (BE-18)', async () => {
+    const { service, tempPasswords } = makeService();
+    await service.changePassword(user, 'nova-senha-123');
+    expect(tempPasswords.remove).toHaveBeenCalledWith('u1');
   });
 
   it('completeOnboarding sets the flag and only the provided optional fields', async () => {

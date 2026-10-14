@@ -13,6 +13,7 @@ import { SolicitarDocumentosModal } from '../components/SolicitarDocumentosModal
 import { ExcluirDocumentoModal } from '../components/ExcluirDocumentoModal';
 import { ExcluirAtividadeModal } from '../components/ExcluirAtividadeModal';
 import { FormulariosTab } from '../components/FormulariosTab';
+import { SenhaTemporaria } from '../components/SenhaTemporaria';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -39,6 +40,8 @@ interface ProcessDetail {
     rg: string | null;
     dataNascimento: string | null;
     telefone: string | null;
+    status?: 'invited' | 'active' | 'disabled';
+    mustChangePassword?: boolean;
   };
   analista: { id: string; name: string | null; email: string } | null;
   unidade: {
@@ -1894,6 +1897,13 @@ export function ProponenteDetailPage({ processId, onBack, role }: Props) {
                 {client.telefone && <span>{client.telefone}</span>}
                 <span>{client.email}</span>
               </div>
+              {/* BE-18: até o primeiro acesso, a equipe pode repassar a senha de novo */}
+              {isAnalista && client.mustChangePassword && client.status !== 'disabled' && (
+                <div style={{ marginTop: 8, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', fontSize: 12.5 }}>
+                  <span className="ds-badge amber"><span className="dot" />Portal: aguardando o primeiro acesso</span>
+                  <SenhaTemporaria userId={client.id} />
+                </div>
+              )}
             </div>
 
             {/* Financial stats */}

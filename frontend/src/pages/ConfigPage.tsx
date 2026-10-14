@@ -2,6 +2,7 @@ import { useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/axiosInstance';
 import * as Icon from '../components/icons';
+import { SenhaTemporaria } from '../components/SenhaTemporaria';
 import {
   apiErrorMessage, CATEGORY_LABELS, CATEGORY_ORDER, groupByCategory,
   type DocumentCategory, type DocumentTypeItem,
@@ -288,7 +289,7 @@ function ImportarUsuarios({ role }: { role: string | null }) {
             </table>
             {result.created > 0 && (
               <div className="ds-alert warn" style={{ fontSize: 12.5, marginTop: 10 }}>
-                Repasse a senha temporária a cada pessoa. Ela não fica salva: anote antes de sair desta tela.
+                Repasse a senha temporária a cada pessoa. Até o primeiro acesso ela pode ser vista de novo: a dos analistas em Equipe e a dos clientes na página do processo.
               </div>
             )}
           </div>
@@ -312,6 +313,9 @@ interface Analista {
 interface NovoAnalista { name: string; surname: string; email: string; cpf: string }
 const NOVO_VAZIO: NovoAnalista = { name: '', surname: '', email: '', cpf: '' };
 
+// Ainda entra com a senha temporária (a API recusa depois da troca de senha)
+const aguardandoPrimeiroAcesso = (a: Analista) => a.mustChangePassword && a.status !== 'disabled';
+
 function situacao(a: Analista): { label: string; color: string } {
   if (a.status === 'disabled') return { label: 'Desativado', color: 'red' };
   if (a.status === 'invited' || a.mustChangePassword) return { label: 'Aguardando primeiro acesso', color: 'amber' };
@@ -320,8 +324,8 @@ function situacao(a: Analista): { label: string; color: string } {
 }
 
 // Equipe: o gestor cadastra os analistas da assessoria (POST /users). A senha
-// temporária é aleatória (SEC-01), aparece uma vez e precisa ser trocada no
-// primeiro acesso; ela não fica salva em lugar nenhum.
+// temporária é aleatória (SEC-01) e precisa ser trocada no primeiro acesso; até
+// lá o gestor pode vê-la de novo (BE-18), na coluna "Senha temporária".
 function EquipeAnalistas() {
   const qc = useQueryClient();
   const [aberto, setAberto] = useState(false);
@@ -436,7 +440,7 @@ function EquipeAnalistas() {
                 {copiada ? <><Icon.Check size={12} /> Copiada</> : 'Copiar senha'}
               </button>
             </div>
-            <div style={{ marginTop: 6 }}>A senha não fica salva: anote antes de sair desta tela.</div>
+            <div style={{ marginTop: 6 }}>Até o primeiro acesso, ela também aparece na lista abaixo, em “Ver senha temporária”.</div>
           </div>
         )}
 
@@ -446,7 +450,7 @@ function EquipeAnalistas() {
           <div style={{ fontSize: 13, color: 'var(--text-faint)' }}>Nenhum analista cadastrado ainda.</div>
         ) : (
           <table className="ds-table" aria-label="Analistas da assessoria">
-            <thead><tr><th>Nome</th><th>E-mail</th><th>Situação</th><th>Cadastro</th></tr></thead>
+            <thead><tr><th>Nome</th><th>E-mail</th><th>Situação</th><th>Cadastro</th><th>Senha temporária</th></tr></thead>
             <tbody>
               {ordenados.map(a => {
                 const s = situacao(a);
@@ -456,6 +460,7 @@ function EquipeAnalistas() {
                     <td>{a.email}</td>
                     <td><span className={`ds-badge ${s.color}`}><span className="dot" />{s.label}</span></td>
                     <td style={{ fontVariantNumeric: 'tabular-nums' }}>{new Date(a.createdAt).toLocaleDateString('pt-BR')}</td>
+                    <td>{aguardandoPrimeiroAcesso(a) ? <SenhaTemporaria userId={a.id} /> : <span style={{ color: 'var(--text-faint)' }}>—</span>}</td>
                   </tr>
                 );
               })}

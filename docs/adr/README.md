@@ -12,5 +12,6 @@ Cada ADR registra uma decisão técnica relevante: o contexto, o que foi decidid
 | [0006](0006-automacao-n8n-webhooks.md) | Automação desacoplada via n8n, com webhooks *fire-and-forget* | Substituído pelo 0008 |
 | [0007](0007-migrations-idempotentes.md) | Migrations idempotentes + seed como contrato de "banco recriável" | Aceito |
 | [0008](0008-mensageria-propria-outbox.md) | Mensageria no próprio backend: fila (*outbox*) no PostgreSQL + worker com novas tentativas | Aceito |
+| [0009](0009-senha-temporaria-ate-o-primeiro-acesso.md) | Senha temporária guardada criptografada até o primeiro acesso | Aceito |
 
 Modelo para um ADR novo: copie qualquer arquivo desta pasta, numere em sequência e preencha **Contexto**, **Decisão** e **Consequências**.

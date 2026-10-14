@@ -44,6 +44,7 @@ import { AddDocumentForms1718500800000 } from './database/migrations/17185008000
 import { AddMessageOutbox1718500900000 } from './database/migrations/1718500900000-AddMessageOutbox';
 import { AddProcessActivities1718501000000 } from './database/migrations/1718501000000-AddProcessActivities';
 import { AddActivityEditedBy1718501100000 } from './database/migrations/1718501100000-AddActivityEditedBy';
+import { AddUserTempPasswords1718501200000 } from './database/migrations/1718501200000-AddUserTempPasswords';
 
 @Module({
   imports: [
@@ -87,6 +88,7 @@ import { AddActivityEditedBy1718501100000 } from './database/migrations/17185011
           AddMessageOutbox1718500900000,
           AddProcessActivities1718501000000,
           AddActivityEditedBy1718501100000,
+          AddUserTempPasswords1718501200000,
         ],
         migrationsRun: true,
         synchronize: false,
