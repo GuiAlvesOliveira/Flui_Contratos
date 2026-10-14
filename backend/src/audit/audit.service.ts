@@ -2,7 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { DataSource } from 'typeorm';
 import { RequestUserFull } from '../auth/supabase.guard';
 import type { ProcessStage } from '../processes/process.entity';
-import { ProcessesService } from '../processes/processes.service';
+import { MessagingService } from '../messaging/messaging.service';
 
 export interface AuditLogFilters {
   processId?: string;
@@ -17,7 +17,7 @@ const TZ = 'America/Sao_Paulo';
 export class AuditService {
   constructor(
     private readonly dataSource: DataSource,
-    private readonly processes: ProcessesService,
+    private readonly messaging: MessagingService,
   ) {}
 
   // BE-07: paginated tenant log, optionally narrowed by process, action and
@@ -111,22 +111,17 @@ export class AuditService {
            VALUES ($1, $2, $3, 'stage_change_undo', $4, $5, $6)`,
           [caller.tenantId, log.process_id, caller.userId, log.to_state, log.from_state, JSON.stringify({ undid_log_id: logId })],
         );
-      });
-      // RN-08: going back is a stage change too, so n8n hears about it
-      await this.processes.notifyStageChange(
-        {
-          id: log.process_id,
+        // RN-08_v2: going back is a stage change too, so the client is told
+        await this.messaging.stageChanged(manager, {
+          tenantId: caller.tenantId!,
+          processId: log.process_id,
           clientId: process.client_id,
           analistaId: process.analista_id,
-        },
-        {
-          tenantId: caller.tenantId!,
           fromStage: log.to_state,
           toStage: log.from_state,
-          actorId: caller.userId,
           undo: true,
-        },
-      );
+        });
+      });
       return { undone: true, action: 'stage_change', processId: log.process_id };
     }
 

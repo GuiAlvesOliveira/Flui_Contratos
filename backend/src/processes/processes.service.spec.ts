@@ -18,16 +18,14 @@ function makeService(process: Partial<Process> | null) {
       .fn()
       .mockImplementation(async (cb: (m: unknown) => unknown) => cb(manager)),
   };
-  const webhook = { fireAndForget: jest.fn(), fireEvent: jest.fn() };
-  const email = { sendStageChange: jest.fn() };
+  const messaging = { stageChanged: jest.fn().mockResolvedValue(1) };
   const service = new ProcessesService(
     repo as unknown as Repository<Process>,
     userRepo as unknown as Repository<User>,
     dataSource as unknown as DataSource,
-    webhook as never,
-    email as never,
+    messaging as never,
   );
-  return { service, repo, userRepo, dataSource, manager, webhook, email };
+  return { service, repo, userRepo, dataSource, manager, messaging };
 }
 
 const caller = { tenantId: 't1', userId: 'u1', role: 'analista' } as RequestUserFull;
@@ -146,17 +144,64 @@ describe('ProcessesService.advanceStage', () => {
     expect(dataSource.query).toHaveBeenCalledTimes(1);
   });
 
-  it('advances on a valid move and fires the n8n webhook', async () => {
-    const { service, webhook } = makeService({
+  it('RN-08_v2: a valid move queues the notification in the same transaction', async () => {
+    const { service, manager, messaging } = makeService({
+      id: 'p1',
+      stage: 'inicial',
+      clientId: 'c1',
+      analistaId: 'an1',
+      mipValue: null,
+      dfiValue: null,
+    });
+    const res = await service.advanceStage('p1', dto('cadastro'), caller);
+    expect(res).toEqual({
+      id: 'p1',
+      fromStage: 'inicial',
+      toStage: 'cadastro',
+    });
+    // the transaction manager, not the plain connection: no move, no message
+    expect(messaging.stageChanged).toHaveBeenCalledTimes(1);
+    expect(messaging.stageChanged).toHaveBeenCalledWith(manager, {
+      tenantId: 't1',
+      processId: 'p1',
+      clientId: 'c1',
+      analistaId: 'an1',
+      fromStage: 'inicial',
+      toStage: 'cadastro',
+    });
+    // after the stage update and the audit entry
+    expect(manager.query.mock.invocationCallOrder[0]).toBeLessThan(
+      messaging.stageChanged.mock.invocationCallOrder[0],
+    );
+  });
+
+  it('RN-08_v2: a move that fails the checks queues nothing', async () => {
+    const { service, messaging } = makeService({
+      id: 'p1',
+      stage: 'inicial',
+      mipValue: 1,
+      dfiValue: 1,
+    });
+    await expect(
+      service.advanceStage('p1', dto('cartorio'), caller),
+    ).rejects.toBeInstanceOf(UnprocessableEntityException);
+    expect(messaging.stageChanged).not.toHaveBeenCalled();
+  });
+
+  it('RN-08_v2: if the queue write fails, the whole move fails (nothing half-done)', async () => {
+    const { service, dataSource, messaging } = makeService({
       id: 'p1',
       stage: 'inicial',
       clientId: 'c1',
       mipValue: null,
       dfiValue: null,
     });
-    const res = await service.advanceStage('p1', dto('cadastro'), caller);
-    expect(res).toEqual({ id: 'p1', fromStage: 'inicial', toStage: 'cadastro' });
-    expect(webhook.fireEvent).toHaveBeenCalledTimes(1);
+    messaging.stageChanged.mockRejectedValueOnce(new Error('db down'));
+    await expect(
+      service.advanceStage('p1', dto('cadastro'), caller),
+    ).rejects.toThrow('db down');
+    // the error is raised inside the transaction callback, so it rolls back
+    expect(dataSource.transaction).toHaveBeenCalledTimes(1);
   });
 });
 

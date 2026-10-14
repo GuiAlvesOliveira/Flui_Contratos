@@ -35,8 +35,10 @@ function makeService() {
       .fn()
       .mockImplementation((cb: (m: unknown) => unknown) => cb(manager)),
   };
-  const email = { sendDocumentRejected: jest.fn() };
-  const webhook = { fireEvent: jest.fn() };
+  const messaging = {
+    documentsRequested: jest.fn().mockResolvedValue(1),
+    documentRejected: jest.fn().mockResolvedValue(1),
+  };
   const service = new DocumentsService(
     repo as unknown as Repository<Document>,
     typeRepo as unknown as Repository<DocumentType>,
@@ -44,8 +46,7 @@ function makeService() {
     userRepo as unknown as Repository<User>,
     azureStorage as never,
     dataSource as unknown as DataSource,
-    email as never,
-    webhook as never,
+    messaging as never,
   );
   return {
     service,
@@ -56,8 +57,7 @@ function makeService() {
     azureStorage,
     dataSource,
     manager,
-    email,
-    webhook,
+    messaging,
   };
 }
 
@@ -78,7 +78,7 @@ describe('DocumentsService.requestDocuments (BE-03 catalog)', () => {
   };
 
   it('creates the picked documents: personal on the client, the rest on the process', async () => {
-    const { service, repo, typeRepo, dataSource } = setup();
+    const { service, repo, typeRepo, manager, messaging } = setup();
     typeRepo.find.mockResolvedValue([RG, HOLERITE, MATRICULA]);
     repo.find.mockResolvedValue([]);
 
@@ -112,20 +112,47 @@ describe('DocumentsService.requestDocuments (BE-03 catalog)', () => {
         documentTypeId: 'ty-mat',
       }),
     ]);
-    const [sql, params] = dataSource.query.mock.calls[0] as [string, unknown[]];
+    const [sql, params] = manager.query.mock.calls[0] as [string, unknown[]];
     expect(sql).toContain("'documents_requested'");
     expect(params[3]).toBe(
       JSON.stringify({
         labels: ['RG ou CNH', 'Holerite (mês 1)', 'Matrícula do imóvel'],
       }),
     );
+    // BE-15_v2: the e-mail to the client goes in the same transaction
+    expect(messaging.documentsRequested).toHaveBeenCalledWith(manager, {
+      tenantId: 't1',
+      processId: 'p1',
+      clientId: 'cl1',
+      labels: ['RG ou CNH', 'Holerite (mês 1)', 'Matrícula do imóvel'],
+    });
+  });
+
+  it('BE-15_v2: asking again for documents already requested sends no e-mail', async () => {
+    const { service, repo, typeRepo, messaging, dataSource } = setup();
+    typeRepo.find.mockResolvedValue([HOLERITE]);
+    repo.find.mockResolvedValue([
+      { documentTypeId: 'ty-hol', processId: 'p1' },
+    ]);
+    const res = await service.requestDocuments(
+      'p1',
+      ['ty-hol'],
+      caller('analista'),
+    );
+    expect(res).toMatchObject({ created: 0, skipped: 1 });
+    expect(dataSource.transaction).not.toHaveBeenCalled();
+    expect(messaging.documentsRequested).not.toHaveBeenCalled();
   });
 
   it('only accepts active catalog entries of the caller tenant (no free text)', async () => {
     const { service, repo, typeRepo } = setup();
     typeRepo.find.mockResolvedValue([RG]); // the other id is inactive or from another tenant
     await expect(
-      service.requestDocuments('p1', ['ty-rg', 'ty-foreign'], caller('analista')),
+      service.requestDocuments(
+        'p1',
+        ['ty-rg', 'ty-foreign'],
+        caller('analista'),
+      ),
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(typeRepo.find).toHaveBeenCalledWith({
       where: { id: expect.anything(), tenantId: 't1', active: true },
@@ -277,6 +304,40 @@ describe('DocumentsService.update (authorization)', () => {
       'document_validated',
       JSON.stringify({ docId: 'd1', label: 'Holerite (mês 1)' }),
     ]);
+  });
+
+  it('a rejected document queues an e-mail to its client with the analista note', async () => {
+    const { service, repo, manager, messaging } = makeService();
+    repo.findOne.mockResolvedValueOnce({
+      id: 'd1',
+      tenantId: 't1',
+      processId: null, // personal doc: no audit entry, but the client is still told
+      userId: 'cl1',
+      label: 'RG',
+    });
+    await service.update(
+      'd1',
+      { status: 'rejeitado', notes: 'Foto ilegível' },
+      caller('analista'),
+    );
+    expect(messaging.documentRejected).toHaveBeenCalledWith(manager, {
+      tenantId: 't1',
+      processId: null,
+      clientId: 'cl1',
+      label: 'RG',
+      notes: 'Foto ilegível',
+    });
+
+    messaging.documentRejected.mockClear();
+    repo.findOne.mockResolvedValueOnce({
+      id: 'd2',
+      tenantId: 't1',
+      processId: null,
+      userId: 'cl1',
+      label: 'RG',
+    });
+    await service.update('d2', { status: 'validado' }, caller('analista'));
+    expect(messaging.documentRejected).not.toHaveBeenCalled();
   });
 
   it('FE-22: rejection is logged too; personal docs and notes-only edits are not', async () => {

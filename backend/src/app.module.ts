@@ -14,6 +14,7 @@ import { ProcessParticipant } from './participants/participant.entity';
 import { DocumentsModule } from './documents/documents.module';
 import { EmailModule } from './email/email.module';
 import { EmpreendimentosModule } from './empreendimentos/empreendimentos.module';
+import { MessagingModule } from './messaging/messaging.module';
 import { HealthModule } from './health/health.module';
 import { MeModule } from './me/me.module';
 import { ProcessesModule } from './processes/processes.module';
@@ -39,6 +40,7 @@ import { AddDocumentTypes1718500500000 } from './database/migrations/17185005000
 import { AddEmpreendimentoTeam1718500600000 } from './database/migrations/1718500600000-AddEmpreendimentoTeam';
 import { AddNotificationReads1718500700000 } from './database/migrations/1718500700000-AddNotificationReads';
 import { AddDocumentForms1718500800000 } from './database/migrations/1718500800000-AddDocumentForms';
+import { AddMessageOutbox1718500900000 } from './database/migrations/1718500900000-AddMessageOutbox';
 
 @Module({
   imports: [
@@ -79,6 +81,7 @@ import { AddDocumentForms1718500800000 } from './database/migrations/17185008000
           AddEmpreendimentoTeam1718500600000,
           AddNotificationReads1718500700000,
           AddDocumentForms1718500800000,
+          AddMessageOutbox1718500900000,
         ],
         migrationsRun: true,
         synchronize: false,
@@ -103,6 +106,7 @@ import { AddDocumentForms1718500800000 } from './database/migrations/17185008000
     ParticipantsModule,
     DocumentsModule,
     EmailModule,
+    MessagingModule,
     EmpreendimentosModule,
     HealthModule,
     MeModule,

@@ -40,11 +40,35 @@ describe('EmailService', () => {
     expect(sendMail).toHaveBeenCalledWith(expect.objectContaining({ to: 'a@b.com', subject: 'Assunto' }));
   });
 
-  it('sendStageChange never throws even if the transport rejects', () => {
-    const sendMail = jest.fn().mockRejectedValue(new Error('smtp down'));
+  it('BE-09_v2: sendOrThrow sends the plain-text part and lets failures surface', async () => {
+    const sendMail = jest
+      .fn()
+      .mockResolvedValueOnce({})
+      .mockRejectedValueOnce(new Error('smtp down'));
     (nodemailer.createTransport as jest.Mock).mockReturnValue({ sendMail });
     const service = new EmailService(config(SMTP));
-    expect(() => service.sendStageChange('a@b.com', 'Ana', 'cadastro', 'analise_credito')).not.toThrow();
+    expect(service.isConfigured).toBe(true);
+    await service.sendOrThrow('a@b.com', 'Assunto', '<p>oi</p>', 'oi');
+    expect(sendMail).toHaveBeenCalledWith(
+      expect.objectContaining({ to: 'a@b.com', html: '<p>oi</p>', text: 'oi' }),
+    );
+    // the outbox worker needs the error to schedule a retry
+    await expect(
+      service.sendOrThrow('a@b.com', 's', '<p>h</p>'),
+    ).rejects.toThrow('smtp down');
+  });
+
+  it('BE-09_v2: the SMTP connection has timeouts shorter than the outbox lease', () => {
+    (nodemailer.createTransport as jest.Mock).mockReturnValue({
+      sendMail: jest.fn(),
+    });
+    new EmailService(config(SMTP));
+    expect(nodemailer.createTransport).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        connectionTimeout: 20_000,
+        socketTimeout: 60_000,
+      }),
+    );
   });
 
   it('BE-08: the reset e-mail carries the recovery link', async () => {
@@ -67,23 +91,14 @@ describe('EmailService', () => {
     expect(mail.html).toContain('Olá, <strong>Ana</strong>');
   });
 
-  it('BE-08: text typed by users cannot inject markup into the e-mails', async () => {
+  it('BE-08: the name typed by a user cannot inject markup into the invite', async () => {
     const sendMail = jest.fn().mockResolvedValue({});
     (nodemailer.createTransport as jest.Mock).mockReturnValue({ sendMail });
     const service = new EmailService(config(SMTP));
-    service.sendDocumentRejected(
-      'c@b.com',
-      'Ana <b>',
-      'RG "frente"',
-      '<a href="https://golpe.example">clique aqui</a>',
-    );
+    service.sendInvite('c@b.com', 'Ana <b>', 'https://app/convite');
     await new Promise((r) => setImmediate(r));
     const [[{ html }]] = sendMail.mock.calls as [[{ html: string }]];
-    expect(html).not.toContain('<a href="https://golpe.example">');
-    expect(html).toContain(
-      '&lt;a href=&quot;https://golpe.example&quot;&gt;clique aqui&lt;/a&gt;',
-    );
     expect(html).toContain('Ana &lt;b&gt;');
-    expect(html).toContain('RG &quot;frente&quot;');
+    expect(html).not.toContain('Ana <b>');
   });
 });

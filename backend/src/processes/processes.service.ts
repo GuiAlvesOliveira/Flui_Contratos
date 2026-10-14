@@ -8,11 +8,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { RequestUserFull } from '../auth/supabase.guard';
-import { EmailService } from '../email/email.service';
-import {
-  stageEventType,
-  WebhookService,
-} from '../common/services/webhook.service';
+import { MessagingService } from '../messaging/messaging.service';
 import { User } from '../users/user.entity';
 import { AdvanceStageDto } from './dto/advance-stage.dto';
 import { CreateProcessDto } from './dto/create-process.dto';
@@ -40,8 +36,7 @@ export class ProcessesService {
     @InjectRepository(Process) private readonly repo: Repository<Process>,
     @InjectRepository(User) private readonly userRepo: Repository<User>,
     private readonly dataSource: DataSource,
-    private readonly webhook: WebhookService,
-    private readonly email: EmailService,
+    private readonly messaging: MessagingService,
   ) {}
 
   async create(dto: CreateProcessDto, caller: RequestUserFull) {
@@ -278,68 +273,19 @@ export class ProcessesService {
          VALUES ($1, $2, $3, 'stage_change', $4, $5)`,
         [caller.tenantId, id, caller.userId, fromStage, dto.toStage],
       );
+      // RN-08_v2: the client (and, on a pendência, the analista) is notified
+      // through the outbox, in the same transaction as the move.
+      await this.messaging.stageChanged(manager, {
+        tenantId: caller.tenantId!,
+        processId: id,
+        clientId: process.clientId,
+        analistaId: process.analistaId,
+        fromStage,
+        toStage: dto.toStage,
+      });
     });
-
-    const client = await this.notifyStageChange(process, {
-      tenantId: caller.tenantId!,
-      fromStage,
-      toStage: dto.toStage,
-      actorId: caller.userId,
-    });
-    if (client?.email && client?.name) {
-      this.email.sendStageChange(client.email, client.name, fromStage, dto.toStage);
-    }
 
     return { id, fromStage, toStage: dto.toStage };
-  }
-
-  // RN-08: every stage change goes to n8n — a move here or an undo in the Log
-  // de Ações (`undo: true`). Returns the client, loaded for the payload.
-  async notifyStageChange(
-    process: Pick<Process, 'id' | 'clientId' | 'analistaId'>,
-    change: {
-      tenantId: string;
-      fromStage: ProcessStage;
-      toStage: ProcessStage;
-      actorId: string;
-      undo?: boolean;
-    },
-  ): Promise<User | null> {
-    const client = await this.userRepo.findOne({ where: { id: process.clientId } });
-    // BE-15: event_type of the n8n point; a pendência alerts the client AND the
-    // analista at the same time (RN-10, "disparo duplo").
-    const eventType = stageEventType(change.toStage);
-    const dual = eventType === 'pending_alert';
-    const analista =
-      dual && process.analistaId
-        ? await this.userRepo.findOne({ where: { id: process.analistaId } })
-        : null;
-    this.webhook.fireEvent(
-      'stage-change',
-      eventType,
-      { processId: process.id, tenantId: change.tenantId },
-      {
-        processId: process.id,
-        tenantId: change.tenantId,
-        fromStage: change.fromStage,
-        toStage: change.toStage,
-        actorId: change.actorId,
-        ...(change.undo ? { undo: true } : {}),
-        clientId: process.clientId,
-        clientName: client?.name ?? null,
-        clientEmail: client?.email ?? null,
-        clientPhone: client?.telefone ?? null,
-        recipients: dual ? ['cliente', 'analista'] : ['cliente'],
-        ...(dual
-          ? {
-              analistaName: analista?.name ?? null,
-              analistaEmail: analista?.email ?? null,
-              analistaPhone: analista?.telefone ?? null,
-            }
-          : {}),
-      },
-    );
-    return client;
   }
 
   async deactivate(id: string, caller: RequestUserFull) {

@@ -33,7 +33,6 @@ function makeService() {
     {} as never,
     dataSource as unknown as DataSource,
     {} as never,
-    { fireEvent: jest.fn() } as never,
   );
   return { service, repo, processRepo, dataSource };
 }

@@ -9,12 +9,12 @@ function makeService() {
     query: jest.fn(),
     transaction: jest.fn().mockImplementation((cb: (m: unknown) => unknown) => cb(manager)),
   };
-  const processes = { notifyStageChange: jest.fn().mockResolvedValue(null) };
+  const messaging = { stageChanged: jest.fn().mockResolvedValue(1) };
   const service = new AuditService(
     dataSource as unknown as DataSource,
-    processes as never,
+    messaging as never,
   );
-  return { service, dataSource, manager, processes };
+  return { service, dataSource, manager, messaging };
 }
 
 const caller = { tenantId: 't1', userId: 'u1', role: 'dono' } as RequestUserFull;
@@ -39,18 +39,18 @@ describe('AuditService.undo (RN-07 reversible audit trail)', () => {
   });
 
   it('refuses to revert a stage_change if the process moved on since (stale undo)', async () => {
-    const { service, dataSource, processes } = makeService();
+    const { service, dataSource, messaging } = makeService();
     dataSource.query
       .mockResolvedValueOnce([
         { action: 'stage_change', process_id: 'p1', from_state: 'cadastro', to_state: 'analise_credito' },
       ])
       .mockResolvedValueOnce([{ stage: 'credito_aprovado' }]); // moved past the logged state
     await expect(service.undo('log1', caller)).rejects.toBeInstanceOf(BadRequestException);
-    expect(processes.notifyStageChange).not.toHaveBeenCalled();
+    expect(messaging.stageChanged).not.toHaveBeenCalled();
   });
 
-  it('RN-08: undoing a stage change notifies n8n, flagged as undo', async () => {
-    const { service, dataSource, manager, processes } = makeService();
+  it('RN-08_v2: undoing a stage change queues a message flagged as undo, in the same transaction', async () => {
+    const { service, dataSource, manager, messaging } = makeService();
     dataSource.query
       .mockResolvedValueOnce([
         { action: 'stage_change', process_id: 'p1', from_state: 'cadastro', to_state: 'analise_credito' },
@@ -59,29 +59,28 @@ describe('AuditService.undo (RN-07 reversible audit trail)', () => {
         { stage: 'analise_credito', client_id: 'c1', analista_id: 'a1' },
       ]);
     await service.undo('log1', caller);
-    expect(processes.notifyStageChange).toHaveBeenCalledWith(
-      { id: 'p1', clientId: 'c1', analistaId: 'a1' },
-      {
-        tenantId: 't1',
-        fromStage: 'analise_credito',
-        toStage: 'cadastro',
-        actorId: 'u1',
-        undo: true,
-      },
-    );
-    // only after the change is saved
-    expect(manager.query.mock.invocationCallOrder[0]).toBeLessThan(
-      processes.notifyStageChange.mock.invocationCallOrder[0],
+    expect(messaging.stageChanged).toHaveBeenCalledWith(manager, {
+      tenantId: 't1',
+      processId: 'p1',
+      clientId: 'c1',
+      analistaId: 'a1',
+      fromStage: 'analise_credito',
+      toStage: 'cadastro',
+      undo: true,
+    });
+    // after the stage is reverted and the undo is logged
+    expect(manager.query.mock.invocationCallOrder[1]).toBeLessThan(
+      messaging.stageChanged.mock.invocationCallOrder[0],
     );
   });
 
-  it('reactivating a process is not a stage change: no stage webhook', async () => {
-    const { service, dataSource, processes } = makeService();
+  it('reactivating a process is not a stage change: no stage message', async () => {
+    const { service, dataSource, messaging } = makeService();
     dataSource.query
       .mockResolvedValueOnce([{ action: 'process_deactivated', process_id: 'p1' }])
       .mockResolvedValueOnce([{ active: false }]);
     await service.undo('log1', caller);
-    expect(processes.notifyStageChange).not.toHaveBeenCalled();
+    expect(messaging.stageChanged).not.toHaveBeenCalled();
   });
 
   it('reactivates a process when undoing a process_deactivated entry', async () => {

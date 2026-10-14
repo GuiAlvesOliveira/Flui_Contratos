@@ -10,8 +10,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, IsNull, Repository } from 'typeorm';
 import { RequestUserFull } from '../auth/supabase.guard';
 import { AzureStorageService } from '../common/services/azure-storage.service';
-import { WebhookService } from '../common/services/webhook.service';
-import { EmailService } from '../email/email.service';
+import { MessagingService } from '../messaging/messaging.service';
 import { Process } from '../processes/process.entity';
 import { User } from '../users/user.entity';
 import { Document } from './document.entity';
@@ -48,8 +47,7 @@ export class DocumentsService {
     @InjectRepository(User) private readonly userRepo: Repository<User>,
     private readonly azureStorage: AzureStorageService,
     private readonly dataSource: DataSource,
-    private readonly email: EmailService,
-    private readonly webhook: WebhookService,
+    private readonly messaging: MessagingService,
   ) {}
 
   async getForProcess(processId: string, caller: RequestUserFull) {
@@ -120,34 +118,21 @@ export class DocumentsService {
     );
 
     if (created.length > 0) {
-      await this.dataSource.query(
-        `INSERT INTO audit_logs (tenant_id, process_id, actor_id, action, metadata)
-         VALUES ($1, $2, $3, 'documents_requested', $4::jsonb)`,
-        [
+      const labels = created.map((d) => d.label ?? d.name);
+      await this.dataSource.transaction(async (manager) => {
+        await manager.query(
+          `INSERT INTO audit_logs (tenant_id, process_id, actor_id, action, metadata)
+           VALUES ($1, $2, $3, 'documents_requested', $4::jsonb)`,
+          [tenantId, processId, caller.userId, JSON.stringify({ labels })],
+        );
+        // BE-15_v2: the client is asked for the documents (point 1 of the flow)
+        await this.messaging.documentsRequested(manager, {
           tenantId,
           processId,
-          caller.userId,
-          JSON.stringify({ labels: created.map((d) => d.label) }),
-        ],
-      );
-      // BE-15: n8n asks the client for the documents (point 1 of the flow)
-      const client = await this.userRepo.findOne({
-        where: { id: process.clientId },
-      });
-      this.webhook.fireEvent(
-        'documents-requested',
-        'documents_requested',
-        { processId, tenantId },
-        {
-          labels: created.map((d) => d.label),
-          actorId: caller.userId,
           clientId: process.clientId,
-          clientName: client?.name ?? null,
-          clientEmail: client?.email ?? null,
-          clientPhone: client?.telefone ?? null,
-          recipients: ['cliente'],
-        },
-      );
+          labels,
+        });
+      });
     }
 
     return {
@@ -247,22 +232,24 @@ export class DocumentsService {
       }
       if (dto.status === 'rejeitado') {
         doc.validated = false;
-        if (doc.userId) {
-          this.userRepo.findOne({ where: { id: doc.userId } }).then(client => {
-            if (client) {
-              this.email.sendDocumentRejected(
-                client.email,
-                client.name ?? client.email,
-                doc.label ?? doc.name,
-                dto.notes ?? doc.notes,
-              );
-            }
-          }).catch(() => {/* email failure must not block the response */});
-        }
       }
     }
 
     const saved = await this.repo.save(doc);
+
+    // The client is told which document to send again, and why.
+    if (isAnalista && dto.status === 'rejeitado' && doc.userId) {
+      const clientId = doc.userId;
+      await this.dataSource.transaction((manager) =>
+        this.messaging.documentRejected(manager, {
+          tenantId: caller.tenantId!,
+          processId: doc.processId,
+          clientId,
+          label: doc.label ?? doc.name,
+          notes: dto.notes ?? doc.notes,
+        }),
+      );
+    }
 
     // FE-22: validation and rejection show up in the process activity timeline
     // (RN-07). Personal docs have no process of their own, so they are skipped.

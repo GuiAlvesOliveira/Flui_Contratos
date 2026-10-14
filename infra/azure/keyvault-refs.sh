@@ -33,17 +33,16 @@ for a in "$@"; do
 done
 
 # App setting -> Key Vault secret name. SMTP_USER first (canary: e-mail only).
-SETTINGS=(SMTP_USER SMTP_PASS SUPABASE_SERVICE_ROLE_KEY AZURE_STORAGE_CONNECTION_STRING DATABASE_PASSWORD WEBHOOK_SECRET)
+SETTINGS=(SMTP_USER SMTP_PASS SUPABASE_SERVICE_ROLE_KEY AZURE_STORAGE_CONNECTION_STRING DATABASE_PASSWORD)
 declare -A SECRET_NAME=(
   [SMTP_USER]="smtp-username"
   [SMTP_PASS]="smtp-password"
   [SUPABASE_SERVICE_ROLE_KEY]="supabase-service-role-key"
   [AZURE_STORAGE_CONNECTION_STRING]="azure-storage-connection-string"
   [DATABASE_PASSWORD]="database-password"
-  [WEBHOOK_SECRET]="webhook-secret"
 )
 # Present in production but no longer read by the API (and they hold secrets)
-UNUSED=(SUPABASE_JWT_SECRET DATABASE_URL)
+UNUSED=(SUPABASE_JWT_SECRET DATABASE_URL N8N_WEBHOOK_BASE_URL)
 
 log() { printf '\n▶ %s\n' "$*"; }
 ref() { printf '@Microsoft.KeyVault(VaultName=%s;SecretName=%s)' "$VAULT" "$1"; }

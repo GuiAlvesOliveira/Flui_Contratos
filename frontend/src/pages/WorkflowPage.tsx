@@ -233,7 +233,7 @@ function AdvanceDrawer({ process, onClose }: AdvanceDrawerProps) {
               color: 'var(--text-muted)',
             }}>
               <Icon.Info size={13} style={{ flexShrink: 0, marginTop: 1 }} />
-              A mudança de etapa é registrada no log de auditoria e o cliente será notificado automaticamente via N8N.
+              A mudança de etapa é registrada no log de auditoria e o cliente é avisado por e-mail automaticamente.
             </div>
 
             {error && (
