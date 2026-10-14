@@ -1,6 +1,8 @@
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../api/axiosInstance';
 import * as Icon from './icons';
+import { SlaCard } from './SlaCard';
+import { StageTimeCard } from '../pages/DashboardPage';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -90,9 +92,10 @@ function PhaseRow({ stage, count, total }: { stage: ProcessStage; count: number;
 interface Props {
   analistaName: string | null;
   onNavigate: (page: string) => void;
+  onOpenProcess: (id: string) => void;
 }
 
-export function AnalistaDashboard({ analistaName, onNavigate }: Props) {
+export function AnalistaDashboard({ analistaName, onNavigate, onOpenProcess }: Props) {
   const { data: processes = [], isLoading } = useQuery<ProcessCard[]>({
     queryKey: ['processes'],
     queryFn: () => api.get<ProcessCard[]>('/processes').then(r => r.data),
@@ -109,10 +112,6 @@ export function AnalistaDashboard({ analistaName, onNavigate }: Props) {
 
   const activeProcesses = processes.filter(p => MAIN_STAGES.includes(p.stage) && p.stage !== 'inicial');
   const pendentes = byStage('processo_pendencia');
-  const lateProcesses = activeProcesses
-    .filter(p => daysSince(p.updatedAt) >= 7)
-    .sort((a, b) => daysSince(b.updatedAt) - daysSince(a.updatedAt))
-    .slice(0, 5);
 
   const recentUpdates = [...processes]
     .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
@@ -215,34 +214,9 @@ export function AnalistaDashboard({ analistaName, onNavigate }: Props) {
           </div>
         </div>
 
-        {/* Processos sem atualização */}
+        {/* PROD-10: prazo de atendimento — parados há mais de 7 dias na mesma etapa */}
         <div className="ds-col-8">
-          <div className="ds-card">
-            <div className="ds-card-hdr">
-              <h3>Meus processos sem atualização recente</h3>
-              <span className="meta">≥ 7 dias</span>
-            </div>
-            {lateProcesses.length > 0 ? (
-              <div style={{ padding: 0 }}>
-                {lateProcesses.map(p => (
-                  <div key={p.id} className="ds-proc-row">
-                    <div>
-                      <div className="pr-title">{p.client.name ?? p.client.email}</div>
-                      <div className="pr-sub">{STAGE_LABELS[p.stage]}</div>
-                    </div>
-                    <div className="pr-stage">{STAGE_LABELS[p.stage]}</div>
-                    <div className="pr-days" style={{ color: daysSince(p.updatedAt) > 14 ? 'var(--red)' : 'var(--amber)' }}>
-                      {daysSince(p.updatedAt)}d
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div style={{ padding: '20px 14px', textAlign: 'center', color: 'var(--text-faint)', fontSize: 13 }}>
-                {isLoading ? 'Carregando...' : 'Todos os processos estão atualizados'}
-              </div>
-            )}
-          </div>
+          <SlaCard onOpenProcess={onOpenProcess} />
         </div>
 
         {/* Ação rápida */}
@@ -283,6 +257,11 @@ export function AnalistaDashboard({ analistaName, onNavigate }: Props) {
               </div>
             </div>
           </div>
+        </div>
+
+        {/* PROD-10: tempo médio dos meus processos em cada etapa */}
+        <div className="ds-col-12">
+          <StageTimeCard />
         </div>
 
         {/* Atualizações recentes */}

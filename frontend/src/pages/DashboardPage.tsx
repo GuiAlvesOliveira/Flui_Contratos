@@ -172,14 +172,16 @@ function fmtDays(n: number) {
 // Quanto tempo, em média, os processos ficaram em cada etapa antes de sair dela
 // no período, e o movimento do período. Vem de GET /dashboard/summary, que
 // calcula pelo histórico de mudanças de etapa (log de auditoria).
-function StageTimeCard() {
+export function StageTimeCard() {
   const [days, setDays] = useState(30);
   const { data: summary, isLoading, isError } = useQuery<DashboardSummary>({
     queryKey: ['dashboard-summary', days],
     queryFn: () => api.get<DashboardSummary>('/dashboard/summary', { params: { days } }).then(r => r.data),
     staleTime: 5 * 60_000, // a API guarda o resumo por 5 minutos
   });
-  const rows = (summary?.avgDaysInStage ?? []).filter(r => !SIDE_STAGES.includes(r.stage) || r.samples > 0);
+  // Resposta fora do formato vira erro na tela, em vez de derrubar o painel inteiro
+  const invalid = !!summary && (!summary.period || !Array.isArray(summary.avgDaysInStage));
+  const rows = (invalid ? [] : summary?.avgDaysInStage ?? []).filter(r => !SIDE_STAGES.includes(r.stage) || r.samples > 0);
   const max = Math.max(1, ...rows.map(r => r.avgDays ?? 0));
 
   return (
@@ -199,7 +201,7 @@ function StageTimeCard() {
           ))}
         </div>
       </div>
-      {isError ? (
+      {isError || invalid ? (
         <div style={{ padding: 20, textAlign: 'center', color: 'var(--red)', fontSize: 13 }}>
           Não foi possível carregar os indicadores do período
         </div>
@@ -241,6 +243,87 @@ function StageTimeCard() {
             </div>
           ))}
         </>
+      )}
+    </div>
+  );
+}
+
+// ── Prazo por analista (PROD-10) ─────────────────────────────────────────────
+
+interface AnalistaSla {
+  analistaId: string | null;
+  name: string;
+  activeProcesses: number;
+  docsToValidate: number;
+  avgDaysCredito: number | null;
+  avgDaysJuridico: number | null;
+  overdue: number;
+}
+
+// Para o gestor: processos ativos, documentos para validar, tempo médio em
+// Análise de Crédito e Análise Jurídica no período e quantos processos de cada
+// analista estão fora do prazo. GET /dashboard/analistas é só do gestor.
+function EquipeSlaCard() {
+  const [days, setDays] = useState(30);
+  const { data, isLoading, isError } = useQuery<{ days: number; slaDays: number; analistas: AnalistaSla[] }>({
+    queryKey: ['dashboard-analistas', days],
+    queryFn: () => api.get('/dashboard/analistas', { params: { days } }).then(r => r.data),
+    staleTime: 60_000,
+  });
+  const dias = (n: number | null) => (n === null ? '—' : fmtDays(n));
+
+  return (
+    <div className="ds-card">
+      <div className="ds-card-hdr">
+        <h3>Prazo por analista</h3>
+        <div className="ds-seg" role="group" aria-label="Período da equipe">
+          {PERIOD_OPTIONS.map(d => (
+            <button key={d} className={`ds-seg-btn ${days === d ? 'active' : ''}`} aria-pressed={days === d} onClick={() => setDays(d)}>
+              {d} dias
+            </button>
+          ))}
+        </div>
+      </div>
+      {isError || (!!data && !Array.isArray(data.analistas)) ? (
+        <div style={{ padding: 20, textAlign: 'center', color: 'var(--red)', fontSize: 13 }}>Não foi possível carregar a equipe</div>
+      ) : isLoading || !data ? (
+        <div style={{ padding: 20, textAlign: 'center', color: 'var(--text-faint)', fontSize: 13 }}>Carregando...</div>
+      ) : data.analistas.length === 0 ? (
+        <div style={{ padding: 20, textAlign: 'center', color: 'var(--text-faint)', fontSize: 13 }}>Nenhum analista na assessoria</div>
+      ) : (
+        <div style={{ overflowX: 'auto' }}>
+          <table className="ds-table" aria-label="Prazo por analista">
+            <thead>
+              <tr>
+                <th>Analista</th>
+                <th style={{ textAlign: 'right' }}>Processos ativos</th>
+                <th style={{ textAlign: 'right' }}>Docs para validar</th>
+                <th style={{ textAlign: 'right' }}>Análise de Crédito</th>
+                <th style={{ textAlign: 'right' }}>Análise Jurídica</th>
+                <th style={{ textAlign: 'right' }}>Fora do prazo</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.analistas.map(a => (
+                <tr key={a.analistaId ?? 'sem-analista'}>
+                  <td style={{ fontWeight: 500, color: a.analistaId ? undefined : 'var(--text-muted)' }}>{a.name}</td>
+                  <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{a.activeProcesses}</td>
+                  <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{a.docsToValidate}</td>
+                  <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{dias(a.avgDaysCredito)}</td>
+                  <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{dias(a.avgDaysJuridico)}</td>
+                  <td style={{ textAlign: 'right' }}>
+                    {a.overdue > 0
+                      ? <span className="ds-badge amber"><span className="dot" />{a.overdue}</span>
+                      : <span style={{ color: 'var(--text-faint)' }}>0</span>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div style={{ padding: '8px 14px', fontSize: 11.5, color: 'var(--text-faint)' }}>
+            Tempo médio em cada análise nos últimos {data.days} dias. Fora do prazo: mais de {data.slaDays} dias na mesma etapa (Assinatura, Inativo e Crédito Recusado não contam).
+          </div>
+        </div>
       )}
     </div>
   );
@@ -490,6 +573,11 @@ export function DashboardPage({ onNavigate }: DashboardPageProps) {
         {/* Tempo médio por etapa e movimento do período (BE-14) */}
         <div className="ds-col-12">
           <StageTimeCard />
+        </div>
+
+        {/* PROD-10: prazo de atendimento por analista */}
+        <div className="ds-col-12">
+          <EquipeSlaCard />
         </div>
 
         {/* Processos atrasados */}

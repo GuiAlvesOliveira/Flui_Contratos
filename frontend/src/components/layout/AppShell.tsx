@@ -123,6 +123,7 @@ function breadcrumb(route: Route, isCliente: boolean): Crumb[] {
     }
     if (back?.page === 'proponentes') return [{ label: 'Proponentes', to: back }, { label: 'Detalhe' }];
     if (back?.page === 'logs') return [{ label: 'Log de Ações', to: back }, { label: 'Processo' }];
+    if (back?.page === 'dashboard') return [{ label: 'Dashboard', to: back }, { label: 'Processo' }];
     return [{ label: 'Workflow', to: { page: 'workflow' } }, { label: 'Processo' }];
   }
   if (route.page in PAGE_LABELS) return [{ label: PAGE_LABELS[route.page as NavPage] }];
@@ -134,6 +135,7 @@ function activeNavPage(route: Route): NavPage {
   if (route.page === 'proponente-detail') {
     const origin = route.back?.page;
     if (origin === 'logs') return 'logs';
+    if (origin === 'dashboard') return 'dashboard';
     if (origin === 'empreendimento-detail') return 'empreendimentos';
     return 'proponentes';
   }
@@ -397,6 +399,7 @@ export function AppShell() {
             <AnalistaDashboard
               analistaName={name}
               onNavigate={(p) => navigate({ page: p as NavPage })}
+              onOpenProcess={(id) => navigate({ page: 'proponente-detail', id, back: { page: 'dashboard' } })}
             />
           )}
           {view.page === 'dashboard' && role !== 'analista' && (

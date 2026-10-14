@@ -167,13 +167,14 @@ describe('DashboardService (BE-14)', () => {
       const { service, dataSource } = make();
       const first = await service.summary(dono, '30');
       await service.summary(dono);
-      expect(dataSource.query).toHaveBeenCalledTimes(2); // same key: cached
+      // 3 queries per summary (snapshot, history, SLA — PROD-10); same key: cached
+      expect(dataSource.query).toHaveBeenCalledTimes(3);
       await service.summary(dono, '7');
       await service.summary(analista, '30');
-      expect(dataSource.query).toHaveBeenCalledTimes(6);
+      expect(dataSource.query).toHaveBeenCalledTimes(9);
       jest.setSystemTime(NOW.getTime() + SUMMARY_TTL_MS);
       const again = await service.summary(dono, '30');
-      expect(dataSource.query).toHaveBeenCalledTimes(8);
+      expect(dataSource.query).toHaveBeenCalledTimes(12);
       expect(again).not.toBe(first);
     } finally {
       jest.useRealTimers();
