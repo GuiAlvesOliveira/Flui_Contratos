@@ -131,12 +131,12 @@ describe('Histórico de Atividades (e2e)', () => {
       .expect(201);
   });
 
-  it('only the analista profile edits (the service checks the author)', async () => {
+  it('analista and gestor edit, the client never (the service checks author and window)', async () => {
     await http()
       .patch(`${url}/${A}`)
       .set('x-as', 'dono')
       .send({ description: 'Novo texto' })
-      .expect(403);
+      .expect(200);
     await http()
       .patch(`${url}/${A}`)
       .set('x-as', 'cliente')
@@ -147,6 +147,8 @@ describe('Histórico de Atividades (e2e)', () => {
       .set('x-as', 'analista')
       .send({ description: 'Novo texto' })
       .expect(200);
+    expect(service.update).toHaveBeenCalledTimes(2);
+    expect(service.update).toHaveBeenCalledWith(P, A, 'Novo texto', users.dono);
     expect(service.update).toHaveBeenCalledWith(
       P,
       A,

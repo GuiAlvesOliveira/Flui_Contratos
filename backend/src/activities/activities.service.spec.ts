@@ -220,12 +220,12 @@ describe('ActivitiesService.list', () => {
     });
   });
 
-  it('the gestor reads everything and may remove any entry, but never edits nor creates', async () => {
+  it('the gestor reads everything and may edit or remove any entry (general power), but does not create', async () => {
     const { service } = makeService({ activities: rows });
     const res = await service.list('p1', gestor);
     expect(res.canCreate).toBe(false);
     for (const a of res.activities as StaffActivityView[]) {
-      expect(a).toMatchObject({ canEdit: false, canDelete: true });
+      expect(a).toMatchObject({ canEdit: true, canDelete: true });
     }
   });
 
@@ -248,10 +248,14 @@ describe('ActivitiesService.update', () => {
     );
     const [[upd, updParams], [audit, auditParams]] = manager.query.mock
       .calls as [string, unknown[]][];
-    expect(upd).toContain('SET description = $1, edited_at = now()');
+    expect(upd).toContain(
+      'SET description = $1, edited_at = now(), edited_by = $2',
+    );
     expect(upd).not.toContain('stage'); // stage, date and author never change
+    expect(upd).not.toContain('author_id');
     expect(updParams).toEqual([
       'Liguei e cobrei o holerite de setembro',
+      'an1',
       'a1',
       TENANT,
     ]);
@@ -273,11 +277,33 @@ describe('ActivitiesService.update', () => {
     expect(manager.query).not.toHaveBeenCalled();
   });
 
-  it('nobody but the author edits', async () => {
+  it('nobody but the author (or the gestor) edits', async () => {
     const { service } = makeService();
     await expect(
       service.update('p1', 'a1', 'Texto novo', outroAnalista),
     ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('the gestor edits any entry at any time; he is recorded as the editor, the author stays', async () => {
+    const old = [activity({ created_at: new Date(Date.now() - 300 * HOUR) })];
+    const { service, manager } = makeService({ activities: old });
+    await service.update('p1', 'a1', 'Texto corrigido pelo gestor', gestor);
+    const [[, updParams], [, auditParams]] = manager.query.mock.calls as [
+      string,
+      unknown[],
+    ][];
+    expect(updParams).toEqual([
+      'Texto corrigido pelo gestor',
+      'g1',
+      'a1',
+      TENANT,
+    ]);
+    expect(auditParams[2]).toBe('g1'); // actor of the audit entry
+    expect(JSON.parse(auditParams[4] as string)).toMatchObject({
+      activityId: 'a1',
+      before: 'Liguei para o cliente cobrando o holerite',
+      authorId: 'an1',
+    });
   });
 
   it('a removed entry is not found', async () => {

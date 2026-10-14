@@ -10,8 +10,9 @@ import { RequestUserFull } from '../auth/supabase.guard';
 import type { ProcessStage } from '../processes/process.entity';
 
 // The author may fix (edit) or withdraw (delete) an entry for this long; after
-// that, a correction is a new entry. The gestor may remove an entry at any time,
-// with a reason (moderation of what the client reads).
+// that, a correction is a new entry. The gestor has general power: edits any
+// entry at any time and removes any entry with a reason (moderation of what
+// the client reads).
 export const ACTIVITY_EDIT_WINDOW_HOURS = 24;
 const EDIT_WINDOW_MS = ACTIVITY_EDIT_WINDOW_HOURS * 60 * 60 * 1000;
 
@@ -28,6 +29,8 @@ interface ActivityRow {
   description: string;
   created_at: Date;
   edited_at: Date | null;
+  edited_by: string | null;
+  edited_by_name: string | null;
   author_id: string;
   author_name: string | null;
 }
@@ -43,6 +46,7 @@ export interface ClientActivityView {
 /** What the assessoria's team reads, with what the caller may do. */
 export interface StaffActivityView extends ClientActivityView {
   editedAt: Date | null;
+  editedBy: { id: string; name: string | null } | null;
   author: { id: string; name: string | null };
   canEdit: boolean;
   canDelete: boolean;
@@ -55,9 +59,11 @@ export interface ActivityHistory {
 
 const SELECT_ACTIVITY = `
   SELECT a.id, a.stage, a.description, a.created_at, a.edited_at,
+         a.edited_by, e.name AS edited_by_name,
          a.author_id, u.name AS author_name
     FROM process_activities a
-    LEFT JOIN users u ON u.id = a.author_id`;
+    LEFT JOIN users u ON u.id = a.author_id
+    LEFT JOIN users e ON e.id = a.edited_by`;
 
 // Short text for the audit log rows (shown in the process timeline to staff).
 const excerpt = (text: string) =>
@@ -129,12 +135,13 @@ export class ActivitiesService {
   ): Promise<StaffActivityView> {
     await this.process(processId, caller);
     const activity = await this.activity(processId, id, caller);
-    if (activity.author_id !== caller.userId) {
+    if (caller.role === 'dono') {
+      // the gestor edits any entry, at any time
+    } else if (activity.author_id !== caller.userId) {
       throw new ForbiddenException(
-        'Só quem registrou a atividade pode editá-la',
+        'Só quem registrou a atividade (ou o gestor) pode editá-la',
       );
-    }
-    if (!withinWindow(activity)) {
+    } else if (!withinWindow(activity)) {
       throw new ForbiddenException(
         `O prazo de ${ACTIVITY_EDIT_WINDOW_HOURS} horas para editar esta atividade terminou. Registre uma nova atividade com a correção.`,
       );
@@ -144,15 +151,17 @@ export class ActivitiesService {
 
     await this.dataSource.transaction(async (manager) => {
       await manager.query(
-        `UPDATE process_activities SET description = $1, edited_at = now()
-          WHERE id = $2 AND tenant_id = $3 AND deleted_at IS NULL`,
-        [description, id, caller.tenantId],
+        `UPDATE process_activities
+            SET description = $1, edited_at = now(), edited_by = $2
+          WHERE id = $3 AND tenant_id = $4 AND deleted_at IS NULL`,
+        [description, caller.userId, id, caller.tenantId],
       );
       // RN-07: the previous text stays in the audit log
       await this.audit(manager, caller, processId, 'activity_edited', {
         activityId: id,
         label: excerpt(description),
         before: activity.description,
+        authorId: activity.author_id,
       });
     });
     return staffView(await this.activity(processId, id, caller), caller);
@@ -284,8 +293,9 @@ function staffView(r: ActivityRow, caller: RequestUserFull): StaffActivityView {
   return {
     ...clientView(r),
     editedAt: r.edited_at,
+    editedBy: r.edited_by ? { id: r.edited_by, name: r.edited_by_name } : null,
     author: { id: r.author_id, name: r.author_name },
-    canEdit: ownInWindow,
+    canEdit: ownInWindow || caller.role === 'dono',
     canDelete: ownInWindow || caller.role === 'dono',
   };
 }

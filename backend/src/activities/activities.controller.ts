@@ -19,8 +19,8 @@ import {
 } from './dto/activity.dto';
 
 // Histórico de Atividades of a process. The service applies the finer rules:
-// only the process's analista creates, only the author edits (24 h), the
-// author (24 h) or the gestor (with a reason) removes.
+// only the process's analista creates; the author (24 h) or the gestor (any
+// time) edits; the author (24 h) or the gestor (with a reason) removes.
 @Controller('processes/:processId/activities')
 export class ActivitiesController {
   constructor(private readonly service: ActivitiesService) {}
@@ -45,7 +45,7 @@ export class ActivitiesController {
   }
 
   @Patch(':id')
-  @Roles('analista')
+  @Roles('dono', 'analista')
   update(
     @Param('processId', ParseUUIDPipe) processId: string,
     @Param('id', ParseUUIDPipe) id: string,

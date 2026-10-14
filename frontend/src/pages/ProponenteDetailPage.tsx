@@ -1508,6 +1508,7 @@ interface ProcessActivity {
   description: string;
   // Só para a equipe da assessoria: o cliente recebe data/hora, etapa e descrição.
   editedAt?: string | null;
+  editedBy?: { id: string; name: string | null } | null;
   author?: { id: string; name: string | null };
   canEdit?: boolean;
   canDelete?: boolean;
@@ -1619,7 +1620,7 @@ function HistoricoAtividadesCard({ processId, role, currentStage, analistaName }
     : analistaName === undefined
       ? 'Este processo ainda não tem analista responsável. Atribua um analista para que as atividades possam ser registradas.'
       : `Somente o analista responsável${analistaName ? ` (${analistaName})` : ''} registra atividades neste processo.${
-        role === 'dono' ? ' Como gestor, você acompanha o histórico e pode excluir um registro indevido, informando o motivo.' : ''}`;
+        role === 'dono' ? ' Como gestor, você acompanha o histórico e pode editar ou excluir qualquer registro (a exclusão pede o motivo).' : ''}`;
 
   const visible = activities.slice(0, shown);
 
@@ -1713,7 +1714,7 @@ function HistoricoAtividadesCard({ processId, role, currentStage, analistaName }
                         {a.canEdit && (
                           <button
                             className="ds-btn ghost sm"
-                            title="Editar descrição (até 24 horas após o registro)"
+                            title={role === 'dono' ? 'Editar descrição' : 'Editar descrição (até 24 horas após o registro)'}
                             aria-label="Editar atividade"
                             onClick={() => setEditing({ id: a.id, text: a.description, error: '' })}
                           >
@@ -1764,7 +1765,10 @@ function HistoricoAtividadesCard({ processId, role, currentStage, analistaName }
                     <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 3 }}>
                       por {a.author.name ?? 'usuário removido'}
                       {a.editedAt && (
-                        <span title={`Editado em ${activityWhen(a.editedAt).full}`}> · editado</span>
+                        <span title={`Editado em ${activityWhen(a.editedAt).full}`}>
+                          {' · editado'}
+                          {a.editedBy && a.editedBy.id !== a.author.id && ` por ${a.editedBy.name ?? 'usuário removido'}`}
+                        </span>
                       )}
                     </div>
                   )}

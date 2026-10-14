@@ -43,6 +43,7 @@ import { AddNotificationReads1718500700000 } from './database/migrations/1718500
 import { AddDocumentForms1718500800000 } from './database/migrations/1718500800000-AddDocumentForms';
 import { AddMessageOutbox1718500900000 } from './database/migrations/1718500900000-AddMessageOutbox';
 import { AddProcessActivities1718501000000 } from './database/migrations/1718501000000-AddProcessActivities';
+import { AddActivityEditedBy1718501100000 } from './database/migrations/1718501100000-AddActivityEditedBy';
 
 @Module({
   imports: [
@@ -85,6 +86,7 @@ import { AddProcessActivities1718501000000 } from './database/migrations/1718501
           AddDocumentForms1718500800000,
           AddMessageOutbox1718500900000,
           AddProcessActivities1718501000000,
+          AddActivityEditedBy1718501100000,
         ],
         migrationsRun: true,
         synchronize: false,
