@@ -9,6 +9,7 @@ import { DashboardModule } from './dashboard/dashboard.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { SearchModule } from './search/search.module';
 import { TasksModule } from './tasks/tasks.module';
+import { ReportsModule } from './reports/reports.module';
 import { AuthModule } from './auth/auth.module';
 import { PasswordResetModule } from './auth/password-reset.module';
 import { ParticipantsModule } from './participants/participants.module';
@@ -117,6 +118,7 @@ import { AddTasks1718501500000 } from './database/migrations/1718501500000-AddTa
     NotificationsModule,
     SearchModule,
     TasksModule,
+    ReportsModule,
     AuthModule,
     PasswordResetModule,
     ParticipantsModule,

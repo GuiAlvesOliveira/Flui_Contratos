@@ -18,6 +18,7 @@ import { LogsPage } from '../../pages/LogsPage';
 import { ConfigPage } from '../../pages/ConfigPage';
 import { TarefasPage } from '../../pages/TarefasPage';
 import { CalendarioPage } from '../../pages/CalendarioPage';
+import { RelatoriosPage } from '../../pages/RelatoriosPage';
 import { DevApiMenu } from '../../pages/DevApiMenu';
 
 // ── Route state ────────────────────────────────────────────────────────────────
@@ -219,26 +220,6 @@ function ClientProcessListPage({
   );
 }
 
-// ── Coming soon ────────────────────────────────────────────────────────────────
-
-function ComingSoonPage({ label }: { label: string }) {
-  return (
-    <div className="ds-page">
-      <div className="ds-page-hdr">
-        <div>
-          <h1>{label}</h1>
-          <p>Esta área está em desenvolvimento.</p>
-        </div>
-      </div>
-      <div className="ds-card">
-        <div className="ds-card-body" style={{ padding: 60, textAlign: 'center', color: 'var(--text-faint)', background: 'repeating-linear-gradient(135deg, #fafafa 0 12px, #fff 12px 24px)', borderRadius: 'var(--radius)' }}>
-          <div style={{ fontSize: 12, fontFamily: 'var(--font-mono)' }}>[ tela em construção ]</div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ── Route persistence ──────────────────────────────────────────────────────────
 
 const ROUTE_KEY = 'flui_route';
@@ -315,7 +296,8 @@ export function AppShell() {
           <div className="ds-sb-section" key={idx}>
             {section.title && <div className="ds-sb-section-title">{section.title}</div>}
             <nav className="ds-sb-nav">
-              {section.items.map((item) => {
+              {/* PROD-03: Relatórios é só do gestor (a API também recusa com 403) */}
+              {section.items.filter((item) => item.id !== 'relatorios' || role === 'dono').map((item) => {
                 const IconComp = ICON_MAP[item.icon];
                 return (
                   <button
@@ -488,9 +470,7 @@ export function AppShell() {
               onOpenProcess={(id) => navigate({ page: 'proponente-detail', id, back: { page: 'calendario' } })}
             />
           )}
-          {view.page === 'relatorios' && (
-            <ComingSoonPage label={PAGE_LABELS[view.page]} />
-          )}
+          {view.page === 'relatorios' && <RelatoriosPage role={role} />}
         </div>
       </div>
 
