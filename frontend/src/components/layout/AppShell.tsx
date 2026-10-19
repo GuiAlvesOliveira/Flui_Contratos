@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '../../auth/useAuth';
 import { api } from '../../api/axiosInstance';
 import { STAGE_LABELS, type ProcessStage } from '../../lib/processStages';
+import { useTenant, useTenantLogo } from '../../lib/useTenant';
 import * as Icon from '../icons';
 import { NotificationsBell } from '../NotificationsBell';
 import { GlobalSearch } from '../GlobalSearch';
@@ -277,6 +278,9 @@ export function AppShell() {
 
   const active = activeNavPage(view);
   const crumbs = breadcrumb(view, isCliente);
+  // PROD-04: nome e logo da assessoria no menu lateral (e na topbar do cliente)
+  const { data: tenant } = useTenant();
+  const tenantLogo = useTenantLogo(tenant);
 
   return (
     <div className="ds-app">
@@ -292,9 +296,14 @@ export function AppShell() {
           <div className="ds-sb-logo"><span>F</span></div>
           <div>
             <div className="ds-sb-brand-name">Flui Contratos</div>
-            <div className="ds-sb-brand-sub">Assessoria Imobiliária</div>
+            <div className="ds-sb-brand-sub" title={tenant?.name}>{tenant?.name ?? 'Assessoria Imobiliária'}</div>
           </div>
         </div>
+        {tenantLogo && (
+          <div className="ds-sb-tenant">
+            <img src={tenantLogo} alt={`Logo de ${tenant?.name ?? 'sua assessoria'}`} />
+          </div>
+        )}
 
         {role !== 'cliente' && NAV_SECTIONS.map((section, idx) => (
           <div className="ds-sb-section" key={idx}>
@@ -360,6 +369,12 @@ export function AppShell() {
           >
             {navOpen ? <Icon.X size={16} /> : <Icon.Menu size={16} />}
           </button>
+          {isCliente && tenant && (
+            <div className="ds-tb-tenant" data-testid="tenant-topbar">
+              {tenantLogo && <img src={tenantLogo} alt={`Logo de ${tenant.name}`} />}
+              {!tenantLogo && <span>{tenant.name}</span>}
+            </div>
+          )}
           <div className="ds-crumb">
             <nav aria-label="Navegação" style={{ display: 'contents' }}>
               {crumbs.map((c, i) => (

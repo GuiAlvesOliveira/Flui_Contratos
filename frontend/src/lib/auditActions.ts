@@ -20,6 +20,12 @@ export const ACTION_LABELS: Record<string, string> = {
   // guarda as correções e exclusões (com o texto anterior e o motivo).
   activity_edited: 'Atividade editada',
   activity_deleted: 'Atividade excluída',
+  // PROD-04: dados da assessoria e acesso da equipe (Configurações)
+  tenant_updated: 'Nome da assessoria alterado',
+  tenant_logo_updated: 'Logo da assessoria alterado',
+  tenant_logo_removed: 'Logo da assessoria removido',
+  user_status_changed: 'Acesso de usuário alterado',
+  invite_resent: 'Convite reenviado',
 };
 
 export const actionLabel = (action: string) => ACTION_LABELS[action] ?? action;
@@ -44,6 +50,9 @@ const STATE_LABELS: Record<string, string> = {
   ...STAGE_LABELS,
   active: 'Ativo',
   inactive: 'Inativo',
+  // PROD-04: acesso de usuários (Equipe)
+  invited: 'Aguardando primeiro acesso',
+  disabled: 'Desativado',
 };
 
 export const stateLabel = (s: string | null) => (s ? STATE_LABELS[s] ?? s : '—');

@@ -8,6 +8,129 @@ import {
   type DocumentCategory, type DocumentTypeItem,
 } from '../lib/documentCatalog';
 import { isValidCpf, onlyDigits } from '../lib/validators';
+import { LOGO_MAX_BYTES, LOGO_TYPES, useTenant, useTenantLogo, type TenantInfo } from '../lib/useTenant';
+
+// PROD-04: nome e logo da assessoria. O gestor altera; o analista só consulta
+// (a API recusa o PATCH com 403). O logo aparece no menu lateral e no portal
+// do cliente; PNG ou JPG até 1 MB, guardado no armazenamento privado.
+function AssessoriaCard({ canEdit }: { canEdit: boolean }) {
+  const qc = useQueryClient();
+  const { data: tenant, isLoading, isError } = useTenant();
+  const logo = useTenantLogo(tenant);
+  const [nome, setNome] = useState<string | null>(null);
+  const [error, setError] = useState('');
+  const [ok, setOk] = useState('');
+  const [confirmRemove, setConfirmRemove] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const done = (msg: string) => (data: TenantInfo) => {
+    qc.setQueryData(['tenant', 'me'], data);
+    setError('');
+    setOk(msg);
+    setConfirmRemove(false);
+  };
+  const onError = (err: unknown) => { setOk(''); setError(apiErrorMessage(err, 'Não foi possível salvar')); };
+
+  const nameMut = useMutation({
+    mutationFn: (name: string) => api.patch<TenantInfo>('/tenants/me', { name }).then(r => r.data),
+    onSuccess: (data) => { done('Nome da assessoria salvo.')(data); setNome(null); },
+    onError,
+  });
+  const logoMut = useMutation({
+    mutationFn: (f: File) => {
+      const form = new FormData();
+      form.append('file', f);
+      return api.put<TenantInfo>('/tenants/me/logo', form, { headers: { 'Content-Type': 'multipart/form-data' } }).then(r => r.data);
+    },
+    onSuccess: done('Logo atualizado.'),
+    onError,
+  });
+  const removeMut = useMutation({
+    mutationFn: () => api.delete<TenantInfo>('/tenants/me/logo').then(r => r.data),
+    onSuccess: done('Logo removido.'),
+    onError,
+  });
+
+  function escolherLogo(e: ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    e.target.value = '';
+    if (!f) return;
+    if (!LOGO_TYPES.includes(f.type)) { setOk(''); setError('O logo precisa ser uma imagem PNG ou JPG.'); return; }
+    if (f.size > LOGO_MAX_BYTES) { setOk(''); setError('O logo pode ter no máximo 1 MB.'); return; }
+    setError('');
+    logoMut.mutate(f);
+  }
+
+  const valorNome = nome ?? tenant?.name ?? '';
+  const nomeValido = valorNome.trim().length >= 2 && valorNome.trim().length <= 100;
+  const busy = nameMut.isPending || logoMut.isPending || removeMut.isPending;
+
+  return (
+    <div className="ds-card" style={{ marginBottom: 16 }}>
+      <div className="ds-card-hdr">
+        <h3>Assessoria</h3>
+        <span className="meta">{canEdit ? 'nome e logo exibidos para a equipe e os clientes' : 'somente o gestor altera'}</span>
+      </div>
+      <div className="ds-card-body">
+        {isLoading ? (
+          <div style={{ fontSize: 13, color: 'var(--text-faint)' }}>Carregando...</div>
+        ) : isError || !tenant ? (
+          <div role="alert" style={{ fontSize: 13, color: 'var(--red)' }}>Não foi possível carregar os dados da assessoria.</div>
+        ) : (
+          <div style={{ display: 'flex', gap: 20, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+            <div className="ds-tenant-logo-box" aria-label="Logo da assessoria">
+              {logo ? <img src={logo} alt={`Logo de ${tenant.name}`} /> : <span>Sem logo</span>}
+            </div>
+            <div style={{ flex: 1, minWidth: 240 }}>
+              {canEdit ? (
+                <form onSubmit={e => { e.preventDefault(); if (nomeValido) nameMut.mutate(valorNome.trim()); }}
+                  style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: 12 }}>
+                  <div className="ds-field" style={{ margin: 0, flex: '1 1 240px' }}>
+                    <label htmlFor="assessoria-nome">Nome da assessoria</label>
+                    <div className="ds-input">
+                      <input id="assessoria-nome" value={valorNome} maxLength={100} onChange={e => { setNome(e.target.value); setOk(''); }} />
+                    </div>
+                  </div>
+                  <button type="submit" className="ds-btn accent sm" style={{ height: 32 }}
+                    disabled={!nomeValido || valorNome.trim() === tenant.name || busy}>
+                    {nameMut.isPending ? 'Salvando...' : 'Salvar nome'}
+                  </button>
+                </form>
+              ) : (
+                <div style={{ marginBottom: 8 }}>
+                  <div className="ds-section-label">Nome da assessoria</div>
+                  <div style={{ fontSize: 14, fontWeight: 600 }}>{tenant.name}</div>
+                </div>
+              )}
+              {canEdit && (
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <input ref={fileRef} type="file" accept="image/png,image/jpeg" aria-label="Arquivo do logo"
+                    onChange={escolherLogo} style={{ display: 'none' }} />
+                  <button type="button" className="ds-btn sm" disabled={busy} onClick={() => fileRef.current?.click()}>
+                    <Icon.Upload size={12} /> {logoMut.isPending ? 'Enviando...' : tenant.logo ? 'Trocar logo' : 'Enviar logo'}
+                  </button>
+                  {tenant.logo && !confirmRemove && (
+                    <button type="button" className="ds-btn ghost sm" disabled={busy} onClick={() => setConfirmRemove(true)}>Remover logo</button>
+                  )}
+                  {confirmRemove && (
+                    <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center', fontSize: 12.5 }}>
+                      Remover o logo?
+                      <button type="button" className="ds-btn sm" style={{ color: 'var(--red)' }} disabled={busy} onClick={() => removeMut.mutate()}>Sim, remover</button>
+                      <button type="button" className="ds-btn ghost sm" onClick={() => setConfirmRemove(false)}>Cancelar</button>
+                    </span>
+                  )}
+                  <span style={{ fontSize: 11.5, color: 'var(--text-faint)' }}>PNG ou JPG, até 1 MB.</span>
+                </div>
+              )}
+              {error && <div role="alert" style={{ fontSize: 12.5, color: 'var(--red)', marginTop: 10 }}>{error}</div>}
+              {ok && <div role="status" style={{ fontSize: 12.5, color: 'var(--green)', marginTop: 10 }}>{ok}</div>}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 interface Draft {
   label: string;
@@ -323,6 +446,71 @@ function situacao(a: Analista): { label: string; color: string } {
   return { label: 'Ativo', color: 'green' };
 }
 
+// PROD-04: ações de cada analista na Equipe, pelos endpoints que já existiam —
+// reenviar o convite (e-mail com o link para criar a senha) enquanto ele não fez
+// o primeiro acesso, e desativar (bloqueia o acesso na hora) ou reativar.
+function AcoesAnalista({ a }: { a: Analista }) {
+  const qc = useQueryClient();
+  const [confirmar, setConfirmar] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const nome = a.name ?? a.email;
+
+  const statusMut = useMutation({
+    mutationFn: (status: 'active' | 'disabled') => api.patch(`/users/${a.id}/status`, { status }),
+    onSuccess: (_d, status) => {
+      setConfirmar(false);
+      setMsg({ ok: true, text: status === 'disabled' ? 'Acesso desativado.' : 'Acesso reativado.' });
+      void qc.invalidateQueries({ queryKey: ['users'] });
+    },
+    onError: err => setMsg({ ok: false, text: apiErrorMessage(err, 'Não foi possível alterar o acesso') }),
+  });
+  const inviteMut = useMutation({
+    mutationFn: () => api.post(`/users/${a.id}/resend-invite`),
+    onSuccess: () => {
+      setMsg({ ok: true, text: `Convite reenviado para ${a.email}.` });
+      void qc.invalidateQueries({ queryKey: ['users'] });
+    },
+    onError: err => setMsg({ ok: false, text: apiErrorMessage(err, 'Não foi possível reenviar o convite') }),
+  });
+  const busy = statusMut.isPending || inviteMut.isPending;
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-start' }}>
+      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
+        {aguardandoPrimeiroAcesso(a) && (
+          <button className="ds-btn ghost sm" disabled={busy} aria-label={`Reenviar convite para ${nome}`}
+            onClick={() => { setMsg(null); inviteMut.mutate(); }}>
+            <Icon.Mail size={12} /> {inviteMut.isPending ? 'Enviando...' : 'Reenviar convite'}
+          </button>
+        )}
+        {a.status === 'disabled' ? (
+          <button className="ds-btn ghost sm" disabled={busy} aria-label={`Reativar ${nome}`}
+            onClick={() => { setMsg(null); statusMut.mutate('active'); }}>
+            <Icon.RotateCcw size={12} /> Reativar
+          </button>
+        ) : confirmar ? (
+          <span style={{ display: 'inline-flex', gap: 4, alignItems: 'center', fontSize: 12 }}>
+            Desativar o acesso?
+            <button className="ds-btn sm" style={{ color: 'var(--red)' }} disabled={busy}
+              onClick={() => statusMut.mutate('disabled')}>Sim, desativar</button>
+            <button className="ds-btn ghost sm" onClick={() => setConfirmar(false)}>Cancelar</button>
+          </span>
+        ) : (
+          <button className="ds-btn ghost sm" style={{ color: 'var(--red)' }} disabled={busy} aria-label={`Desativar ${nome}`}
+            onClick={() => { setMsg(null); setConfirmar(true); }}>
+            <Icon.X size={12} /> Desativar
+          </button>
+        )}
+      </div>
+      {msg && (
+        <span role={msg.ok ? 'status' : 'alert'} style={{ fontSize: 11.5, color: msg.ok ? 'var(--green)' : 'var(--red)', whiteSpace: 'normal' }}>
+          {msg.text}
+        </span>
+      )}
+    </div>
+  );
+}
+
 // Equipe: o gestor cadastra os analistas da assessoria (POST /users). A senha
 // temporária é aleatória (SEC-01) e precisa ser trocada no primeiro acesso; até
 // lá o gestor pode vê-la de novo (BE-18), na coluna "Senha temporária".
@@ -450,7 +638,7 @@ function EquipeAnalistas() {
           <div style={{ fontSize: 13, color: 'var(--text-faint)' }}>Nenhum analista cadastrado ainda.</div>
         ) : (
           <table className="ds-table" aria-label="Analistas da assessoria">
-            <thead><tr><th>Nome</th><th>E-mail</th><th>Situação</th><th>Cadastro</th><th>Senha temporária</th></tr></thead>
+            <thead><tr><th>Nome</th><th>E-mail</th><th>Situação</th><th>Cadastro</th><th>Senha temporária</th><th>Ações</th></tr></thead>
             <tbody>
               {ordenados.map(a => {
                 const s = situacao(a);
@@ -461,6 +649,7 @@ function EquipeAnalistas() {
                     <td><span className={`ds-badge ${s.color}`}><span className="dot" />{s.label}</span></td>
                     <td style={{ fontVariantNumeric: 'tabular-nums' }}>{new Date(a.createdAt).toLocaleDateString('pt-BR')}</td>
                     <td>{aguardandoPrimeiroAcesso(a) ? <SenhaTemporaria userId={a.id} /> : <span style={{ color: 'var(--text-faint)' }}>—</span>}</td>
+                    <td><AcoesAnalista a={a} /></td>
                   </tr>
                 );
               })}
@@ -481,6 +670,7 @@ export function ConfigPage({ role }: { role: string | null }) {
           <p>Ajustes que valem para toda a assessoria.</p>
         </div>
       </div>
+      <AssessoriaCard canEdit={role === 'dono'} />
       {role === 'dono' && <EquipeAnalistas />}
       <ListaDocumentos canEdit={role === 'dono'} />
       {(role === 'dono' || role === 'analista') && <ImportarUsuarios role={role} />}

@@ -26,6 +26,7 @@ function makeService() {
     generateInviteLink: jest.fn(),
     deleteUser: jest.fn(),
     updateUserPassword: jest.fn(),
+    generateRecoveryLink: jest.fn(),
   };
   const email = { sendInvite: jest.fn() };
   const dataSource = { query: jest.fn() };
@@ -52,6 +53,7 @@ function makeService() {
     dataSource,
     userCache,
     tempPasswords,
+    email,
   };
 }
 
@@ -718,5 +720,162 @@ describe('UsersService — senha temporária até o primeiro acesso (BE-18)', ()
     dataSource.query.mockResolvedValue([{ count: '0' }]);
     await service.remove('u2', caller('dono'));
     expect(tempPasswords.remove).toHaveBeenCalledWith('u2');
+  });
+});
+
+describe('UsersService — Equipe em Configurações (PROD-04)', () => {
+  const analista = (overrides: Partial<User> = {}) =>
+    ({
+      id: 'a2',
+      tenantId: 't1',
+      role: 'analista',
+      email: 'ana@exemplo.dev',
+      name: 'Ana',
+      status: 'active',
+      externalId: 'ext-a2',
+      onboardingCompleted: false,
+      mustChangePassword: true,
+      ...overrides,
+    }) as User;
+
+  it('the gestor disables an analista and the change goes to the Log de Ações', async () => {
+    const { service, userRepo, dataSource } = makeService();
+    userRepo.findOne.mockResolvedValue(analista());
+    await service.updateStatus('a2', { status: 'disabled' }, caller('dono'));
+    expect(userRepo.update).toHaveBeenCalledWith('a2', { status: 'disabled' });
+    const [sql, params] = dataSource.query.mock.calls[0] as [string, unknown[]];
+    expect(sql).toContain("'user_status_changed'");
+    expect(params).toEqual([
+      't1',
+      'u1',
+      'active',
+      'disabled',
+      JSON.stringify({
+        userId: 'a2',
+        role: 'analista',
+        from: 'active',
+        to: 'disabled',
+      }),
+    ]);
+  });
+
+  it('reactivating writes the opposite entry; the same status logs nothing', async () => {
+    const { service, userRepo, dataSource } = makeService();
+    userRepo.findOne.mockResolvedValue(analista({ status: 'disabled' }));
+    await service.updateStatus('a2', { status: 'active' }, caller('dono'));
+    const [, statusParams] = dataSource.query.mock.calls[0] as [
+      string,
+      string[],
+    ];
+    expect(statusParams.slice(2, 4)).toEqual(['disabled', 'active']);
+    expect(JSON.parse(statusParams[4])).toMatchObject({
+      from: 'disabled',
+      to: 'active',
+    });
+
+    const again = makeService();
+    again.userRepo.findOne.mockResolvedValue(analista());
+    await again.service.updateStatus(
+      'a2',
+      { status: 'active' },
+      caller('dono'),
+    );
+    expect(again.dataSource.query).not.toHaveBeenCalled();
+  });
+
+  it('a gestor never disables another gestor (403)', async () => {
+    const { service, userRepo } = makeService();
+    userRepo.findOne.mockResolvedValue(analista({ role: 'dono' }));
+    await expect(
+      service.updateStatus('a2', { status: 'disabled' }, caller('dono')),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(userRepo.update).not.toHaveBeenCalled();
+  });
+
+  it('re-inviting an analista created with a temporary password sends a password-definition link', async () => {
+    const { service, userRepo, supabaseAdmin, email, dataSource } =
+      makeService();
+    userRepo.findOne.mockResolvedValue(analista());
+    supabaseAdmin.generateInviteLink.mockRejectedValue(
+      new Error('A user with this email address has already been registered'),
+    );
+    supabaseAdmin.generateRecoveryLink.mockResolvedValue(
+      'https://supabase.test/verify?type=recovery',
+    );
+    await expect(service.resendInvite('a2', caller('dono'))).resolves.toEqual({
+      message: 'Convite reenviado',
+    });
+    expect(supabaseAdmin.generateRecoveryLink).toHaveBeenCalledWith(
+      'ana@exemplo.dev',
+    );
+    expect(email.sendInvite).toHaveBeenCalledWith(
+      'ana@exemplo.dev',
+      'Ana',
+      'https://supabase.test/verify?type=recovery',
+    );
+    const [, updates] = userRepo.update.mock.calls[0] as [string, object];
+    expect(Object.keys(updates)).toEqual(['invitedAt']);
+    const [auditSql] = dataSource.query.mock.calls[0] as [string];
+    expect(auditSql).toContain("'invite_resent'");
+  });
+
+  it('a user still without account keeps the normal invite link', async () => {
+    const { service, userRepo, supabaseAdmin, email } = makeService();
+    userRepo.findOne.mockResolvedValue(
+      analista({ externalId: null, role: 'cliente' }),
+    );
+    supabaseAdmin.generateInviteLink.mockResolvedValue({
+      externalId: 'ext-new',
+      inviteLink: 'https://supabase.test/verify?type=invite',
+    });
+    await service.resendInvite('a2', caller('dono'));
+    expect(supabaseAdmin.generateRecoveryLink).not.toHaveBeenCalled();
+    const [, updates] = userRepo.update.mock.calls[0] as [
+      string,
+      { invitedAt: Date; externalId: string },
+    ];
+    expect(updates.invitedAt).toBeInstanceOf(Date);
+    expect(updates.externalId).toBe('ext-new');
+    const [, , link] = email.sendInvite.mock.calls[0] as string[];
+    expect(link).toBe('https://supabase.test/verify?type=invite');
+  });
+
+  it.each([
+    ['a disabled account', { status: 'disabled' as const }, ConflictException],
+    [
+      'someone who already created the password',
+      { mustChangePassword: false },
+      ConflictException,
+    ],
+    [
+      'someone who finished the onboarding',
+      { onboardingCompleted: true },
+      BadRequestException,
+    ],
+  ])('does not re-invite %s', async (_c, overrides, error) => {
+    const { service, userRepo, email } = makeService();
+    userRepo.findOne.mockResolvedValue(analista(overrides));
+    await expect(
+      service.resendInvite('a2', caller('dono')),
+    ).rejects.toBeInstanceOf(error);
+    expect(email.sendInvite).not.toHaveBeenCalled();
+  });
+
+  it('an analista only re-invites clientes (403 for another analista)', async () => {
+    const { service, userRepo, email } = makeService();
+    userRepo.findOne.mockResolvedValue(analista());
+    await expect(
+      service.resendInvite('a2', caller('analista')),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(email.sendInvite).not.toHaveBeenCalled();
+  });
+
+  it('another assessoria gets 403 and no e-mail (RN-01)', async () => {
+    const { service, userRepo, email } = makeService();
+    userRepo.findOne.mockResolvedValue(analista({ tenantId: 'other' }));
+    await expect(
+      service.resendInvite('a2', caller('dono')),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(email.sendInvite).not.toHaveBeenCalled();
   });
 });

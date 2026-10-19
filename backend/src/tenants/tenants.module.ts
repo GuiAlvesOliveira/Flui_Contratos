@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { AzureStorageService } from '../common/services/azure-storage.service';
 import { Tenant } from './tenant.entity';
 import { TenantsController } from './tenants.controller';
 import { TenantsService } from './tenants.service';
@@ -7,6 +8,6 @@ import { TenantsService } from './tenants.service';
 @Module({
   imports: [TypeOrmModule.forFeature([Tenant])],
   controllers: [TenantsController],
-  providers: [TenantsService],
+  providers: [TenantsService, AzureStorageService],
 })
 export class TenantsModule {}

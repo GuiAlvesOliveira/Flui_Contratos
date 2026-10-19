@@ -454,10 +454,36 @@ export class UsersService {
     if (caller.role !== 'admin' && user.tenantId !== caller.tenantId) {
       throw new ForbiddenException();
     }
+    // PROD-04: the gestor manages the accounts below them (analistas and
+    // clientes), the same hierarchy as creation — never another gestor.
+    if (
+      caller.role !== 'admin' &&
+      !ALLOWED_CREATION[caller.role]?.includes(user.role)
+    ) {
+      throw new ForbiddenException('Sem permissão para alterar este usuário');
+    }
 
     await this.userRepo.update(id, { status: dto.status });
     // Disabling must block the very next request, not up to a minute later.
     this.userCache.invalidateUser(id);
+    if (user.status !== dto.status) {
+      await this.dataSource.query(
+        `INSERT INTO audit_logs (tenant_id, actor_id, action, from_state, to_state, metadata)
+         VALUES ($1, $2, 'user_status_changed', $3, $4, $5::jsonb)`,
+        [
+          user.tenantId,
+          caller.userId,
+          user.status,
+          dto.status,
+          JSON.stringify({
+            userId: id,
+            role: user.role,
+            from: user.status,
+            to: dto.status,
+          }),
+        ],
+      );
+    }
     return { id, status: dto.status };
   }
 
@@ -496,17 +522,64 @@ export class UsersService {
     if (caller.role !== 'admin' && user.tenantId !== caller.tenantId) {
       throw new ForbiddenException();
     }
+    // Same hierarchy as creation: an analista only re-invites clientes.
+    if (
+      caller.role !== 'admin' &&
+      !ALLOWED_CREATION[caller.role]?.includes(user.role)
+    ) {
+      throw new ForbiddenException('Sem permissão para reenviar este convite');
+    }
 
     if (user.onboardingCompleted) {
       throw new BadRequestException('Usuário já completou o onboarding');
     }
+    if (user.status === 'disabled') {
+      throw new ConflictException(
+        'Usuário desativado: reative antes de reenviar o convite',
+      );
+    }
+    if (!user.mustChangePassword) {
+      throw new ConflictException(
+        'Esta pessoa já criou a própria senha; se esqueceu, use "Esqueci minha senha" no login',
+      );
+    }
 
-    const { externalId, inviteLink } = await this.supabaseAdmin.generateInviteLink(user.email, user.role);
+    const link = await this.accessLink(user);
     const updates: Partial<User> = { invitedAt: new Date() };
-    if (!user.externalId) updates.externalId = externalId;
+    if (!user.externalId && link.externalId)
+      updates.externalId = link.externalId;
     await this.userRepo.update(id, updates);
-    this.email.sendInvite(user.email, user.name ?? user.email, inviteLink);
+    this.email.sendInvite(user.email, user.name ?? user.email, link.url);
+    await this.dataSource.query(
+      `INSERT INTO audit_logs (tenant_id, actor_id, action, metadata)
+       VALUES ($1, $2, 'invite_resent', $3::jsonb)`,
+      [
+        user.tenantId,
+        caller.userId,
+        JSON.stringify({ userId: id, role: user.role }),
+      ],
+    );
     return { message: 'Convite reenviado' };
+  }
+
+  // PROD-04: analistas and clientes are created straight away with a temporary
+  // password (SEC-01), so Supabase refuses a new invite for them ("already
+  // registered"). Their link is then a password-definition (recovery) link,
+  // which lands on the same "Criar senha" screen.
+  private async accessLink(
+    user: User,
+  ): Promise<{ url: string; externalId: string | null }> {
+    try {
+      const { externalId, inviteLink } =
+        await this.supabaseAdmin.generateInviteLink(user.email, user.role);
+      return { url: inviteLink, externalId };
+    } catch (err) {
+      if (!user.externalId) throw err;
+      return {
+        url: await this.supabaseAdmin.generateRecoveryLink(user.email),
+        externalId: null,
+      };
+    }
   }
 
   private toResponse(user: User) {

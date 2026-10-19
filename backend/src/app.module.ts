@@ -46,6 +46,7 @@ import { AddProcessActivities1718501000000 } from './database/migrations/1718501
 import { AddActivityEditedBy1718501100000 } from './database/migrations/1718501100000-AddActivityEditedBy';
 import { AddUserTempPasswords1718501200000 } from './database/migrations/1718501200000-AddUserTempPasswords';
 import { AddUserAddress1718501300000 } from './database/migrations/1718501300000-AddUserAddress';
+import { AddTenantBranding1718501400000 } from './database/migrations/1718501400000-AddTenantBranding';
 
 @Module({
   imports: [
@@ -91,6 +92,7 @@ import { AddUserAddress1718501300000 } from './database/migrations/1718501300000
           AddActivityEditedBy1718501100000,
           AddUserTempPasswords1718501200000,
           AddUserAddress1718501300000,
+          AddTenantBranding1718501400000,
         ],
         migrationsRun: true,
         synchronize: false,
