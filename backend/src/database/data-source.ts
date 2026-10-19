@@ -24,6 +24,7 @@ import { AddActivityEditedBy1718501100000 } from './migrations/1718501100000-Add
 import { AddUserTempPasswords1718501200000 } from './migrations/1718501200000-AddUserTempPasswords';
 import { AddUserAddress1718501300000 } from './migrations/1718501300000-AddUserAddress';
 import { AddTenantBranding1718501400000 } from './migrations/1718501400000-AddTenantBranding';
+import { AddTasks1718501500000 } from './migrations/1718501500000-AddTasks';
 
 // Standalone DataSource for the `typeorm migration:*` CLI. The running app builds
 // its own connection from ConfigService (app.module) and runs migrations on boot
@@ -64,6 +65,7 @@ export const AppDataSource = new DataSource({
     AddUserTempPasswords1718501200000,
     AddUserAddress1718501300000,
     AddTenantBranding1718501400000,
+    AddTasks1718501500000,
   ],
   installExtensions: false, // same as app.module: gen_random_uuid() is built in
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: true } : false,

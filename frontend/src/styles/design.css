@@ -891,8 +891,16 @@ input, select, textarea { font-family: inherit; }
   .ds-row-2 { grid-template-columns: 1fr; }
   .ds-kv { grid-template-columns: 100px 1fr; }
   .ds-doc-form { grid-template-columns: 1fr !important; }
+  /* Filtros segmentados rolam para o lado em vez de quebrar o texto */
+  .ds-seg { max-width: 100%; overflow-x: auto; }
+  .ds-seg-btn { white-space: nowrap; }
+  .ds-only-mobile { display: block !important; }
 }
+.ds-only-mobile { display: none; }
 
 @media (max-width: 420px) {
   .ds-kpi-row, .ds-kpi-row.cols-3 { grid-template-columns: 1fr; }
+  /* Contagens curtas (Tarefas): 2 por linha também no celular */
+  .ds-kpi-row.compact-mobile { grid-template-columns: repeat(2, 1fr); }
+  .ds-kpi-row.compact-mobile .ds-kpi-value { font-size: 22px; }
 }

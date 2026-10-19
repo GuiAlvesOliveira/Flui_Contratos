@@ -8,6 +8,7 @@ import { AuditModule } from './audit/audit.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { SearchModule } from './search/search.module';
+import { TasksModule } from './tasks/tasks.module';
 import { AuthModule } from './auth/auth.module';
 import { PasswordResetModule } from './auth/password-reset.module';
 import { ParticipantsModule } from './participants/participants.module';
@@ -47,6 +48,7 @@ import { AddActivityEditedBy1718501100000 } from './database/migrations/17185011
 import { AddUserTempPasswords1718501200000 } from './database/migrations/1718501200000-AddUserTempPasswords';
 import { AddUserAddress1718501300000 } from './database/migrations/1718501300000-AddUserAddress';
 import { AddTenantBranding1718501400000 } from './database/migrations/1718501400000-AddTenantBranding';
+import { AddTasks1718501500000 } from './database/migrations/1718501500000-AddTasks';
 
 @Module({
   imports: [
@@ -93,6 +95,7 @@ import { AddTenantBranding1718501400000 } from './database/migrations/1718501400
           AddUserTempPasswords1718501200000,
           AddUserAddress1718501300000,
           AddTenantBranding1718501400000,
+          AddTasks1718501500000,
         ],
         migrationsRun: true,
         synchronize: false,
@@ -113,6 +116,7 @@ import { AddTenantBranding1718501400000 } from './database/migrations/1718501400
     DashboardModule,
     NotificationsModule,
     SearchModule,
+    TasksModule,
     AuthModule,
     PasswordResetModule,
     ParticipantsModule,

@@ -18,6 +18,23 @@ jobs:
   test:
     runs-on: ubuntu-latest
 
+    # PostgreSQL de verdade para os e2e que precisam de banco (PROD-01 em
+    # diante): cada suíte cria um banco temporário, aplica as migrations e apaga.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: flui_e2e
+          POSTGRES_PASSWORD: flui_e2e
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U flui_e2e"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
     steps:
       - uses: actions/checkout@v5
 
@@ -38,6 +55,8 @@ jobs:
 
       - name: E2E tests
         working-directory: backend
+        env:
+          E2E_DATABASE_URL: postgres://flui_e2e:flui_e2e@localhost:5432/postgres
         run: npm run test:e2e
 
   build-and-deploy:
