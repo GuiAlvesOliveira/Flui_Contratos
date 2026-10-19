@@ -801,6 +801,55 @@ input, select, textarea { font-family: inherit; }
 /* Conteúdo + painel lateral (ex.: detalhe do proponente) */
 .ds-split { display: grid; grid-template-columns: 1fr 320px; gap: 16px; align-items: start; }
 
+/* Calendário (PROD-02) ─────────────────────────────────────────────────────── */
+.ds-cal { background: #fff; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow-sm); }
+.ds-cal-head, .ds-cal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
+.ds-cal-head { background: var(--bg-subtle); border-bottom: 1px solid var(--border); }
+.ds-cal-head > div { padding: 8px 10px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); }
+.ds-cal-grid + .ds-cal-grid > .ds-cal-day { border-top: 1px solid var(--border); }
+.ds-cal-day { min-height: 112px; padding: 6px; display: flex; flex-direction: column; gap: 3px; border-right: 1px solid var(--border); cursor: pointer; min-width: 0; position: relative; }
+.ds-cal-day:last-child { border-right: none; }
+.ds-cal-day:hover { background: var(--bg-subtle); }
+.ds-cal-day.out { background: var(--bg-subtle); }
+.ds-cal-day.out .ds-cal-num { color: var(--text-faint); }
+.ds-cal-day.sel { box-shadow: inset 0 0 0 2px var(--accent); }
+.ds-cal.week .ds-cal-day { min-height: 300px; }
+.ds-cal.week .ds-cal-chip { white-space: normal; overflow-wrap: anywhere; }
+.ds-cal-num { width: 24px; height: 24px; border-radius: 50%; border: none; background: transparent; font: 600 12px var(--font); color: var(--text); display: grid; place-items: center; cursor: pointer; padding: 0; flex-shrink: 0; }
+.ds-cal-num:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.ds-cal-day.today .ds-cal-num { background: var(--accent); color: #fff; }
+.ds-cal-chip { display: block; width: 100%; text-align: left; font: 500 11px var(--font); padding: 2px 6px; border-radius: 4px; border: 1px solid; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+.ds-cal-chip.blue { color: var(--blue); background: var(--blue-soft); border-color: var(--blue-soft-border); }
+.ds-cal-chip.amber { color: var(--amber); background: var(--amber-soft); border-color: var(--amber-soft-border); }
+.ds-cal-chip.green { color: var(--green); background: var(--green-soft); border-color: var(--green-soft-border); }
+.ds-cal-chip.red { color: #fff; background: var(--red); border-color: var(--red); font-weight: 600; }
+.ds-cal-chip.done { text-decoration: line-through; opacity: 0.85; }
+.ds-cal-more { font-size: 11px; color: var(--text-muted); padding-left: 4px; }
+.ds-cal-count { display: none; position: absolute; top: 6px; right: 6px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; font-size: 10.5px; font-weight: 600; background: var(--accent-soft); color: var(--accent); align-items: center; justify-content: center; }
+.ds-cal-count.red { background: var(--red); color: #fff; }
+.ds-cal-legend { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; font-size: 12px; color: var(--text-muted); margin-bottom: 10px; }
+.ds-cal-legend > span { display: inline-flex; align-items: center; gap: 6px; }
+.ds-cal-help { margin-left: auto; color: var(--text-faint); font-size: 11.5px; }
+.ds-cal-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+.ds-cal-dot.blue { background: var(--blue); }
+.ds-cal-dot.amber { background: var(--amber); }
+.ds-cal-dot.green { background: var(--green); }
+.ds-cal-dot.red { background: var(--red); }
+.ds-cal-daylist { list-style: none; margin: 0; padding: 0; }
+.ds-cal-daylist li + li { border-top: 1px solid var(--border); }
+.ds-cal-daylist button { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 14px; border: none; background: transparent; text-align: left; font: 13px var(--font); color: var(--text); cursor: pointer; }
+.ds-cal-daylist button:hover, .ds-cal-daylist button:focus-visible { background: var(--bg-subtle); outline: none; }
+@media (max-width: 640px) {
+  /* No celular cada dia mostra só a contagem; as tarefas ficam na lista do dia */
+  .ds-cal-day { min-height: 52px; padding: 4px; align-items: center; }
+  .ds-cal.week .ds-cal-day { min-height: 72px; }
+  .ds-cal-chip, .ds-cal-more { display: none; }
+  .ds-cal-count { display: inline-flex; position: static; }
+  .ds-cal-head > div { padding: 6px 2px; text-align: center; font-size: 10px; }
+  .ds-cal-legend > .ds-cal-help { display: none; }
+  .ds-cal-toolbar h2 { font-size: 14px !important; }
+}
+
 /* KV list */
 .ds-kv { display: grid; grid-template-columns: 120px 1fr; gap: 6px 12px; font-size: 13px; }
 .ds-kv > div:nth-child(odd) { color: var(--text-muted); }

@@ -17,6 +17,7 @@ import { WorkflowPage } from '../../pages/WorkflowPage';
 import { LogsPage } from '../../pages/LogsPage';
 import { ConfigPage } from '../../pages/ConfigPage';
 import { TarefasPage } from '../../pages/TarefasPage';
+import { CalendarioPage } from '../../pages/CalendarioPage';
 import { DevApiMenu } from '../../pages/DevApiMenu';
 
 // ── Route state ────────────────────────────────────────────────────────────────
@@ -127,6 +128,7 @@ function breadcrumb(route: Route, isCliente: boolean): Crumb[] {
     if (back?.page === 'logs') return [{ label: 'Log de Ações', to: back }, { label: 'Processo' }];
     if (back?.page === 'dashboard') return [{ label: 'Dashboard', to: back }, { label: 'Processo' }];
     if (back?.page === 'tarefas') return [{ label: 'Tarefas', to: back }, { label: 'Processo' }];
+    if (back?.page === 'calendario') return [{ label: 'Calendário', to: back }, { label: 'Processo' }];
     return [{ label: 'Workflow', to: { page: 'workflow' } }, { label: 'Processo' }];
   }
   if (route.page in PAGE_LABELS) return [{ label: PAGE_LABELS[route.page as NavPage] }];
@@ -140,6 +142,7 @@ function activeNavPage(route: Route): NavPage {
     if (origin === 'logs') return 'logs';
     if (origin === 'dashboard') return 'dashboard';
     if (origin === 'tarefas') return 'tarefas';
+    if (origin === 'calendario') return 'calendario';
     if (origin === 'empreendimento-detail') return 'empreendimentos';
     return 'proponentes';
   }
@@ -479,7 +482,13 @@ export function AppShell() {
               onOpenProcess={(id) => navigate({ page: 'proponente-detail', id, back: { page: 'tarefas' } })}
             />
           )}
-          {(view.page === 'calendario' || view.page === 'relatorios') && (
+          {view.page === 'calendario' && (
+            <CalendarioPage
+              role={role}
+              onOpenProcess={(id) => navigate({ page: 'proponente-detail', id, back: { page: 'calendario' } })}
+            />
+          )}
+          {view.page === 'relatorios' && (
             <ComingSoonPage label={PAGE_LABELS[view.page]} />
           )}
         </div>
