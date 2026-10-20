@@ -22,3 +22,18 @@ describe('UpdateProcessDto — comissão da assessoria (PROD-09)', () => {
     ]);
   });
 });
+
+describe('UpdateProcessDto — estado civil e fonte de renda', () => {
+  it.each(['solteiro', 'casado', 'divorciado', 'viuvo', 'uniao_estavel'])(
+    'aceita o estado civil %s (o mesmo que a tela oferece)',
+    async (estadoCivil) => {
+      expect(await errorsOf({ estadoCivil })).toEqual([]);
+    },
+  );
+
+  it('recusa valores fora da lista; null limpa', async () => {
+    expect(await errorsOf({ estadoCivil: 'noivo' })).toEqual(['estadoCivil']);
+    expect(await errorsOf({ fonteRenda: 'outra' })).toEqual(['fonteRenda']);
+    expect(await errorsOf({ estadoCivil: null, fonteRenda: null })).toEqual([]);
+  });
+});

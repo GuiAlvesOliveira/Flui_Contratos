@@ -8,6 +8,7 @@ import {
   PrimaryGeneratedColumn,
 } from 'typeorm';
 import { Tenant } from '../tenants/tenant.entity';
+import type { EstadoCivil, FonteRenda } from '../common/civil-status';
 
 export type UserStatus = 'invited' | 'active' | 'disabled';
 
@@ -66,6 +67,14 @@ export class User {
 
   @Column({ type: 'varchar', length: 255, nullable: true })
   endereco: string | null;
+
+  // Declarados pelo cliente no onboarding; preenchem os processos dele que
+  // ainda não têm esses dados (o valor de cada processo fica no processo)
+  @Column({ type: 'varchar', name: 'estado_civil', length: 20, nullable: true })
+  estadoCivil: EstadoCivil | null;
+
+  @Column({ type: 'varchar', name: 'fonte_renda', length: 20, nullable: true })
+  fonteRenda: FonteRenda | null;
 
   @Column({ name: 'created_by', type: 'uuid', nullable: true })
   createdBy: string | null;

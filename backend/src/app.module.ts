@@ -54,6 +54,7 @@ import { AddTasks1718501500000 } from './database/migrations/1718501500000-AddTa
 import { AddProcessEscalations1718501600000 } from './database/migrations/1718501600000-AddProcessEscalations';
 import { AddSuccessFee1718501700000 } from './database/migrations/1718501700000-AddSuccessFee';
 import { AddDocumentVersions1718501800000 } from './database/migrations/1718501800000-AddDocumentVersions';
+import { AddUserCivilStatus1718501900000 } from './database/migrations/1718501900000-AddUserCivilStatus';
 
 @Module({
   imports: [
@@ -104,6 +105,7 @@ import { AddDocumentVersions1718501800000 } from './database/migrations/17185018
           AddProcessEscalations1718501600000,
           AddSuccessFee1718501700000,
           AddDocumentVersions1718501800000,
+          AddUserCivilStatus1718501900000,
         ],
         migrationsRun: true,
         synchronize: false,

@@ -1,4 +1,5 @@
 import {
+  IsIn,
   IsOptional,
   IsString,
   Length,
@@ -7,6 +8,12 @@ import {
   MinLength,
 } from 'class-validator';
 import { IsBirthDate } from '../../common/decorators/is-birth-date.decorator';
+import {
+  ESTADOS_CIVIS,
+  FONTES_RENDA,
+  type EstadoCivil,
+  type FonteRenda,
+} from '../../common/civil-status';
 
 export class OnboardingDto {
   @IsString()
@@ -43,4 +50,13 @@ export class OnboardingDto {
   @IsString()
   @MaxLength(255)
   endereco?: string;
+
+  // Ficha do cliente: antes eram pedidos na tela e descartados
+  @IsOptional()
+  @IsIn(ESTADOS_CIVIS)
+  estadoCivil?: EstadoCivil;
+
+  @IsOptional()
+  @IsIn(FONTES_RENDA)
+  fonteRenda?: FonteRenda;
 }

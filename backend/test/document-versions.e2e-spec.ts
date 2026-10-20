@@ -21,6 +21,7 @@ import {
   IDS,
   seedTwoTenants,
   type TestDb,
+  undoMigrationsThrough,
 } from './support/test-db';
 
 // PROD-12 com PostgreSQL de verdade: serviços reais, migrations do projeto e um
@@ -170,7 +171,7 @@ describeDb('Versões de documentos com banco real (e2e, PROD-12)', () => {
   });
 
   it('migration: documentos que já tinham arquivo ganham a versão 1, com a data do envio e o resultado', async () => {
-    await ds().undoLastMigration();
+    await undoMigrationsThrough(ds(), 'AddDocumentVersions1718501800000');
     const id = randomUUID();
     await ds().query(
       `INSERT INTO documents (id, tenant_id, process_id, user_id, name, label, status, validated,

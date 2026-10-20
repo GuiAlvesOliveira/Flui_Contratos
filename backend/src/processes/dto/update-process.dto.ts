@@ -1,4 +1,5 @@
 import { IsIn, IsNumber, IsOptional, IsUUID, Max, Min } from 'class-validator';
+import { ESTADOS_CIVIS, FONTES_RENDA } from '../../common/civil-status';
 
 /**
  * Whitelist for PATCH /processes/:id (updateFields).
@@ -26,10 +27,11 @@ export class UpdateProcessDto {
   @IsOptional() @IsNumber()
   dfiValue?: number | null;
 
-  @IsOptional() @IsIn(['assalariado', 'nao_assalariado'])
+  @IsOptional() @IsIn(FONTES_RENDA)
   fonteRenda?: string | null;
 
-  @IsOptional() @IsIn(['casado', 'solteiro', 'divorciado'])
+  // viúvo(a) e união estável também (a tela sempre ofereceu; a API recusava)
+  @IsOptional() @IsIn(ESTADOS_CIVIS)
   estadoCivil?: string | null;
 
   /** PROD-09: comissão da assessoria no contrato (R$); null limpa. */

@@ -4,7 +4,7 @@ import { cepDigits } from '../lib/cep';
 import { useCepLookup } from '../lib/useCepLookup';
 
 type FonteRenda = 'assalariado' | 'nao_assalariado';
-type EstadoCivil = 'casado' | 'solteiro' | 'divorciado';
+type EstadoCivil = 'solteiro' | 'casado' | 'divorciado' | 'viuvo' | 'uniao_estavel';
 
 export function ClienteOnboardingPage() {
   const [form, setForm] = useState({
@@ -47,6 +47,9 @@ export function ClienteOnboardingPage() {
         dataNascimento: form.dataNascimento || undefined,
         cep: form.cep.trim() ? cepDigits(form.cep) : undefined,
         endereco: form.endereco.trim() || undefined,
+        // antes a ficha pedia e não enviava: ficam no cliente e nos processos dele
+        estadoCivil: form.estadoCivil,
+        fonteRenda: form.fonteRenda,
       });
       // Recarrega para o /me trazer onboardingCompleted = true (AUTH-08)
       window.location.replace('/cliente');
@@ -117,6 +120,8 @@ export function ClienteOnboardingPage() {
                 <option value="solteiro">Solteiro(a)</option>
                 <option value="casado">Casado(a)</option>
                 <option value="divorciado">Divorciado(a)</option>
+                <option value="viuvo">Viúvo(a)</option>
+                <option value="uniao_estavel">União Estável</option>
               </select>
             </div>
           </fieldset>

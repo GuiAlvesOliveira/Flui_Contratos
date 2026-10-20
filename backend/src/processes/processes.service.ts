@@ -70,6 +70,9 @@ export class ProcessesService {
       unidadeId: dto.unidadeId ?? null,
       valorUnidade: dto.valorUnidade ?? null,
       valorEmAberto: dto.valorEmAberto ?? null,
+      // what the client declared in the onboarding (editable in the process)
+      estadoCivil: client.estadoCivil ?? null,
+      fonteRenda: client.fonteRenda ?? null,
       stage: 'inicial',
     });
 

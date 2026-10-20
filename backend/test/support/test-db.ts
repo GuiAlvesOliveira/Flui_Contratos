@@ -58,6 +58,22 @@ export async function createTestDb(label: string): Promise<TestDb> {
   };
 }
 
+// Reverte as migrations, da mais nova para trás, até desfazer a indicada
+// (inclusive) — assim o teste de uma migration não depende de ela ser a última.
+export async function undoMigrationsThrough(
+  ds: DataSource,
+  name: string,
+): Promise<void> {
+  for (;;) {
+    const [last] = await ds.query<{ name: string }[]>(
+      `SELECT name FROM migrations ORDER BY id DESC LIMIT 1`,
+    );
+    if (!last) throw new Error(`migration ${name} não encontrada`);
+    await ds.undoLastMigration();
+    if (last.name === name) return;
+  }
+}
+
 // Duas assessorias com gestor, analistas, cliente e processos — base dos
 // testes de isolamento (RN-01).
 export const IDS = {
