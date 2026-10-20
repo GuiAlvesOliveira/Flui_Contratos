@@ -40,6 +40,7 @@ Além deles:
 
 - `stage_changed`: as demais etapas (Primeiro Contato, Cadastro, Inativo).
 - `document_rejected`: documento recusado, com a observação do analista.
+- `process_stalled` (PROD-05_v2): alerta interno de **processo parado** há mais de `ESCALATION_DAYS` dias na mesma etapa (Assinatura, Inativo e Crédito Recusado não contam). Vai para o analista responsável; sem analista ativo, para os gestores da assessoria — nunca para o cliente. Um job diário (`backend/src/escalation`) grava o alerta em `process_escalations` e enfileira o e-mail na mesma transação, com uma trava por processo (`pg_advisory_xact_lock`): no máximo um alerta por processo a cada `ESCALATION_DAYS` dias, mesmo com mais de uma instância da API.
 - **Desfazer** no Log de Ações é uma mudança de etapa: o cliente recebe "seu processo voltou para X".
 
 Convite e redefinição de senha **não** passam pela fila: o link deles dá acesso à conta e não deve ficar gravado no banco. Continuam saindo direto pelo `EmailService`.
@@ -56,6 +57,9 @@ Cada mensagem tem versão HTML e texto puro, com o nome da assessoria no rodapé
 | `MESSAGING_POLL_MS` | `5000` | intervalo em que o worker olha a fila |
 | `MESSAGE_RETENTION_DAYS` | `30` | mensagens enviadas ou com falha são apagadas depois disso (têm dados pessoais) |
 | `MESSAGING_WORKER` | `on` | `off` deixa a instância só enfileirando, sem enviar |
+| `ESCALATION_DAYS` | `7` | dias na mesma etapa para o alerta de processo parado (mesmo prazo do SLA do dashboard) |
+| `ESCALATION_HOUR` | `8` | hora (Brasília) da verificação diária; se a API sobe entre essa hora e as 20h, verifica também 1 minuto depois do boot |
+| `ESCALATION_ENABLED` | `on` | `off` desliga o alerta de processo parado nesta instância |
 
 ### Provedor: Brevo ou Azure Communication Services
 

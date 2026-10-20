@@ -10,6 +10,7 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { SearchModule } from './search/search.module';
 import { TasksModule } from './tasks/tasks.module';
 import { ReportsModule } from './reports/reports.module';
+import { EscalationModule } from './escalation/escalation.module';
 import { AuthModule } from './auth/auth.module';
 import { PasswordResetModule } from './auth/password-reset.module';
 import { ParticipantsModule } from './participants/participants.module';
@@ -50,6 +51,7 @@ import { AddUserTempPasswords1718501200000 } from './database/migrations/1718501
 import { AddUserAddress1718501300000 } from './database/migrations/1718501300000-AddUserAddress';
 import { AddTenantBranding1718501400000 } from './database/migrations/1718501400000-AddTenantBranding';
 import { AddTasks1718501500000 } from './database/migrations/1718501500000-AddTasks';
+import { AddProcessEscalations1718501600000 } from './database/migrations/1718501600000-AddProcessEscalations';
 
 @Module({
   imports: [
@@ -97,6 +99,7 @@ import { AddTasks1718501500000 } from './database/migrations/1718501500000-AddTa
           AddUserAddress1718501300000,
           AddTenantBranding1718501400000,
           AddTasks1718501500000,
+          AddProcessEscalations1718501600000,
         ],
         migrationsRun: true,
         synchronize: false,
@@ -119,6 +122,7 @@ import { AddTasks1718501500000 } from './database/migrations/1718501500000-AddTa
     SearchModule,
     TasksModule,
     ReportsModule,
+    EscalationModule,
     AuthModule,
     PasswordResetModule,
     ParticipantsModule,

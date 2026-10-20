@@ -11,9 +11,10 @@ export type MessageEvent =
   | 'signature'
   | 'issuance'
   | 'stage_changed'
-  | 'document_rejected';
+  | 'document_rejected'
+  | 'process_stalled';
 
-export type RecipientRole = 'cliente' | 'analista';
+export type RecipientRole = 'cliente' | 'analista' | 'gestor';
 
 export interface Recipient {
   name: string | null;
@@ -311,4 +312,63 @@ export function documentRejectedMessage(
     },
     ctx,
   );
+}
+
+// ── Processo parado (PROD-05_v2) ─────────────────────────────────────────────
+
+export interface StalledInput {
+  clientName: string | null;
+  stage: ProcessStage;
+  days: number; // dias inteiros na etapa atual
+  since: Date;
+  limitDays: number;
+  // analista: o responsável recebe; sem_analista / analista_desativado: os gestores
+  reason: 'analista' | 'sem_analista' | 'analista_desativado';
+  analistaName: string | null;
+  recipients: { person: Recipient; role: 'analista' | 'gestor' }[];
+}
+
+/**
+ * Alerta interno da assessoria: o processo está há mais de `limitDays` dias na
+ * mesma etapa. Vai para o analista responsável; sem analista ativo, para os
+ * gestores (com o motivo). O cliente nunca recebe este e-mail.
+ */
+export function processStalledMessages(
+  input: StalledInput,
+  ctx: Context,
+): OutboundMessage[] {
+  const clientName = input.clientName || 'cliente';
+  const since = input.since.toLocaleDateString('pt-BR', {
+    timeZone: 'America/Sao_Paulo',
+  });
+  const fact = `O processo de ${clientName} está na etapa ${label(input.stage)} há ${input.days} dias (desde ${since}), acima do prazo de ${input.limitDays} dias.`;
+  return input.recipients.map(({ person, role }) => {
+    const paragraphs =
+      role === 'analista'
+        ? [
+            fact,
+            'Confira o que falta para o processo avançar e registre o andamento no Histórico de Atividades.',
+          ]
+        : [
+            fact,
+            input.reason === 'analista_desativado'
+              ? `O analista responsável${input.analistaName ? ` (${input.analistaName})` : ''} está desativado: reatribua o processo a alguém da equipe.`
+              : 'O processo não tem analista responsável: defina um responsável no Flui.',
+          ];
+    return {
+      eventType: 'process_stalled' as const,
+      recipientRole: role,
+      to: person.email,
+      subject: `Flui — processo parado há ${input.days} dias: ${clientName}`,
+      ...render(
+        {
+          name: person.name || (role === 'gestor' ? 'gestor' : 'analista'),
+          paragraphs,
+          cta: 'Abrir o Flui',
+          footer: `Alerta automático do Flui Contratos para a equipe de ${ctx.tenantName}, enviado no máximo uma vez a cada ${input.limitDays} dias por processo. Não responda.`,
+        },
+        ctx.portalUrl,
+      ),
+    };
+  });
 }

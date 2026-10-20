@@ -140,3 +140,49 @@ describe('MessagingService (BE-09_v2)', () => {
     ]);
   });
 });
+
+describe('MessagingService.processStalled (PROD-05_v2)', () => {
+  const stalled = {
+    tenantId: TENANT,
+    processId: 'p1',
+    clientName: 'Helena',
+    stage: 'cadastro' as const,
+    days: 9,
+    since: new Date('2026-10-11T15:00:00Z'),
+    limitDays: 7,
+    reason: 'analista' as const,
+    analistaName: 'Rafael',
+  };
+
+  it('enfileira o alerta ao analista, procurando-o só na assessoria do processo', async () => {
+    const { service, em, manager, inserts, worker } = makeService();
+    const n = await service.processStalled(em, {
+      ...stalled,
+      recipients: [{ id: 'an1', role: 'analista' }],
+    });
+    expect(n).toBe(1);
+    const [usersSql, usersParams] = manager.query.mock.calls[0];
+    expect(usersSql).toContain('WHERE tenant_id = $1 AND id = ANY($2::uuid[])');
+    expect(usersParams).toEqual([TENANT, ['an1']]);
+    expect(inserts[0].slice(0, 5)).toEqual([
+      TENANT,
+      'p1',
+      'process_stalled',
+      'analista',
+      'rafael@exemplo.dev',
+    ]);
+    expect(worker.soon).toHaveBeenCalled();
+  });
+
+  it('destinatário que não existe na assessoria não recebe; sem ninguém, nada vai para a fila', async () => {
+    const { service, em, inserts, worker } = makeService();
+    const n = await service.processStalled(em, {
+      ...stalled,
+      reason: 'sem_analista',
+      recipients: [{ id: 'outra-assessoria', role: 'gestor' }],
+    });
+    expect(n).toBe(0);
+    expect(inserts).toHaveLength(0);
+    expect(worker.soon).not.toHaveBeenCalled();
+  });
+});

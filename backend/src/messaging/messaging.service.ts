@@ -7,8 +7,10 @@ import {
   documentRejectedMessage,
   documentsRequestedMessage,
   type OutboundMessage,
+  processStalledMessages,
   type Recipient,
   stageChangeMessages,
+  type StalledInput,
 } from './message-templates';
 import { OutboxWorker } from './outbox.worker';
 
@@ -111,6 +113,33 @@ export class MessagingService {
       await this.context(manager, n.tenantId),
     );
     return this.enqueue(manager, n.tenantId, n.processId, [message]);
+  }
+
+  // PROD-05_v2: alerta de processo parado, na transação que registra o alerta.
+  // Destinatários procurados só dentro da assessoria do processo (RN-01).
+  async processStalled(
+    manager: EntityManager,
+    n: Omit<StalledInput, 'recipients'> & {
+      tenantId: string;
+      processId: string;
+      recipients: { id: string; role: 'analista' | 'gestor' }[];
+    },
+  ): Promise<number> {
+    const people = await this.users(
+      manager,
+      n.tenantId,
+      n.recipients.map((r) => r.id),
+    );
+    const recipients = n.recipients.flatMap((r) => {
+      const person = recipient(people.get(r.id));
+      return person ? [{ person, role: r.role }] : [];
+    });
+    if (recipients.length === 0) return 0;
+    const messages = processStalledMessages(
+      { ...n, recipients },
+      await this.context(manager, n.tenantId),
+    );
+    return this.enqueue(manager, n.tenantId, n.processId, messages);
   }
 
   private async enqueue(
