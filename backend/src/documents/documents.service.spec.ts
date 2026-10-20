@@ -28,9 +28,13 @@ function makeService() {
     download: jest.fn(),
     delete: jest.fn().mockResolvedValue(true),
   };
-  const manager = { delete: jest.fn(), query: jest.fn() };
-  const dataSource = {
+  const manager = {
+    delete: jest.fn(),
     query: jest.fn(),
+    update: jest.fn(),
+  };
+  const dataSource = {
+    query: jest.fn().mockResolvedValue([]),
     transaction: jest
       .fn()
       .mockImplementation((cb: (m: unknown) => unknown) => cb(manager)),
@@ -387,10 +391,13 @@ describe('DocumentsService.update (authorization)', () => {
   });
 
   it('lets an analista validate a document (stamps validatedBy/validatedAt)', async () => {
-    const { service, repo } = makeService();
+    const { service, repo, manager } = makeService();
     repo.findOne.mockResolvedValue({ id: 'd1', tenantId: 't1', userId: 'c1', status: 'recebido' });
     await service.update('d1', { status: 'validado' }, caller('analista', 'a1'));
-    expect(repo.save).toHaveBeenCalledWith(
+    // PROD-12: saved together with the current file version, in one transaction
+    expect(manager.update).toHaveBeenCalledWith(
+      Document,
+      { id: 'd1', tenantId: 't1' },
       expect.objectContaining({ status: 'validado', validated: true, validatedBy: 'a1' }),
     );
   });
@@ -423,10 +430,12 @@ describe('DocumentsService.uploadFile (SEC-05 content validation)', () => {
   });
 
   it('accepts a genuine PDF and marks the doc as recebido', async () => {
-    const { service, repo } = makeService();
+    const { service, repo, manager } = makeService();
     repo.findOne.mockResolvedValue({ id: 'd1', tenantId: 't1', userId: 'c1', processId: null });
+    manager.query.mockResolvedValue([{ version: 1 }]);
     await service.uploadFile('d1', file([0x25, 0x50, 0x44, 0x46, 0x2d], 'x.pdf'), caller('cliente', 'c1'));
-    expect(repo.save).toHaveBeenCalledWith(expect.objectContaining({ status: 'recebido' }));
+    // PROD-12: saved together with the new file version, in one transaction
+    expect(manager.update).toHaveBeenCalledWith(Document, { id: 'd1', tenantId: 't1' }, expect.objectContaining({ status: 'recebido' }));
   });
 
   it('forbids a cliente from uploading to a document that is not theirs', async () => {
@@ -447,5 +456,124 @@ describe('DocumentsService.getForProcess', () => {
       .mockResolvedValueOnce([{ id: 'personal-doc' }]); // personal docs
     const res = await service.getForProcess('p1', caller('analista'));
     expect(res).toEqual([{ id: 'personal-doc' }, { id: 'proc-doc' }]);
+  });
+});
+
+describe('DocumentsService — versões do arquivo (PROD-12)', () => {
+  const pdf = { buffer: Buffer.from([0x25, 0x50, 0x44, 0x46, 0x2d]), originalname: 'holerite.pdf', mimetype: 'application/pdf', size: 5 } as unknown as Express.Multer.File;
+  const rejected = () => ({
+    id: 'd1', tenantId: 't1', userId: 'c1', processId: 'p1', label: 'Holerite',
+    blobPath: 't1/p1/d1/old.pdf', status: 'rejeitado', validated: false,
+    validatedBy: 'a1', validatedAt: new Date(), validatedByNotes: 'Ilegível',
+  });
+
+  it('reenviar cria uma versão nova com arquivo próprio, sem apagar a anterior, e volta para recebido', async () => {
+    const { service, repo, azureStorage, manager } = makeService();
+    azureStorage.isAvailable = true;
+    azureStorage.upload.mockImplementation((name: string) => Promise.resolve(name));
+    repo.findOne.mockResolvedValue(rejected());
+    manager.query.mockResolvedValueOnce([]).mockResolvedValueOnce([{ version: 2 }]).mockResolvedValue([]);
+    await service.uploadFile('d1', pdf, caller('cliente', 'c1'));
+
+    const [name] = azureStorage.upload.mock.calls[0] as [string];
+    expect(name).toMatch(/^t1\/p1\/d1\/[0-9a-f-]{36}\.pdf$/);
+    expect(azureStorage.delete).not.toHaveBeenCalled();
+    const sqls = manager.query.mock.calls.map(([q]) => String(q));
+    expect(sqls[0]).toContain('FOR UPDATE');
+    expect(sqls[1]).toContain('COALESCE(MAX(version), 0) + 1');
+    expect((manager.query.mock.calls[1] as [string, unknown[]])[1]).toEqual(['t1', 'd1', name, 'application/pdf', 5, 'c1']);
+    expect(manager.update).toHaveBeenCalledWith(Document, { id: 'd1', tenantId: 't1' }, expect.objectContaining({
+      blobPath: name, status: 'recebido', validated: false, validatedBy: null, validatedAt: null, validatedByNotes: null,
+      mimeType: 'application/pdf', sizeBytes: 5, uploadedBy: 'c1',
+    }));
+    const audit = manager.query.mock.calls[2] as [string, unknown[]];
+    expect(audit[0]).toContain("'document_upload'");
+    expect(JSON.parse(audit[1][3] as string)).toEqual({ docId: 'd1', label: 'Holerite', fileName: 'holerite.pdf', version: 2 });
+  });
+
+  it('se a versão não é gravada, o arquivo recém-enviado é apagado (nada fica órfão)', async () => {
+    const { service, repo, azureStorage, manager } = makeService();
+    azureStorage.isAvailable = true;
+    azureStorage.upload.mockImplementation((name: string) => Promise.resolve(name));
+    repo.findOne.mockResolvedValue(rejected());
+    manager.query.mockRejectedValue(new Error('banco fora'));
+    await expect(service.uploadFile('d1', pdf, caller('analista', 'a1'))).rejects.toThrow('banco fora');
+    expect(azureStorage.delete).toHaveBeenCalledWith((azureStorage.upload.mock.calls[0] as [string])[0]);
+  });
+
+  it('validar ou rejeitar grava o resultado na versão atual, na mesma transação', async () => {
+    const { service, repo, manager } = makeService();
+    repo.findOne.mockResolvedValue({ id: 'd1', tenantId: 't1', userId: 'c1', processId: 'p1', status: 'recebido' });
+    await service.update('d1', { status: 'rejeitado', validatedByNotes: 'Ilegível' }, caller('analista', 'a1'));
+    const [sql, params] = manager.query.mock.calls[0] as [string, unknown[]];
+    expect(sql).toContain('UPDATE document_versions');
+    expect(sql).toContain('ORDER BY version DESC LIMIT 1');
+    expect(params).toEqual(['rejeitado', 'a1', 'Ilegível', 'd1', 't1']);
+    manager.query.mockClear();
+    await service.update('d1', { notes: 'só uma anotação' }, caller('analista', 'a1'));
+    expect(manager.query).not.toHaveBeenCalled();
+  });
+
+  it('histórico: a versão mais nova é a atual; o cliente só vê os próprios documentos', async () => {
+    const { service, repo, dataSource } = makeService();
+    repo.findOne.mockResolvedValue({ id: 'd1', tenantId: 't1', userId: 'c1', label: 'Holerite' });
+    dataSource.query.mockResolvedValueOnce([
+      { id: 'v2', version: 2, created_at: new Date('2026-10-20T12:00:00Z'), mime_type: 'application/pdf', size_bytes: '2048', status: 'recebido', reviewed_at: null, review_notes: null, downloadable: true, uploaded_by_name: 'Helena', reviewed_by_name: null },
+      { id: 'v1', version: 1, created_at: new Date('2026-10-19T12:00:00Z'), mime_type: null, size_bytes: null, status: 'rejeitado', reviewed_at: new Date('2026-10-19T15:00:00Z'), review_notes: 'Ilegível', downloadable: true, uploaded_by_name: 'Helena', reviewed_by_name: 'Ana' },
+    ]);
+    const list = await service.listVersions('d1', caller('cliente', 'c1'));
+    expect(list.map((v) => [v.version, v.current, v.status, v.sizeBytes])).toEqual([[2, true, 'recebido', 2048], [1, false, 'rejeitado', null]]);
+    expect(list[1]).toMatchObject({ reviewedByName: 'Ana', reviewNotes: 'Ilegível', uploadedByName: 'Helena' });
+    expect((dataSource.query.mock.calls[0] as [string, unknown[]])[1]).toEqual(['d1', 't1']);
+
+    repo.findOne.mockResolvedValue({ id: 'd1', tenantId: 't1', userId: 'outro' });
+    await expect(service.listVersions('d1', caller('cliente', 'c1'))).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(service.downloadVersion('d1', 'v1', caller('cliente', 'c1'))).rejects.toBeInstanceOf(ForbiddenException);
+    repo.findOne.mockResolvedValue(null);
+    await expect(service.listVersions('d1', caller('dono'))).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('baixar uma versão antiga: arquivo da versão, com o número no nome; versão de outro documento = 404', async () => {
+    const { service, repo, dataSource, azureStorage } = makeService();
+    azureStorage.isAvailable = true;
+    azureStorage.download.mockResolvedValue({ stream: 'S', contentType: 'application/pdf', contentLength: 3 });
+    repo.findOne.mockResolvedValue({ id: 'd1', tenantId: 't1', userId: 'c1', label: 'Holerite' });
+    dataSource.query.mockResolvedValueOnce([{ blob_path: 't1/p1/d1.pdf', version: 1 }]);
+    const file = await service.downloadVersion('d1', 'v1', caller('analista'));
+    expect(azureStorage.download).toHaveBeenCalledWith('t1/p1/d1.pdf');
+    expect(file.fileName).toBe('Holerite (versão 1)');
+    expect((dataSource.query.mock.calls[0] as [string, unknown[]])[1]).toEqual(['v1', 'd1', 't1']);
+    dataSource.query.mockResolvedValueOnce([]);
+    await expect(service.downloadVersion('d1', 'v9', caller('analista'))).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('exclusão LGPD apaga o arquivo de todas as versões (sem repetir o atual) antes do registro', async () => {
+    const { service, repo, dataSource, azureStorage, manager } = makeService();
+    azureStorage.isAvailable = true;
+    repo.findOne.mockResolvedValue({ id: 'd1', tenantId: 't1', processId: 'p1', userId: 'c1', label: 'Holerite', blobPath: 't1/p1/d1/v3.pdf' });
+    dataSource.query.mockResolvedValueOnce([
+      { blob_path: 't1/p1/d1.pdf' }, { blob_path: 't1/p1/d1/v2.pdf' }, { blob_path: 't1/p1/d1/v3.pdf' }, { blob_path: 'local://t1/p1/d1/x.pdf' },
+    ]);
+    const res = await service.removeDocument('d1', {}, caller('dono'));
+    expect(azureStorage.delete.mock.calls.map(([p]) => p as string)).toEqual(['t1/p1/d1/v3.pdf', 't1/p1/d1.pdf', 't1/p1/d1/v2.pdf']);
+    expect(manager.delete).toHaveBeenCalledWith(Document, { id: 'd1', tenantId: 't1' });
+    expect(res).toEqual({ id: 'd1', deleted: true, fileRemoved: true });
+
+    // armazenamento fora: nada é apagado, nem as versões
+    const again = makeService();
+    again.azureStorage.isAvailable = false;
+    again.repo.findOne.mockResolvedValue({ id: 'd1', tenantId: 't1', processId: 'p1', blobPath: null });
+    again.dataSource.query.mockResolvedValueOnce([{ blob_path: 't1/p1/d1.pdf' }]);
+    await expect(again.service.removeDocument('d1', {}, caller('dono'))).rejects.toBeInstanceOf(ServiceUnavailableException);
+    expect(again.dataSource.transaction).not.toHaveBeenCalled();
+  });
+
+  it('a lista de documentos informa quantas versões cada um tem', async () => {
+    const { service, repo, processRepo, dataSource } = makeService();
+    processRepo.findOne.mockResolvedValue({ id: 'p1', clientId: 'cl1' });
+    repo.find.mockResolvedValueOnce([{ id: 'd2' }]).mockResolvedValueOnce([{ id: 'd1' }]);
+    dataSource.query.mockResolvedValueOnce([{ document_id: 'd2', n: 3 }]);
+    expect(await service.getForProcess('p1', caller('analista'))).toEqual([{ id: 'd1' }, { id: 'd2', versionCount: 3 }]);
+    expect((dataSource.query.mock.calls[0] as [string, unknown[]])[1]).toEqual(['t1', ['d1', 'd2']]);
   });
 });

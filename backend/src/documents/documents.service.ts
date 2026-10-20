@@ -7,6 +7,7 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { randomUUID } from 'crypto';
 import { DataSource, In, IsNull, Repository } from 'typeorm';
 import { RequestUserFull } from '../auth/supabase.guard';
 import { AzureStorageService } from '../common/services/azure-storage.service';
@@ -34,6 +35,21 @@ function isAllowedFileContent(buffer: Buffer | undefined): boolean {
     buffer[4] === 0x0d && buffer[5] === 0x0a && buffer[6] === 0x1a && buffer[7] === 0x0a;
   const isJpeg = buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
   return isPdf || isPng || isJpeg;
+}
+
+// PROD-12: one row of document_versions, as read for the history
+interface VersionRow {
+  id: string;
+  version: number;
+  created_at: Date;
+  mime_type: string | null;
+  size_bytes: string | null;
+  status: 'recebido' | 'validado' | 'rejeitado';
+  reviewed_at: Date | null;
+  review_notes: string | null;
+  downloadable: boolean;
+  uploaded_by_name: string | null;
+  reviewed_by_name: string | null;
 }
 
 // ── Service ───────────────────────────────────────────────────────────────────
@@ -65,7 +81,17 @@ export class DocumentsService {
       order: { createdAt: 'ASC' },
     });
 
-    return [...personalDocs, ...processDocs];
+    const docs = [...personalDocs, ...processDocs];
+    if (docs.length === 0) return docs;
+    // PROD-12: how many file versions each document has (the history)
+    const counts = await this.dataSource.query<{ document_id: string; n: number }[]>(
+      `SELECT document_id, count(*)::int AS n FROM document_versions
+        WHERE tenant_id = $1 AND document_id = ANY($2::uuid[])
+        GROUP BY document_id`,
+      [caller.tenantId, docs.map((d) => d.id)],
+    );
+    const versions = new Map(counts.map((c) => [c.document_id, c.n]));
+    return docs.map((d) => (versions.has(d.id) ? { ...d, versionCount: versions.get(d.id) } : d));
   }
 
   // BE-03: the analista picks, from the assessoria's catalog, which documents
@@ -142,11 +168,12 @@ export class DocumentsService {
     };
   }
 
-  // BE-10 / LGPD: removes a document completely — the file in storage (with
-  // its snapshots) and the database row — and drops the original file name
-  // from earlier audit entries, since it may identify the person. The removal
-  // itself is audited without personal data. If the file cannot be removed
-  // from storage, nothing is deleted, so no orphan file is left behind.
+  // BE-10 / LGPD: removes a document completely — the files in storage (every
+  // version, with their snapshots) and the database rows — and drops the
+  // original file name from earlier audit entries, since it may identify the
+  // person. The removal itself is audited without personal data. If the
+  // storage is unavailable, nothing is deleted; if it fails halfway, the rows
+  // stay and removing again finishes the job (deleting a missing file is a no-op).
   async removeDocument(
     docId: string,
     opts: { reason?: string; processId?: string },
@@ -156,14 +183,22 @@ export class DocumentsService {
     const doc = await this.repo.findOne({ where: { id: docId, tenantId } });
     if (!doc) throw new NotFoundException('Documento não encontrado');
 
-    const hasFile = !!doc.blobPath && !doc.blobPath.startsWith('local://');
+    // PROD-12: the current file and every older version
+    const versions = await this.dataSource.query<{ blob_path: string }[]>(
+      `SELECT blob_path FROM document_versions WHERE document_id = $1 AND tenant_id = $2`,
+      [docId, tenantId],
+    );
+    const files = [
+      ...new Set([doc.blobPath, ...versions.map((v) => v.blob_path)]),
+    ].filter((p): p is string => !!p && !p.startsWith('local://'));
+    const hasFile = files.length > 0;
     if (hasFile) {
       if (!this.azureStorage.isAvailable) {
         throw new ServiceUnavailableException(
           'Armazenamento indisponível — o documento não foi excluído. Tente novamente.',
         );
       }
-      await this.azureStorage.delete(doc.blobPath!);
+      for (const file of files) await this.azureStorage.delete(file);
     }
 
     // Personal docs have no process of their own: log it on the process the
@@ -235,7 +270,30 @@ export class DocumentsService {
       }
     }
 
-    const saved = await this.repo.save(doc);
+    // PROD-12: validating or rejecting applies to the current file version,
+    // recorded together with the document
+    const reviewed = isAnalista && (dto.status === 'validado' || dto.status === 'rejeitado');
+    const saved = reviewed
+      ? await this.dataSource.transaction(async (manager) => {
+          await manager.update(Document, { id: docId, tenantId: caller.tenantId! }, {
+            status: doc.status,
+            notes: doc.notes,
+            validated: doc.validated,
+            validatedBy: doc.validatedBy,
+            validatedAt: doc.validatedAt,
+            validatedByNotes: doc.validatedByNotes,
+          });
+          await manager.query(
+            `UPDATE document_versions
+                SET status = $1, reviewed_by = $2, reviewed_at = now(), review_notes = $3
+              WHERE id = (SELECT id FROM document_versions
+                           WHERE document_id = $4 AND tenant_id = $5
+                           ORDER BY version DESC LIMIT 1)`,
+            [dto.status, caller.userId, dto.validatedByNotes ?? dto.notes ?? null, docId, caller.tenantId],
+          );
+          return doc;
+        })
+      : await this.repo.save(doc);
 
     // The client is told which document to send again, and why.
     if (isAnalista && dto.status === 'rejeitado' && doc.userId) {
@@ -290,35 +348,122 @@ export class DocumentsService {
     }
 
     const ext = file.originalname.split('.').pop() ?? 'bin';
-    // Personal docs (processId = null) use client path; process docs use process path
-    const blobName = doc.processId
-      ? `${caller.tenantId}/${doc.processId}/${docId}.${ext}`
-      : `${caller.tenantId}/clients/${doc.userId ?? 'unknown'}/${docId}.${ext}`;
+    // Personal docs (processId = null) use client path; process docs use process
+    // path. PROD-12: every upload is a new version with a file of its own, so
+    // sending again never overwrites (or orphans) the previous one.
+    const folder = doc.processId
+      ? `${caller.tenantId}/${doc.processId}/${docId}`
+      : `${caller.tenantId}/clients/${doc.userId ?? 'unknown'}/${docId}`;
+    const blobName = `${folder}/${randomUUID()}.${ext}`;
 
-    let blobPath: string;
-    if (this.azureStorage.isAvailable) {
-      blobPath = await this.azureStorage.upload(blobName, file.buffer, file.mimetype);
-    } else {
-      blobPath = `local://${blobName}`;
-    }
+    const stored = this.azureStorage.isAvailable;
+    const blobPath = stored
+      ? await this.azureStorage.upload(blobName, file.buffer, file.mimetype)
+      : `local://${blobName}`;
+    const sizeBytes = file.size ?? file.buffer.length;
 
-    doc.blobPath = blobPath;
-    doc.uploadedBy = caller.userId;
-    doc.status = 'recebido' as DocumentStatus;
-    const saved = await this.repo.save(doc);
-
-    if (doc.processId) {
-      const process = await this.processRepo.findOne({ where: { id: doc.processId } });
-      if (process) {
-        await this.dataSource.query(
-          `INSERT INTO audit_logs (tenant_id, process_id, actor_id, action, metadata)
-           VALUES ($1, $2, $3, 'document_upload', $4::jsonb)`,
-          [caller.tenantId, doc.processId, caller.userId, JSON.stringify({ docId, label: doc.label, fileName: file.originalname })],
+    try {
+      return await this.dataSource.transaction(async (manager) => {
+        // Locks the document: simultaneous uploads get consecutive versions.
+        await manager.query(`SELECT id FROM documents WHERE id = $1 FOR UPDATE`, [docId]);
+        const [{ version }] = await manager.query<{ version: number }[]>(
+          `INSERT INTO document_versions
+             (tenant_id, document_id, version, blob_path, mime_type, size_bytes, uploaded_by)
+           SELECT $1, $2, COALESCE(MAX(version), 0) + 1, $3, $4, $5, $6
+             FROM document_versions WHERE document_id = $2
+           RETURNING version`,
+          [caller.tenantId, docId, blobPath, file.mimetype, sizeBytes, caller.userId],
         );
-      }
-    }
 
-    return saved;
+        // The document now points to the new version and waits for validation
+        // again — even after a rejection or a validation: the RN-04 gate looks
+        // only at the current version. The older ones stay in the history.
+        const current = {
+          blobPath,
+          mimeType: file.mimetype,
+          sizeBytes,
+          uploadedBy: caller.userId,
+          status: 'recebido' as DocumentStatus,
+          validated: false,
+          validatedBy: null,
+          validatedAt: null,
+          validatedByNotes: null,
+        };
+        await manager.update(Document, { id: docId, tenantId: caller.tenantId! }, current);
+
+        if (doc.processId) {
+          await manager.query(
+            `INSERT INTO audit_logs (tenant_id, process_id, actor_id, action, metadata)
+             VALUES ($1, $2, $3, 'document_upload', $4::jsonb)`,
+            [caller.tenantId, doc.processId, caller.userId, JSON.stringify({ docId, label: doc.label, fileName: file.originalname, version })],
+          );
+        }
+        return Object.assign(doc, current);
+      });
+    } catch (err) {
+      // no file is left behind without its version
+      if (stored) await this.azureStorage.delete(blobPath).catch(() => false);
+      throw err;
+    }
+  }
+
+  // PROD-12: the file history of a document, newest first — same access as
+  // downloading it (the team of the assessoria, or the client who owns it).
+  async listVersions(docId: string, caller: RequestUserFull) {
+    await this.findReadable(docId, caller);
+    const rows = await this.dataSource.query<VersionRow[]>(
+      `SELECT v.id, v.version, v.created_at, v.mime_type, v.size_bytes, v.status,
+              v.reviewed_at, v.review_notes, v.blob_path NOT LIKE 'local://%' AS downloadable,
+              NULLIF(concat_ws(' ', u.name, u.surname), '') AS uploaded_by_name,
+              NULLIF(concat_ws(' ', r.name, r.surname), '') AS reviewed_by_name
+         FROM document_versions v
+         LEFT JOIN users u ON u.id = v.uploaded_by
+         LEFT JOIN users r ON r.id = v.reviewed_by
+        WHERE v.document_id = $1 AND v.tenant_id = $2
+        ORDER BY v.version DESC`,
+      [docId, caller.tenantId],
+    );
+    return rows.map((r, i) => ({
+      id: r.id,
+      version: r.version,
+      current: i === 0,
+      createdAt: r.created_at,
+      uploadedByName: r.uploaded_by_name,
+      mimeType: r.mime_type,
+      sizeBytes: r.size_bytes === null ? null : Number(r.size_bytes),
+      status: r.status,
+      reviewedByName: r.reviewed_by_name,
+      reviewedAt: r.reviewed_at,
+      reviewNotes: r.review_notes,
+      downloadable: r.downloadable,
+    }));
+  }
+
+  async downloadVersion(docId: string, versionId: string, caller: RequestUserFull) {
+    const doc = await this.findReadable(docId, caller);
+    const [v] = await this.dataSource.query<{ blob_path: string; version: number }[]>(
+      `SELECT blob_path, version FROM document_versions
+        WHERE id = $1 AND document_id = $2 AND tenant_id = $3`,
+      [versionId, docId, caller.tenantId],
+    );
+    if (!v) throw new NotFoundException('Versão não encontrada');
+    if (v.blob_path.startsWith('local://')) {
+      throw new NotFoundException('Versão armazenada localmente — visualização não disponível');
+    }
+    if (!this.azureStorage.isAvailable) {
+      throw new NotFoundException('Serviço de armazenamento indisponível');
+    }
+    const blob = await this.azureStorage.download(v.blob_path);
+    return { ...blob, fileName: `${doc.label ?? doc.name} (versão ${v.version})` };
+  }
+
+  private async findReadable(docId: string, caller: RequestUserFull) {
+    const doc = await this.repo.findOne({ where: { id: docId, tenantId: caller.tenantId! } });
+    if (!doc) throw new NotFoundException('Documento não encontrado');
+    if (caller.role === 'cliente' && doc.userId !== caller.userId) {
+      throw new ForbiddenException();
+    }
+    return doc;
   }
 
   async downloadFile(docId: string, caller: RequestUserFull) {

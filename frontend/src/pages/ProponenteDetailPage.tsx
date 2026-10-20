@@ -69,6 +69,7 @@ interface AuditEntry {
   metadata?: {
     label?: string; labels?: string[]; fields?: string; reason?: string | null;
     before?: number | null; after?: number | null; // PROD-09: comissão
+    version?: number; // PROD-12: versão do arquivo enviado
   } | null;
 }
 
@@ -85,6 +86,21 @@ interface Document {
   documentTypeId: string | null; // item da lista de documentos da assessoria (BE-03)
   formType?: 'dps' | 'financiamento' | null; // preenchido na aba Formulários (FE-23)
   formData?: Record<string, unknown> | null;
+  versionCount?: number; // PROD-12: arquivos enviados (histórico); ausente = nenhum
+}
+
+// PROD-12: GET /documents/:id/versions (mais nova primeiro)
+interface DocVersion {
+  id: string;
+  version: number;
+  current: boolean;
+  createdAt: string;
+  uploadedByName: string | null;
+  status: 'recebido' | 'validado' | 'rejeitado';
+  reviewedByName: string | null;
+  reviewedAt: string | null;
+  reviewNotes: string | null;
+  downloadable: boolean;
 }
 
 type Tab = 'workflow' | 'cadastro' | 'ficha' | 'documentos' | 'formularios' | 'atividade';
@@ -1280,7 +1296,7 @@ function downloadName(label: string, contentType: string) {
   return ext ? `${base}.${ext}` : base;
 }
 
-function DocFileButtons({ docId, label }: { docId: string; label: string }) {
+function DocFileButtons({ docId, label, url }: { docId: string; label: string; url?: string }) {
   const [loading, setLoading] = useState<'view' | 'download' | null>(null);
   const [error, setError] = useState('');
 
@@ -1290,7 +1306,7 @@ function DocFileButtons({ docId, label }: { docId: string; label: string }) {
     let objectUrl: string | null = null;
     try {
       // Download via authenticated backend proxy — storage URL never reaches the client
-      const resp = await api.get(`/documents/${docId}/download`, {
+      const resp = await api.get(url ?? `/documents/${docId}/download`, {
         responseType: 'blob',
       });
       const contentType: string = (resp.headers as Record<string, string>)['content-type'] ?? 'application/octet-stream';
@@ -1342,7 +1358,7 @@ function DocFileButtons({ docId, label }: { docId: string; label: string }) {
   );
 }
 
-function UploadButton({ docId, processId, label }: { docId: string; processId: string; label: string }) {
+function UploadButton({ docId, processId, label, replace = false }: { docId: string; processId: string; label: string; replace?: boolean }) {
   const qc = useQueryClient();
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
@@ -1360,6 +1376,7 @@ function UploadButton({ docId, processId, label }: { docId: string; processId: s
       });
       void qc.invalidateQueries({ queryKey: ['documents', processId] });
       void qc.invalidateQueries({ queryKey: ['audit', processId] });
+      void qc.invalidateQueries({ queryKey: ['doc-versions', docId] });
     } catch {
       setError('Falha ao enviar arquivo');
     } finally {
@@ -1369,17 +1386,80 @@ function UploadButton({ docId, processId, label }: { docId: string; processId: s
   };
 
   return (
-    <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
+    <label
+      style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}
+      title={replace ? 'Enviar uma nova versão — a anterior fica no histórico' : undefined}
+    >
       <input type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={handleFile} style={{ display: 'none' }} aria-label={`Enviar arquivo de ${label}`} />
       <span className="ds-btn ghost sm" style={{ pointerEvents: 'none' }}>
         {uploading ? 'Enviando...' : (
           <>
-            <Icon.Upload size={12} /> Enviar
+            <Icon.Upload size={12} /> {replace ? 'Nova versão' : 'Enviar'}
           </>
         )}
       </span>
       {error && <span style={{ fontSize: 11, color: 'var(--red)' }}>{error}</span>}
     </label>
+  );
+}
+
+const VERSION_RESULT: Record<DocVersion['status'], { label: string; color: string }> = {
+  recebido: { label: 'Aguardando validação', color: '#2563eb' },
+  validado: { label: 'Validado', color: '#16a34a' },
+  rejeitado: { label: 'Rejeitado', color: '#dc2626' },
+};
+
+// PROD-12: cada envio do arquivo, do mais novo para o mais antigo — quando e
+// quem enviou, o resultado da validação e o download (inclusive das antigas).
+function VersionHistory({ doc }: { doc: Document }) {
+  const label = doc.label ?? doc.name;
+  const { data: versions = [], isLoading, isError } = useQuery<DocVersion[]>({
+    queryKey: ['doc-versions', doc.id],
+    queryFn: () => api.get(`/documents/${doc.id}/versions`).then(r => r.data),
+  });
+
+  return (
+    <div role="region" aria-label={`Histórico de ${label}`} style={{ padding: '0 16px 12px 60px' }}>
+      {isLoading ? (
+        <div style={{ fontSize: 12, color: 'var(--text-faint)' }}>Carregando histórico...</div>
+      ) : isError ? (
+        <div role="alert" style={{ fontSize: 12, color: 'var(--red)' }}>Não foi possível carregar o histórico.</div>
+      ) : (
+        <ol style={{ listStyle: 'none', margin: 0, padding: 0, borderLeft: '2px solid var(--border)' }}>
+          {versions.map(v => {
+            const result = VERSION_RESULT[v.status];
+            const review = v.status === 'recebido' ? '' : [
+              v.reviewedByName ? ` por ${v.reviewedByName}` : '',
+              v.reviewedAt ? ` em ${fmtDate(v.reviewedAt)}` : '',
+              v.reviewNotes ? ` · ${v.reviewNotes}` : '',
+            ].join('');
+            return (
+              <li key={v.id} data-testid="doc-version" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '6px 0 6px 12px' }}>
+                <div style={{ flex: 1, minWidth: 200 }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 500 }}>
+                    Versão {v.version}{v.current && <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}> · atual</span>}
+                  </div>
+                  <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>
+                    Enviada em {fmtDate(v.createdAt)}{v.uploadedByName ? ` por ${v.uploadedByName}` : ''}
+                  </div>
+                  <div style={{ fontSize: 11.5 }}>
+                    <span style={{ color: result.color, fontWeight: 500 }}>{result.label}</span>
+                    <span style={{ color: 'var(--text-muted)' }}>{review}</span>
+                  </div>
+                </div>
+                {v.downloadable && (
+                  <DocFileButtons
+                    docId={doc.id}
+                    label={`${label} (versão ${v.version})`}
+                    url={`/documents/${doc.id}/versions/${v.id}/download`}
+                  />
+                )}
+              </li>
+            );
+          })}
+        </ol>
+      )}
+    </div>
   );
 }
 
@@ -1390,6 +1470,7 @@ function DocumentosTab({ processId, role }: { processId: string; role: string | 
 
   const [showSolicitar, setShowSolicitar] = useState(false);
   const [toDelete, setToDelete] = useState<Document | null>(null);
+  const [historyOf, setHistoryOf] = useState<string | null>(null); // PROD-12
 
   const { data: docs = [], isLoading } = useQuery<Document[]>({
     queryKey: ['documents', processId],
@@ -1399,9 +1480,10 @@ function DocumentosTab({ processId, role }: { processId: string; role: string | 
   const validateMut = useMutation({
     mutationFn: ({ docId, status, notes }: { docId: string; status: string; notes?: string }) =>
       api.patch(`/documents/${docId}`, { status, validatedByNotes: notes }),
-    onSuccess: () => {
+    onSuccess: (_data, vars) => {
       void qc.invalidateQueries({ queryKey: ['documents', processId] });
       void qc.invalidateQueries({ queryKey: ['audit', processId] }); // validação entra na Atividade (FE-22)
+      void qc.invalidateQueries({ queryKey: ['doc-versions', vars.docId] }); // o resultado vai para a versão atual
     },
   });
 
@@ -1443,8 +1525,10 @@ function DocumentosTab({ processId, role }: { processId: string; role: string | 
               const badge = STATUS_BADGE[doc.status];
               // FE-21: o analista também envia o arquivo pela linha (ex.: recebido por e-mail)
               const canUpload = (isCliente || isAnalista) && !doc.formType && (doc.status === 'pendente' || doc.status === 'rejeitado');
+              const versions = doc.versionCount ?? 0;
               return (
-                <div key={doc.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 16px', borderTop: idx === 0 ? 'none' : '1px solid var(--border)' }}>
+                <div key={doc.id} style={{ borderTop: idx === 0 ? 'none' : '1px solid var(--border)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 16px' }}>
                   <div style={{
                     width: 32, height: 32, borderRadius: 6, flexShrink: 0,
                     background: doc.status === 'validado' ? '#dcfce7' : doc.status === 'rejeitado' ? '#fee2e2' : 'var(--bg-subtle)',
@@ -1460,6 +1544,16 @@ function DocumentosTab({ processId, role }: { processId: string; role: string | 
                     {doc.validatedByNotes && (
                       <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 2 }}>{doc.validatedByNotes}</div>
                     )}
+                    {versions > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setHistoryOf(historyOf === doc.id ? null : doc.id)}
+                        aria-expanded={historyOf === doc.id}
+                        style={{ background: 'none', border: 'none', padding: 0, marginTop: 2, fontSize: 11.5, color: 'var(--accent)', cursor: 'pointer', textAlign: 'left', whiteSpace: 'nowrap' }}
+                      >
+                        {historyOf === doc.id ? 'Ocultar histórico' : `Histórico · ${versions} ${versions === 1 ? 'versão' : 'versões'}`}
+                      </button>
+                    )}
                   </div>
                   <span style={{ fontSize: 11.5, padding: '2px 8px', borderRadius: 4, fontWeight: 500, color: badge.color, background: badge.bg, whiteSpace: 'nowrap' }}>
                     {badge.label}
@@ -1467,7 +1561,7 @@ function DocumentosTab({ processId, role }: { processId: string; role: string | 
                   {doc.blobPath && !doc.blobPath.startsWith('local://') && (
                     <DocFileButtons docId={doc.id} label={doc.label ?? doc.name} />
                   )}
-                  {canUpload && <UploadButton docId={doc.id} processId={processId} label={doc.label ?? doc.name} />}
+                  {canUpload && <UploadButton docId={doc.id} processId={processId} label={doc.label ?? doc.name} replace={versions > 0} />}
                   {isAnalista && doc.status === 'recebido' && (
                     <div style={{ display: 'flex', gap: 4 }}>
                       <button className="ds-btn ghost sm" style={{ color: '#16a34a' }}
@@ -1491,6 +1585,8 @@ function DocumentosTab({ processId, role }: { processId: string; role: string | 
                       <Icon.Trash size={13} />
                     </button>
                   )}
+                </div>
+                {historyOf === doc.id && <VersionHistory doc={doc} />}
                 </div>
               );
             })}
@@ -1523,6 +1619,7 @@ function activityDetail(e: AuditEntry): string | null {
   const m = e.metadata;
   if (!m) return null;
   if (m.labels?.length) return m.labels.join(', ');
+  if (m.label && m.version && m.version > 1) return `${m.label} · versão ${m.version}`;
   if (m.label) return m.reason ? `${m.label} · motivo: ${m.reason}` : m.label;
   if (m.fields) return `Campos: ${m.fields}`;
   if (m.after !== undefined) return `${formatCommission(m.before)} → ${formatCommission(m.after)}`;

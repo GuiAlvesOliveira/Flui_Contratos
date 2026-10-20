@@ -53,6 +53,7 @@ import { AddTenantBranding1718501400000 } from './database/migrations/1718501400
 import { AddTasks1718501500000 } from './database/migrations/1718501500000-AddTasks';
 import { AddProcessEscalations1718501600000 } from './database/migrations/1718501600000-AddProcessEscalations';
 import { AddSuccessFee1718501700000 } from './database/migrations/1718501700000-AddSuccessFee';
+import { AddDocumentVersions1718501800000 } from './database/migrations/1718501800000-AddDocumentVersions';
 
 @Module({
   imports: [
@@ -102,6 +103,7 @@ import { AddSuccessFee1718501700000 } from './database/migrations/1718501700000-
           AddTasks1718501500000,
           AddProcessEscalations1718501600000,
           AddSuccessFee1718501700000,
+          AddDocumentVersions1718501800000,
         ],
         migrationsRun: true,
         synchronize: false,

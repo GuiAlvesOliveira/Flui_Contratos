@@ -20,6 +20,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
 import { RequestUserFull } from '../auth/supabase.guard';
 import { Roles } from '../common/decorators/roles.decorator';
+import type { BlobDownload } from '../common/services/azure-storage.service';
 import { TrackUsage } from '../common/decorators/track-usage.decorator';
 import { UpdateDocumentDto } from './dto/update-document.dto';
 import { DpsFormDto, FinanciamentoFormDto } from './dto/forms.dto';
@@ -115,24 +116,29 @@ export class DocumentsController {
     @Request() req: { user: RequestUserFull },
     @Res({ passthrough: true }) res: Response,
   ): Promise<StreamableFile> {
-    const { stream, contentType, contentLength, fileName } =
-      await this.service.downloadFile(docId, req.user);
-    // nosniff impede que um upload rotulado errado (ex.: HTML enviado como
-    // image/png) seja "sniffed" e executado pelo browser; tipos que não sejam
-    // imagem/pdf são forçados a download em vez de inline (SEC-06).
-    const inlineSafe =
-      !!contentType &&
-      (contentType === 'application/pdf' || contentType.startsWith('image/'));
-    res.setHeader('Content-Type', contentType);
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader(
-      'Content-Disposition',
-      `${inlineSafe ? 'inline' : 'attachment'}; filename="${encodeURIComponent(fileName)}"`,
-    );
-    if (contentLength !== undefined) {
-      res.setHeader('Content-Length', contentLength);
-    }
-    return new StreamableFile(stream);
+    return sendFile(res, await this.service.downloadFile(docId, req.user));
+  }
+
+  // PROD-12: histórico de versões do arquivo (mesmo acesso do download)
+  @Get('documents/:docId/versions')
+  @Roles('dono', 'analista', 'cliente')
+  listVersions(
+    @Param('docId', ParseUUIDPipe) docId: string,
+    @Request() req: { user: RequestUserFull },
+  ) {
+    return this.service.listVersions(docId, req.user);
+  }
+
+  @Get('documents/:docId/versions/:versionId/download')
+  @Roles('dono', 'analista', 'cliente')
+  @Header('Cache-Control', 'no-store')
+  async downloadVersion(
+    @Param('docId', ParseUUIDPipe) docId: string,
+    @Param('versionId', ParseUUIDPipe) versionId: string,
+    @Request() req: { user: RequestUserFull },
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<StreamableFile> {
+    return sendFile(res, await this.service.downloadVersion(docId, versionId, req.user));
   }
 
   @Post('documents/:docId/upload')
@@ -152,4 +158,26 @@ export class DocumentsController {
   ) {
     return this.service.uploadFile(docId, file, req.user);
   }
+}
+
+function sendFile(
+  res: Response,
+  { stream, contentType, contentLength, fileName }: BlobDownload & { fileName: string },
+): StreamableFile {
+  // nosniff impede que um upload rotulado errado (ex.: HTML enviado como
+  // image/png) seja "sniffed" e executado pelo browser; tipos que não sejam
+  // imagem/pdf são forçados a download em vez de inline (SEC-06).
+  const inlineSafe =
+    !!contentType &&
+    (contentType === 'application/pdf' || contentType.startsWith('image/'));
+  res.setHeader('Content-Type', contentType);
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader(
+    'Content-Disposition',
+    `${inlineSafe ? 'inline' : 'attachment'}; filename="${encodeURIComponent(fileName)}"`,
+  );
+  if (contentLength !== undefined) {
+    res.setHeader('Content-Length', contentLength);
+  }
+  return new StreamableFile(stream);
 }
