@@ -514,4 +514,16 @@ describe('documents, end to end over SMTP', () => {
     );
     expect(plainText(inbox[0].data)).toContain('Documento cortado');
   });
+
+  it('the reason typed on the screen (validatedByNotes) reaches the client too', async () => {
+    const s = system('cadastro');
+    await documents(s).update(
+      'd1',
+      { status: 'rejeitado', validatedByNotes: 'Documento inválido ou ilegível' },
+      caller,
+    );
+    await s.worker.drain();
+    expect(plainText(inbox[0].data)).toContain('Observação do analista:');
+    expect(plainText(inbox[0].data)).toContain('Documento inválido ou ilegível');
+  });
 });

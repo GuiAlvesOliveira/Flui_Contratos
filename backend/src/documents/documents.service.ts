@@ -295,7 +295,9 @@ export class DocumentsService {
         })
       : await this.repo.save(doc);
 
-    // The client is told which document to send again, and why.
+    // The client is told which document to send again, and why. The screen
+    // sends the reason as validatedByNotes — it used to be left out of the
+    // e-mail, which only looked at notes.
     if (isAnalista && dto.status === 'rejeitado' && doc.userId) {
       const clientId = doc.userId;
       await this.dataSource.transaction((manager) =>
@@ -304,7 +306,7 @@ export class DocumentsService {
           processId: doc.processId,
           clientId,
           label: doc.label ?? doc.name,
-          notes: dto.notes ?? doc.notes,
+          notes: dto.validatedByNotes ?? dto.notes ?? doc.validatedByNotes ?? doc.notes,
         }),
       );
     }

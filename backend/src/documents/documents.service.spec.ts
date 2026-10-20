@@ -344,6 +344,25 @@ describe('DocumentsService.update (authorization)', () => {
     expect(messaging.documentRejected).not.toHaveBeenCalled();
   });
 
+  it('the reason typed on the screen (validatedByNotes) goes to the e-mail', async () => {
+    const { service, repo, manager, messaging } = makeService();
+    repo.findOne.mockResolvedValueOnce({
+      id: 'd1', tenantId: 't1', processId: 'p1', userId: 'cl1', label: 'Holerite', notes: 'nota antiga do cliente',
+    });
+    await service.update(
+      'd1',
+      { status: 'rejeitado', validatedByNotes: 'Documento inválido ou ilegível' },
+      caller('analista'),
+    );
+    expect(messaging.documentRejected).toHaveBeenCalledWith(manager, {
+      tenantId: 't1',
+      processId: 'p1',
+      clientId: 'cl1',
+      label: 'Holerite',
+      notes: 'Documento inválido ou ilegível',
+    });
+  });
+
   it('FE-22: rejection is logged too; personal docs and notes-only edits are not', async () => {
     const { service, repo, dataSource } = makeService();
     repo.findOne.mockResolvedValueOnce({
