@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/axiosInstance';
 import * as Icon from './icons';
@@ -69,19 +69,15 @@ export function NovoProcessoDrawer({ onClose, onSuccess, initialStage }: Props) 
     enabled: !!form.empreendimentoId,
   });
 
-  // Auto-fill valor when unidade is selected
-  useEffect(() => {
-    if (!form.unidadeId) return;
-    const u = unidades.find(u => u.id === form.unidadeId);
-    if (u?.valor) {
-      setForm(f => ({ ...f, valorUnidade: formatCurrency(u.valor) }));
-    }
-  }, [form.unidadeId, unidades]);
-
-  // Reset unidade when empreendimento changes
-  useEffect(() => {
-    setForm(f => ({ ...f, unidadeId: '', valorUnidade: '' }));
-  }, [form.empreendimentoId]);
+  // Escolher o empreendimento limpa a unidade; escolher a unidade traz o valor
+  // dela, uma vez. Antes eram efeitos, e o do valor rodava de novo a cada
+  // recarga da lista de unidades, apagando o valor que o usuário tinha editado.
+  const selectEmpreendimento = (empreendimentoId: string) =>
+    setForm(f => ({ ...f, empreendimentoId, unidadeId: '', valorUnidade: '' }));
+  const selectUnidade = (unidadeId: string) => {
+    const u = unidades.find(x => x.id === unidadeId);
+    setForm(f => ({ ...f, unidadeId, ...(u?.valor ? { valorUnidade: formatCurrency(u.valor) } : {}) }));
+  };
 
   const createMut = useMutation({
     mutationFn: async () => {
@@ -196,7 +192,7 @@ export function NovoProcessoDrawer({ onClose, onSuccess, initialStage }: Props) 
             <select
               className="ds-input"
               value={form.empreendimentoId}
-              onChange={e => set('empreendimentoId', e.target.value)}
+              onChange={e => selectEmpreendimento(e.target.value)}
               style={{ width: '100%' }}
             >
               <option value="">— Sem empreendimento —</option>
@@ -215,7 +211,7 @@ export function NovoProcessoDrawer({ onClose, onSuccess, initialStage }: Props) 
               <select
                 className="ds-input"
                 value={form.unidadeId}
-                onChange={e => set('unidadeId', e.target.value)}
+                onChange={e => selectUnidade(e.target.value)}
                 style={{ width: '100%' }}
                 disabled={unidades.length === 0}
               >
