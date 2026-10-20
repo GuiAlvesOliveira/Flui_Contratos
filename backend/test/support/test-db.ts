@@ -37,6 +37,8 @@ export async function createTestDb(label: string): Promise<TestDb> {
     type: 'postgres',
     url: withDatabase(E2E_DATABASE_URL, name),
     migrations: AppDataSource.options.migrations,
+    // as entidades permitem usar os serviços reais (repositórios do TypeORM)
+    entities: AppDataSource.options.entities,
     installExtensions: false,
     logging: false,
   });

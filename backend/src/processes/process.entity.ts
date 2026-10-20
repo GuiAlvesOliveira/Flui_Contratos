@@ -136,6 +136,18 @@ export class Process {
   @Column({ default: true })
   active: boolean;
 
+  // PROD-09: gravado na mesma transação da entrada em Assinatura
+  @Column({ type: 'timestamptz', name: 'contrato_assinado_em', nullable: true })
+  contratoAssinadoEm: Date | null;
+
+  // PROD-09: comissão da assessoria no contrato (sugestão: 2% do financiamento)
+  @Column({ type: 'decimal', precision: 15, scale: 2, name: 'comissao_assessoria', nullable: true })
+  comissaoAssessoria: number | null;
+
+  // PROD-09: taxa do plano da assessoria congelada na assinatura (fração)
+  @Column({ type: 'decimal', precision: 6, scale: 4, name: 'taxa_success_fee', nullable: true })
+  taxaSuccessFee: number | null;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 

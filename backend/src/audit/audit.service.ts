@@ -106,6 +106,14 @@ export class AuditService {
           `UPDATE processes SET stage = $1, updated_at = now() WHERE id = $2`,
           [log.from_state, log.process_id],
         );
+        // PROD-09: desfazer a entrada em Assinatura desfaz a assinatura do
+        // contrato (a comissão informada fica guardada)
+        if (log.to_state === 'assinatura') {
+          await manager.query(
+            `UPDATE processes SET contrato_assinado_em = NULL, taxa_success_fee = NULL WHERE id = $1`,
+            [log.process_id],
+          );
+        }
         await manager.query(
           `INSERT INTO audit_logs (tenant_id, process_id, actor_id, action, from_state, to_state, metadata)
            VALUES ($1, $2, $3, 'stage_change_undo', $4, $5, $6)`,

@@ -1,4 +1,4 @@
-import { IsIn, IsNumber, IsOptional, IsUUID } from 'class-validator';
+import { IsIn, IsNumber, IsOptional, IsUUID, Max, Min } from 'class-validator';
 
 /**
  * Whitelist for PATCH /processes/:id (updateFields).
@@ -31,4 +31,11 @@ export class UpdateProcessDto {
 
   @IsOptional() @IsIn(['casado', 'solteiro', 'divorciado'])
   estadoCivil?: string | null;
+
+  /** PROD-09: comissão da assessoria no contrato (R$); null limpa. */
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 }, { message: 'Comissão inválida' })
+  @Min(0, { message: 'A comissão não pode ser negativa' })
+  @Max(9_999_999_999_999, { message: 'Comissão inválida' })
+  comissaoAssessoria?: number | null;
 }

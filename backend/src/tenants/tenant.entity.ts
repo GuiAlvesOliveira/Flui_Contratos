@@ -29,6 +29,10 @@ export class Tenant {
   @Column({ type: 'timestamptz', name: 'logo_updated_at', nullable: true })
   logoUpdatedAt: Date | null;
 
+  // PROD-09: plano contratado (taxa do success fee); só o Super Admin altera
+  @Column({ type: 'varchar', length: 20, default: 'essencial' })
+  plano: 'essencial' | 'profissional' | 'escala';
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 }

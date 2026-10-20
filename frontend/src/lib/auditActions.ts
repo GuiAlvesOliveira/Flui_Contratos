@@ -26,6 +26,9 @@ export const ACTION_LABELS: Record<string, string> = {
   tenant_logo_removed: 'Logo da assessoria removido',
   user_status_changed: 'Acesso de usuário alterado',
   invite_resent: 'Convite reenviado',
+  // PROD-09: success fee
+  commission_updated: 'Comissão da assessoria alterada',
+  success_fee_exported: 'Exportação do success fee (CSV)',
 };
 
 export const actionLabel = (action: string) => ACTION_LABELS[action] ?? action;

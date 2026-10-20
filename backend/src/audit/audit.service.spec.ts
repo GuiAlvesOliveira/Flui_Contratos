@@ -191,3 +191,25 @@ describe('AuditService.findAll (BE-07 filters)', () => {
     ]);
   });
 });
+
+describe('AuditService.undo — success fee (PROD-09)', () => {
+  it('desfazer a entrada em Assinatura limpa a data do contrato e a taxa, na mesma transação', async () => {
+    const { service, dataSource, manager } = makeService();
+    dataSource.query
+      .mockResolvedValueOnce([{ action: 'stage_change', process_id: 'p1', from_state: 'cartorio', to_state: 'assinatura' }])
+      .mockResolvedValueOnce([{ stage: 'assinatura', client_id: 'c1', analista_id: null }]);
+    await service.undo('log1', caller);
+    const sqls = manager.query.mock.calls.map(([sql]) => String(sql));
+    expect(sqls[1]).toBe('UPDATE processes SET contrato_assinado_em = NULL, taxa_success_fee = NULL WHERE id = $1');
+    expect((manager.query.mock.calls[1] as [string, unknown[]])[1]).toEqual(['p1']);
+  });
+
+  it('desfazer outras mudanças de etapa não mexe na assinatura', async () => {
+    const { service, dataSource, manager } = makeService();
+    dataSource.query
+      .mockResolvedValueOnce([{ action: 'stage_change', process_id: 'p1', from_state: 'cadastro', to_state: 'analise_credito' }])
+      .mockResolvedValueOnce([{ stage: 'analise_credito' }]);
+    await service.undo('log1', caller);
+    expect(manager.query.mock.calls.some(([sql]) => String(sql).includes('contrato_assinado_em'))).toBe(false);
+  });
+});

@@ -11,7 +11,7 @@ function makeService(process: Partial<Process> | null) {
   const userRepo = {
     findOne: jest.fn().mockResolvedValue({ email: 'c@x.com', name: 'Cli', telefone: null }),
   };
-  const manager = { update: jest.fn(), query: jest.fn() };
+  const manager = { update: jest.fn(), query: jest.fn(), save: jest.fn() };
   const dataSource = {
     query: jest.fn(),
     transaction: jest
@@ -330,7 +330,51 @@ describe('ProcessesService.getAuditLog (RN-01)', () => {
     await service.getAuditLog('p1', cliente);
     await service.getAuditLog('p1', caller);
     const [[asClient], [asStaff]] = dataSource.query.mock.calls as [string][];
-    expect(asClient).toContain("al.action NOT IN ('activity_edited', 'activity_deleted')");
+    expect(asClient).toContain("al.action NOT IN ('activity_edited', 'activity_deleted', 'commission_updated')");
     expect(asStaff).not.toContain('NOT IN');
+  });
+});
+
+describe('ProcessesService — success fee (PROD-09)', () => {
+  it('entrar em Assinatura grava a data, a taxa do plano e a sugestão de comissão na transação da mudança', async () => {
+    const { service, dataSource, manager } = makeService({
+      id: 'p1', stage: 'cartorio', clientId: 'c1', analistaId: 'an1', mipValue: 1, dfiValue: 1,
+    });
+    dataSource.query.mockResolvedValueOnce([{ total: '2', pending: '0' }]); // RN-04 ok
+    await service.advanceStage('p1', dto('assinatura'), caller);
+    const [sql, params] = manager.query.mock.calls[0] as [string, unknown[]];
+    expect(sql).toContain('SET contrato_assinado_em = now()');
+    expect(sql).toContain("(CASE t.plano WHEN 'escala' THEN 0.005 WHEN 'profissional' THEN 0.010 ELSE 0.015 END)");
+    expect(sql).toContain('COALESCE(\n                    p.comissao_assessoria,');
+    expect(sql).toContain('* 0.02, 2)');
+    expect(params).toEqual(['p1', 't1']);
+    // e a data vai antes do registro da mudança no Log de Ações, na mesma transação
+    expect((manager.query.mock.calls[1] as [string])[0]).toContain("'stage_change'");
+  });
+
+  it('as outras etapas não mexem na assinatura', async () => {
+    const { service, manager } = makeService({ id: 'p1', stage: 'inicial', clientId: 'c1', mipValue: null, dfiValue: null });
+    await service.advanceStage('p1', dto('cadastro'), caller);
+    expect(manager.query.mock.calls.some(([sql]) => String(sql).includes('contrato_assinado_em'))).toBe(false);
+  });
+
+  it('alterar a comissão registra o valor anterior e o novo no Log de Ações, na mesma transação; sem mudança, nada', async () => {
+    const { service, repo, dataSource, manager } = makeService({ id: 'p1', tenantId: 't1', comissaoAssessoria: '7000.00' as never });
+    manager.save.mockImplementation((p: unknown) => Promise.resolve(p));
+    await service.updateFields('p1', { comissaoAssessoria: 7500 }, caller);
+    expect(dataSource.transaction).toHaveBeenCalledTimes(1);
+    expect(manager.save).toHaveBeenCalledWith(expect.objectContaining({ comissaoAssessoria: 7500 }));
+    expect(repo.save).not.toHaveBeenCalled();
+    const [sql, params] = manager.query.mock.calls[0] as [string, unknown[]];
+    expect(sql).toContain("'commission_updated'");
+    expect(params).toEqual(['t1', 'p1', 'u1', JSON.stringify({ before: 7000, after: 7500 })]);
+
+    const again = makeService({ id: 'p1', tenantId: 't1', comissaoAssessoria: '7500.00' as never });
+    again.repo.save.mockImplementation((p: unknown) => Promise.resolve(p));
+    await again.service.updateFields('p1', { comissaoAssessoria: 7500, valorUnidade: 1 }, caller);
+    await again.service.updateFields('p1', { valorUnidade: 2 }, caller);
+    expect(again.dataSource.transaction).not.toHaveBeenCalled();
+    expect(again.manager.query).not.toHaveBeenCalled();
+    expect(again.repo.save).toHaveBeenCalledTimes(2);
   });
 });

@@ -31,6 +31,9 @@ interface ProcessDetail {
   dfiValue: number | null;
   motivoInatividade: string | null;
   motivoRecusa: string | null;
+  // PROD-09: a comissão só vem para a equipe; o cliente vê apenas a data
+  contratoAssinadoEm?: string | null;
+  comissaoAssessoria?: number | null;
   createdAt: string;
   updatedAt: string;
   client: {
@@ -63,7 +66,10 @@ interface AuditEntry {
   to_state: string | null;
   actor_name: string | null;
   created_at: string;
-  metadata?: { label?: string; labels?: string[]; fields?: string; reason?: string | null } | null;
+  metadata?: {
+    label?: string; labels?: string[]; fields?: string; reason?: string | null;
+    before?: number | null; after?: number | null; // PROD-09: comissão
+  } | null;
 }
 
 interface Document {
@@ -189,6 +195,20 @@ function initials(name: string | null) {
 function formatCurrency(v: number | null | undefined) {
   if (!v) return '—';
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(v));
+}
+
+// PROD-09: comissão da assessoria — zero é um valor válido, vazio é "a informar"
+function formatCommission(v: number | string | null | undefined) {
+  if (v == null) return 'A informar';
+  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(v));
+}
+
+// PROD-09: sugestão de comissão = 2% do financiamento (formulário de
+// financiamento, senão o valor em aberto) — a mesma regra do backend na assinatura
+function suggestedCommission(docs: Document[], valorEmAberto: number | null): number | null {
+  const fin = docs.find(d => d.formType === 'financiamento');
+  const valor = Number(fin?.formData?.valorFinanciado ?? valorEmAberto);
+  return Number.isFinite(valor) && valor > 0 ? Math.round(valor * 2) / 100 : null;
 }
 
 function daysAgo(dateStr: string) {
@@ -826,7 +846,16 @@ function CadastroTab({ process, role }: { process: ProcessDetail; role: string |
     valorEmAberto: process.valorEmAberto !== null ? String(process.valorEmAberto) : '',
     mipValue: process.mipValue !== null ? String(process.mipValue) : '',
     dfiValue: process.dfiValue !== null ? String(process.dfiValue) : '',
+    comissaoAssessoria: process.comissaoAssessoria != null ? String(process.comissaoAssessoria) : '',
   });
+  const [processSaveError, setProcessSaveError] = useState('');
+  // mesmo cache da aba Documentos; só a equipe vê a comissão
+  const { data: docs = [] } = useQuery<Document[]>({
+    queryKey: ['documents', process.id],
+    queryFn: () => api.get(`/processes/${process.id}/documents`).then(r => r.data),
+    enabled: isAnalista,
+  });
+  const suggestion = suggestedCommission(docs, process.valorEmAberto);
 
   const clientMut = useMutation({
     mutationFn: (dto: typeof clientForm) =>
@@ -876,6 +905,7 @@ function CadastroTab({ process, role }: { process: ProcessDetail; role: string |
         valorEmAberto: dto.valorEmAberto !== '' ? Number(dto.valorEmAberto) : null,
         mipValue: dto.mipValue !== '' ? Number(dto.mipValue) : null,
         dfiValue: dto.dfiValue !== '' ? Number(dto.dfiValue) : null,
+        comissaoAssessoria: dto.comissaoAssessoria !== '' ? Number(dto.comissaoAssessoria) : null,
       };
       return api.patch(`/processes/${process.id}`, payload).then(r => r.data);
     },
@@ -883,8 +913,10 @@ function CadastroTab({ process, role }: { process: ProcessDetail; role: string |
       void qc.invalidateQueries({ queryKey: ['process', process.id] });
       void qc.invalidateQueries({ queryKey: ['processes'] });
       void qc.invalidateQueries({ queryKey: ['documents', process.id] });
+      void qc.invalidateQueries({ queryKey: ['audit', process.id] });
       setEditingProcess(false);
     },
+    onError: (err: unknown) => setProcessSaveError(apiErrorMessage(err, 'Erro ao salvar os dados do processo')),
   });
 
   return (
@@ -964,7 +996,7 @@ function CadastroTab({ process, role }: { process: ProcessDetail; role: string |
         <div className="ds-card-hdr">
           Dados do Processo
           {isAnalista && !editingProcess && (
-            <button className="ds-btn ghost sm" style={{ marginLeft: 'auto' }} onClick={() => setEditingProcess(true)}>
+            <button className="ds-btn ghost sm" style={{ marginLeft: 'auto' }} onClick={() => { setProcessSaveError(''); setEditingProcess(true); }}>
               <Icon.Edit size={12} /> Editar
             </button>
           )}
@@ -1015,6 +1047,29 @@ function CadastroTab({ process, role }: { process: ProcessDetail; role: string |
                   </div>
                 </div>
               ))}
+              <div className="ds-field" style={{ marginBottom: 0 }}>
+                <label htmlFor="proc-comissao">Comissão da assessoria (R$)</label>
+                <div className="ds-input">
+                  <input
+                    id="proc-comissao" type="number" min="0" step="0.01"
+                    value={processForm.comissaoAssessoria}
+                    onChange={e => setProcessForm(f => ({ ...f, comissaoAssessoria: e.target.value }))}
+                    placeholder="0,00" style={{ flex: 1 }} aria-describedby="proc-comissao-hint"
+                  />
+                </div>
+                <span id="proc-comissao-hint" style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>
+                  Base do success fee da Flui. Se ficar em branco, ao assinar o contrato vale 2% do financiamento.
+                </span>
+                {suggestion !== null && (
+                  <button
+                    type="button" className="ds-btn ghost sm" style={{ alignSelf: 'flex-start' }}
+                    onClick={() => setProcessForm(f => ({ ...f, comissaoAssessoria: suggestion.toFixed(2) }))}
+                  >
+                    Usar sugestão: {formatCommission(suggestion)} (2% do financiamento)
+                  </button>
+                )}
+              </div>
+              {processSaveError && <div className="ds-alert urgent" style={{ fontSize: 12.5 }}>{processSaveError}</div>}
               <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
                 <button type="button" className="ds-btn ghost sm" onClick={() => setEditingProcess(false)}>Cancelar</button>
                 <button type="submit" className="ds-btn accent sm" disabled={processMut.isPending}>
@@ -1036,6 +1091,18 @@ function CadastroTab({ process, role }: { process: ProcessDetail; role: string |
               <dd>{formatCurrency(process.mipValue)}</dd>
               <dt>DFI</dt>
               <dd>{formatCurrency(process.dfiValue)}</dd>
+              {isAnalista && (
+                <>
+                  <dt>Comissão da assessoria</dt>
+                  <dd>{formatCommission(process.comissaoAssessoria)}</dd>
+                </>
+              )}
+              {process.contratoAssinadoEm && (
+                <>
+                  <dt>Contrato assinado em</dt>
+                  <dd>{new Date(process.contratoAssinadoEm).toLocaleDateString('pt-BR')}</dd>
+                </>
+              )}
             </dl>
           )}
         </div>
@@ -1458,6 +1525,7 @@ function activityDetail(e: AuditEntry): string | null {
   if (m.labels?.length) return m.labels.join(', ');
   if (m.label) return m.reason ? `${m.label} · motivo: ${m.reason}` : m.label;
   if (m.fields) return `Campos: ${m.fields}`;
+  if (m.after !== undefined) return `${formatCommission(m.before)} → ${formatCommission(m.after)}`;
   return null;
 }
 

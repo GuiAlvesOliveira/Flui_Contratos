@@ -15,6 +15,7 @@ import { CreateProcessDto } from './dto/create-process.dto';
 import { UpdateProcessDto } from './dto/update-process.dto';
 import { allowedTransitions, LINEAR_STAGES, Process, ProcessStage } from './process.entity';
 import { processesCsv, type ExportRow } from './processes-csv';
+import { financingSql, planRateSql, SUGGESTED_COMMISSION } from '../reports/success-fee';
 
 // RN-04: a process may only move past analise_credito with every document
 // validated. Applies to forward moves starting from analise_credito onward
@@ -28,6 +29,14 @@ function requiresDocGate(from: ProcessStage, to: ProcessStage): boolean {
   if (from === 'processo_pendencia') return ti > gateFrom;
   const fi = LINEAR_STAGES.indexOf(from);
   return fi >= gateFrom && ti > fi;
+}
+
+// PROD-09: the assessoria's commission and the Flui fee rate are internal —
+// the cliente only sees the contract date.
+function hideCommission<T extends Process>(p: T): Omit<T, 'comissaoAssessoria' | 'taxaSuccessFee'> {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { comissaoAssessoria, taxaSuccessFee, ...rest } = p;
+  return rest;
 }
 
 @Injectable()
@@ -91,7 +100,8 @@ export class ProcessesService {
       qb.andWhere('unidade.empreendimentoId = :empId', { empId: empreendimentoId });
     }
 
-    return qb.getMany();
+    const list = await qb.getMany();
+    return caller.role === 'cliente' ? list.map(hideCommission) : list;
   }
 
   // BE-17: every active process of the tenant as CSV (gestor only). Exporting
@@ -139,7 +149,8 @@ export class ProcessesService {
     // RN-06: surface the server-computed income composition alongside the
     // process so the UI never has to re-sum participants client-side.
     const composition = await this.computeIncomeComposition(id, caller.tenantId!);
-    return { ...process, ...composition };
+    const visible = caller.role === 'cliente' ? hideCommission(process) : process;
+    return { ...visible, ...composition };
   }
 
   // RN-06: income composition = sum of every participant's declared income.
@@ -181,10 +192,24 @@ export class ProcessesService {
 
     await this.assertAssociationsInTenant(caller.tenantId!, dto.analistaId, dto.unidadeId);
 
+    // PROD-09: a comissão entra no success fee — a troca fica no Log de Ações
+    const before = process.comissaoAssessoria == null ? null : Number(process.comissaoAssessoria);
+    const after = dto.comissaoAssessoria === undefined ? before : dto.comissaoAssessoria;
+
     // BE-03: setting the income source no longer creates a fixed checklist;
     // the analista requests the documents from the assessoria's catalog.
     Object.assign(process, dto);
-    return this.repo.save(process);
+    if (after === before) return this.repo.save(process);
+    // the new value and its audit entry are saved together (RN-07)
+    return this.dataSource.transaction(async (manager) => {
+      const saved = await manager.save(process);
+      await manager.query(
+        `INSERT INTO audit_logs (tenant_id, process_id, actor_id, action, metadata)
+         VALUES ($1, $2, $3, 'commission_updated', $4::jsonb)`,
+        [caller.tenantId, id, caller.userId, JSON.stringify({ before, after })],
+      );
+      return saved;
+    });
   }
 
   async advanceStage(id: string, dto: AdvanceStageDto, caller: RequestUserFull) {
@@ -268,6 +293,21 @@ export class ProcessesService {
 
     await this.dataSource.transaction(async (manager) => {
       await manager.update(Process, id, updates);
+      if (dto.toStage === 'assinatura') {
+        // PROD-09: contrato assinado agora, com a taxa do plano congelada e,
+        // se a comissão ainda não foi informada, a sugestão de 2% do financiamento
+        await manager.query(
+          `UPDATE processes p
+              SET contrato_assinado_em = now(),
+                  taxa_success_fee = ${planRateSql('t.plano')},
+                  comissao_assessoria = COALESCE(
+                    p.comissao_assessoria,
+                    ROUND(${financingSql('p')} * ${SUGGESTED_COMMISSION}, 2))
+             FROM tenants t
+            WHERE t.id = p.tenant_id AND p.id = $1 AND p.tenant_id = $2`,
+          [id, caller.tenantId],
+        );
+      }
       await manager.query(
         `INSERT INTO audit_logs (tenant_id, process_id, actor_id, action, from_state, to_state)
          VALUES ($1, $2, $3, 'stage_change', $4, $5)`,
@@ -314,10 +354,11 @@ export class ProcessesService {
     if (!process) throw new NotFoundException('Processo não encontrado');
 
     // Edits and removals in the Histórico de Atividades are internal to the
-    // assessoria (they carry the previous text and the removal reason).
+    // assessoria (they carry the previous text and the removal reason), and so
+    // is the commission (PROD-09).
     const internal =
       caller.role === 'cliente'
-        ? `AND al.action NOT IN ('activity_edited', 'activity_deleted')`
+        ? `AND al.action NOT IN ('activity_edited', 'activity_deleted', 'commission_updated')`
         : '';
     return this.dataSource.query(
       `SELECT al.*, u.name as actor_name

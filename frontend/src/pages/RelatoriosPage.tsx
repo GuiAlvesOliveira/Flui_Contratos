@@ -20,6 +20,19 @@ interface Summary {
   avgDaysInStage: { stage: ProcessStage; avgDays: number | null; samples: number }[];
 }
 interface RankingRow { analistaId: string | null; name: string; signed: number; activeProcesses: number; avgDays: number | null }
+// PROD-09: GET /reports/success-fee
+interface MonthTotal { month: string; contracts: number; commission: number; fee: number; pending: number }
+interface SignedContract {
+  processId: string; signedAt: string; month: string; clientName: string; analistaName: string | null;
+  financing: number | null; commission: number | null; rate: number | null; fee: number | null;
+}
+interface SuccessFeeReport {
+  year: number;
+  plan: { code: string; label: string; rate: number };
+  months: MonthTotal[];
+  contracts: SignedContract[];
+  totals: { contracts: number; commission: number; fee: number; pending: number };
+}
 
 const PERIODS = [7, 30, 90, 180, 365];
 const SIDE_STAGES: ProcessStage[] = ['cliente_inativo', 'credito_recusado', 'processo_pendencia'];
@@ -30,6 +43,21 @@ const fmtPct = (n: number | null) => (n === null ? '—' : `${n.toLocaleString('
 const fmtDays = (n: number | null) =>
   n === null ? '—' : `${n.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} dia${n === 1 ? '' : 's'}`;
 const fmtDate = (d: Date) => d.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+const fmtRate = (n: number | null) => (n === null ? '—' : fmtPct(n * 100));
+const MONTHS = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+// AAAA-MM-DD no horário de Brasília
+const brtToday = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' });
+
+function download(blob: Blob, fileName: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = fileName;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+}
 
 export function RelatoriosPage({ role }: { role: string | null }) {
   const [days, setDays] = useState(30);
@@ -64,14 +92,7 @@ export function RelatoriosPage({ role }: { role: string | null }) {
     setExportError('');
     try {
       const resp = await api.get('/reports/export', { params: { format, days }, responseType: 'blob' });
-      const url = URL.createObjectURL(resp.data as Blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `relatorio-${todayIso()}-${days}dias.${format}`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 10_000);
+      download(resp.data as Blob, `relatorio-${todayIso()}-${days}dias.${format}`);
     } catch (err) {
       setExportError(apiErrorMessage(err, 'Não foi possível gerar o arquivo'));
     } finally {
@@ -208,6 +229,141 @@ export function RelatoriosPage({ role }: { role: string | null }) {
           </div>
         </>
       )}
+
+      <SuccessFeeSection />
     </div>
+  );
+}
+
+// PROD-09 — contratos assinados no ano e o success fee devido à Flui: a taxa
+// do plano da assessoria sobre a comissão de cada contrato (não sobre o
+// financiamento). O CSV sai dos mesmos números.
+function SuccessFeeSection() {
+  const today = brtToday();
+  const current = Number(today.slice(0, 4));
+  const [year, setYear] = useState(current);
+  const [exporting, setExporting] = useState(false);
+  const [error, setError] = useState('');
+  const q = useQuery<SuccessFeeReport>({
+    queryKey: ['reports-success-fee', year],
+    queryFn: () => api.get<SuccessFeeReport>('/reports/success-fee', { params: { year } }).then(r => r.data),
+  });
+
+  async function exportar() {
+    setExporting(true);
+    setError('');
+    try {
+      const resp = await api.get('/reports/success-fee/export', { params: { year }, responseType: 'blob' });
+      download(resp.data as Blob, `success-fee-${year}.csv`);
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Não foi possível gerar o arquivo'));
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  const r = q.data;
+  // no ano corrente, só os meses até o atual
+  const months = (r?.months ?? []).filter(m => r!.year < current || m.month <= today.slice(0, 7));
+
+  return (
+    <section aria-labelledby="success-fee-title" style={{ marginTop: 16 }} data-testid="success-fee">
+      <div className="ds-list-toolbar">
+        <h2 id="success-fee-title" style={{ margin: 0, fontSize: 15, fontWeight: 600 }}>Contratos assinados e success fee</h2>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginLeft: 'auto' }}>
+          <label htmlFor="success-fee-year" style={{ fontSize: 12, color: 'var(--text-muted)' }}>Ano</label>
+          <div className="ds-input" style={{ width: 'auto' }}>
+            <select id="success-fee-year" value={year} onChange={e => setYear(Number(e.target.value))}
+              style={{ border: 'none', outline: 'none', background: 'transparent', fontSize: 13, cursor: 'pointer' }}>
+              {Array.from({ length: 5 }, (_, i) => current - i).map(y => <option key={y} value={y}>{y}</option>)}
+            </select>
+          </div>
+          <button className="ds-btn" disabled={exporting || !r} onClick={() => void exportar()}>
+            <Icon.Download size={13} /> {exporting ? 'Gerando...' : 'Exportar CSV'}
+          </button>
+        </div>
+      </div>
+      {error && <div role="alert" style={{ fontSize: 12.5, color: 'var(--red)', marginBottom: 12 }}>{error}</div>}
+
+      {q.isError ? (
+        <div role="alert" className="ds-card" style={{ padding: 24, textAlign: 'center', color: 'var(--red)', fontSize: 13 }}>Não foi possível carregar o success fee.</div>
+      ) : !r ? (
+        <div className="ds-card" style={{ padding: 24, textAlign: 'center', color: 'var(--text-faint)', fontSize: 13 }}>Carregando...</div>
+      ) : (
+        <>
+          <p style={{ fontSize: 12.5, color: 'var(--text-muted)', margin: '0 0 12px' }} data-testid="success-fee-plan">
+            Plano <strong>{r.plan.label}</strong>: a Flui retém {fmtRate(r.plan.rate)} da comissão da assessoria em cada contrato assinado.
+            A taxa fica gravada na assinatura; uma troca de plano vale só para os contratos seguintes.
+          </p>
+          <div className="ds-kpi-row" data-testid="success-fee-kpis">
+            {[
+              { label: `Contratos assinados em ${r.year}`, value: fmtInt(r.totals.contracts), meta: 'entraram em Assinatura no ano' },
+              { label: 'Comissão da assessoria', value: fmtMoney(r.totals.commission), meta: 'soma dos contratos do ano' },
+              { label: 'Success fee', value: fmtMoney(r.totals.fee), meta: 'comissão × taxa do plano' },
+              { label: 'Comissão a informar', value: fmtInt(r.totals.pending), meta: r.totals.pending ? 'contratos fora do total' : 'todos os contratos com comissão' },
+            ].map(k => (
+              <div className="ds-kpi" key={k.label}>
+                <div className="ds-kpi-label">{k.label}</div>
+                <div className="ds-kpi-value" style={{ fontSize: 22 }}>{k.value}</div>
+                <div className="ds-kpi-meta">{k.meta}</div>
+              </div>
+            ))}
+          </div>
+
+          <div className="ds-dash-grid">
+            <div className="ds-card ds-col-5">
+              <div className="ds-card-hdr"><h3>Por mês</h3><span className="meta">{r.year}</span></div>
+              <table className="ds-table" aria-label="Success fee por mês">
+                <thead><tr><th>Mês</th><th style={{ textAlign: 'right' }}>Contratos</th><th style={{ textAlign: 'right' }}>Comissão</th><th style={{ textAlign: 'right' }}>Success fee</th></tr></thead>
+                <tbody>
+                  {months.map(m => (
+                    <tr key={m.month} style={m.contracts ? undefined : { color: 'var(--text-faint)' }}>
+                      <td style={{ textTransform: 'capitalize' }}>{MONTHS[Number(m.month.slice(5, 7)) - 1]}</td>
+                      <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtInt(m.contracts)}{m.pending ? ` (${m.pending} a informar)` : ''}</td>
+                      <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtMoney(m.commission)}</td>
+                      <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: m.contracts ? 600 : undefined }}>{fmtMoney(m.fee)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr style={{ fontWeight: 600 }}>
+                    <td>Total</td>
+                    <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtInt(r.totals.contracts)}</td>
+                    <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtMoney(r.totals.commission)}</td>
+                    <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtMoney(r.totals.fee)}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+
+            <div className="ds-card ds-col-7">
+              <div className="ds-card-hdr"><h3>Contratos do ano</h3><span className="meta">data em que o processo entrou em Assinatura</span></div>
+              {r.contracts.length === 0 ? (
+                <div style={{ padding: 20, textAlign: 'center', fontSize: 13, color: 'var(--text-faint)' }}>Nenhum contrato assinado em {r.year}.</div>
+              ) : (
+                <table className="ds-table" aria-label="Contratos assinados">
+                  <thead><tr><th>Assinado em</th><th>Cliente</th><th>Analista</th><th style={{ textAlign: 'right' }}>Financiamento</th><th style={{ textAlign: 'right' }}>Comissão</th><th style={{ textAlign: 'right' }}>Taxa</th><th style={{ textAlign: 'right' }}>Success fee</th></tr></thead>
+                  <tbody>
+                    {r.contracts.map(c => (
+                      <tr key={c.processId}>
+                        <td style={{ fontVariantNumeric: 'tabular-nums' }}>{fmtDate(new Date(c.signedAt))}</td>
+                        <td style={{ fontWeight: 500 }}>{c.clientName}</td>
+                        <td style={{ color: c.analistaName ? undefined : 'var(--text-muted)' }}>{c.analistaName ?? 'Sem analista'}</td>
+                        <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtMoney(c.financing)}</td>
+                        <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: c.commission === null ? 'var(--amber)' : undefined }}>
+                          {c.commission === null ? 'A informar' : fmtMoney(c.commission)}
+                        </td>
+                        <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtRate(c.rate)}</td>
+                        <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{fmtMoney(c.fee)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        </>
+      )}
+    </section>
   );
 }
