@@ -1419,7 +1419,7 @@ function VersionHistory({ doc }: { doc: Document }) {
   });
 
   return (
-    <div role="region" aria-label={`Histórico de ${label}`} style={{ padding: '0 16px 12px 60px' }}>
+    <div role="region" aria-label={`Histórico de ${label}`} className="ds-doc-history" style={{ padding: '0 16px 12px 60px' }}>
       {isLoading ? (
         <div style={{ fontSize: 12, color: 'var(--text-faint)' }}>Carregando histórico...</div>
       ) : isError ? (
@@ -1528,7 +1528,7 @@ function DocumentosTab({ processId, role }: { processId: string; role: string | 
               const versions = doc.versionCount ?? 0;
               return (
                 <div key={doc.id} style={{ borderTop: idx === 0 ? 'none' : '1px solid var(--border)' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 16px' }}>
+                <div className="ds-proc-doc" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 16px' }}>
                   <div style={{
                     width: 32, height: 32, borderRadius: 6, flexShrink: 0,
                     background: doc.status === 'validado' ? '#dcfce7' : doc.status === 'rejeitado' ? '#fee2e2' : 'var(--bg-subtle)',
@@ -1536,7 +1536,7 @@ function DocumentosTab({ processId, role }: { processId: string; role: string | 
                   }}>
                     <Icon.FileText size={14} style={{ color: doc.status === 'validado' ? '#16a34a' : doc.status === 'rejeitado' ? '#dc2626' : 'var(--text-faint)' }} />
                   </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
+                  <div className="ds-proc-doc-info" style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 13, fontWeight: 500 }}>{doc.label ?? doc.name}</div>
                     {doc.formType && (
                       <div style={{ fontSize: 11.5, color: 'var(--text-faint)', marginTop: 2 }}>Preenchido na aba Formulários</div>
@@ -2050,7 +2050,7 @@ export function ProponenteDetailPage({ processId, onBack, role }: Props) {
       {/* Hero card */}
       <div className="ds-card" style={{ marginBottom: 0, borderRadius: 'var(--radius) var(--radius) 0 0', borderBottom: 'none' }}>
         <div className="ds-card-body" style={{ padding: '20px 24px' }}>
-          <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
+          <div className="ds-proc-hero" style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
             {/* Avatar */}
             <div style={{
               width: 52, height: 52, borderRadius: '50%', flexShrink: 0,
@@ -2062,7 +2062,7 @@ export function ProponenteDetailPage({ processId, onBack, role }: Props) {
             </div>
 
             {/* Info */}
-            <div style={{ flex: 1, minWidth: 0 }}>
+            <div className="ds-proc-hero-info" style={{ flex: 1, minWidth: 0 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
                 <span style={{ fontSize: 11.5, color: 'var(--text-faint)', fontFamily: 'var(--font-mono)' }}>
                   {shortId(process.id)}
@@ -2099,7 +2099,7 @@ export function ProponenteDetailPage({ processId, onBack, role }: Props) {
             </div>
 
             {/* Financial stats */}
-            <div style={{ display: 'flex', gap: 28, flexShrink: 0, alignItems: 'flex-start' }}>
+            <div className="ds-proc-hero-stats" style={{ display: 'flex', gap: 28, flexShrink: 0, alignItems: 'flex-start' }}>
               {process.valorUnidade && (
                 <div>
                   <div style={{ fontSize: 10, color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 3 }}>
@@ -2133,7 +2133,7 @@ export function ProponenteDetailPage({ processId, onBack, role }: Props) {
             </div>
 
             {/* Action buttons */}
-            <div style={{ display: 'flex', gap: 8, flexShrink: 0, alignItems: 'center', marginLeft: 8 }}>
+            <div className="ds-proc-hero-actions" style={{ display: 'flex', gap: 8, flexShrink: 0, alignItems: 'center', marginLeft: 8 }}>
               <button className="ds-btn ghost sm" onClick={onBack}>← Voltar</button>
               {isAnalista && allowedTransitions(process.stage, process.stageBeforePendencia).length > 0 && (
                 <button className="ds-btn accent sm" onClick={() => setShowMoverEtapa(true)} style={{ gap: 6 }}>

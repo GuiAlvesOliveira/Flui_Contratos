@@ -919,6 +919,12 @@ input, select, textarea { font-family: inherit; }
   .ds-dash-grid > [class*="ds-col-"] { grid-column: span 12; }
   .ds-split { grid-template-columns: 1fr; }
   .ds-page { padding: 20px 20px 64px; }
+  /* Página do processo: o cabeçalho empilha (nome, valores, botões) em vez de
+     espremer a coluna do nome até zero */
+  .ds-proc-hero { flex-wrap: wrap; }
+  .ds-proc-hero-info { flex: 1 1 calc(100% - 68px) !important; }
+  .ds-proc-hero-stats { flex: 1 1 100% !important; flex-wrap: wrap; gap: 12px 20px !important; }
+  .ds-proc-hero-actions { flex: 1 1 100% !important; margin-left: 0 !important; justify-content: flex-end; flex-wrap: wrap; }
 }
 
 @media (max-width: 640px) {
@@ -944,6 +950,11 @@ input, select, textarea { font-family: inherit; }
   .ds-seg { max-width: 100%; overflow-x: auto; }
   .ds-seg-btn { white-space: nowrap; }
   .ds-only-mobile { display: block !important; }
+  /* Aba Documentos do processo: o nome ocupa a linha; situação e ações vêm embaixo */
+  .ds-proc-doc { flex-wrap: wrap; row-gap: 6px !important; }
+  .ds-proc-doc-info { flex: 1 1 calc(100% - 44px) !important; }
+  .ds-proc-doc-info + * { margin-left: 44px; }
+  .ds-doc-history { padding-left: 28px !important; }
 }
 .ds-only-mobile { display: none; }
 
