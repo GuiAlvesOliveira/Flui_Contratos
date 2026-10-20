@@ -23,6 +23,22 @@ describe('UpdateProcessDto — comissão da assessoria (PROD-09)', () => {
   });
 });
 
+const messagesOf = async (body: object) =>
+  (await validate(plainToInstance(UpdateProcessDto, body))).flatMap((e) =>
+    Object.values(e.constraints ?? {}),
+  );
+
+describe('UpdateProcessDto — uma mensagem por problema na comissão', () => {
+  it.each([
+    ['7000', 'A comissão deve ser um número em reais'],
+    [-1, 'A comissão não pode ser negativa'],
+    [10.123, 'A comissão aceita até 2 casas decimais'],
+    [1e16, 'A comissão está acima do limite'],
+  ])('%p → %s', async (v, message) => {
+    expect(await messagesOf({ comissaoAssessoria: v })).toEqual([message]);
+  });
+});
+
 describe('UpdateProcessDto — estado civil e fonte de renda', () => {
   it.each(['solteiro', 'casado', 'divorciado', 'viuvo', 'uniao_estavel'])(
     'aceita o estado civil %s (o mesmo que a tela oferece)',

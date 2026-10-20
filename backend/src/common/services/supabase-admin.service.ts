@@ -1,11 +1,12 @@
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { createClient } from '@supabase/supabase-js';
 import { primaryFrontendUrl } from '../frontend-url';
 
 @Injectable()
 export class SupabaseAdminService {
-  private readonly supabase: SupabaseClient;
+  // the type createClient returns (the bare SupabaseClient has other generics)
+  private readonly supabase: ReturnType<typeof createClient>;
 
   constructor(private readonly config: ConfigService) {
     this.supabase = createClient(

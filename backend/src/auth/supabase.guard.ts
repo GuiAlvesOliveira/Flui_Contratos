@@ -30,7 +30,8 @@ const REJECTED = new Set(['AuthInvalidJwtError', 'AuthApiError']);
 @Injectable()
 export class SupabaseGuard implements CanActivate {
   private readonly logger = new Logger(SupabaseGuard.name);
-  private readonly supabase: SupabaseClient;
+  // the type createClient returns (the bare SupabaseClient has other generics)
+  private readonly supabase: ReturnType<typeof createClient>;
   private readonly issuer: string;
   private claimsMismatchLogged = false;
 

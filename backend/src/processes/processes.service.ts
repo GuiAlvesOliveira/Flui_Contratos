@@ -1,6 +1,5 @@
 import {
   BadRequestException,
-  ForbiddenException,
   Injectable,
   NotFoundException,
   UnprocessableEntityException,
@@ -363,7 +362,7 @@ export class ProcessesService {
       caller.role === 'cliente'
         ? `AND al.action NOT IN ('activity_edited', 'activity_deleted', 'commission_updated')`
         : '';
-    return this.dataSource.query(
+    return this.dataSource.query<Record<string, unknown>[]>(
       `SELECT al.*, u.name as actor_name
        FROM audit_logs al
        LEFT JOIN users u ON u.id = al.actor_id

@@ -16,7 +16,7 @@ function makeService(process: Partial<Process> | null) {
     query: jest.fn(),
     transaction: jest
       .fn()
-      .mockImplementation(async (cb: (m: unknown) => unknown) => cb(manager)),
+      .mockImplementation((cb: (m: unknown) => unknown) => cb(manager)),
   };
   const messaging = { stageChanged: jest.fn().mockResolvedValue(1) };
   const service = new ProcessesService(

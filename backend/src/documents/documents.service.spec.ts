@@ -159,7 +159,7 @@ describe('DocumentsService.requestDocuments (BE-03 catalog)', () => {
       ),
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(typeRepo.find).toHaveBeenCalledWith({
-      where: { id: expect.anything(), tenantId: 't1', active: true },
+      where: { id: expect.anything() as unknown, tenantId: 't1', active: true },
     });
     expect(repo.save).not.toHaveBeenCalled();
   });
