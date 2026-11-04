@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { buscarCep, cepDigits, enderecoTexto } from './cep';
+import { buscarCep, cepDigits, enderecoTexto, type EnderecoCep } from './cep';
 
 export type CepEstado = 'idle' | 'buscando' | 'ok' | 'nao-encontrado' | 'indisponivel';
 
@@ -21,7 +21,8 @@ export function useCepLookup() {
 
   useEffect(() => () => atual.current?.abort(), []);
 
-  const buscar = useCallback((valor: string, aplicar: (endereco: string) => void) => {
+  // `aplicar` recebe o endereço em texto e, para quem guarda em partes, as partes
+  const buscar = useCallback((valor: string, aplicar: (endereco: string, partes: EnderecoCep) => void) => {
     const d = cepDigits(valor);
     if (d.length !== 8) {
       atual.current?.abort();
@@ -39,7 +40,7 @@ export function useCepLookup() {
       .then(e => {
         if (ctrl.signal.aborted) return;
         if (!e) { setEstado('nao-encontrado'); return; }
-        aplicar(enderecoTexto(e));
+        aplicar(enderecoTexto(e), e);
         setEstado('ok');
       })
       .catch(() => { if (!ctrl.signal.aborted) setEstado('indisponivel'); });

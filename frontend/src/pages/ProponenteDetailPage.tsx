@@ -13,6 +13,8 @@ import { SolicitarDocumentosModal } from '../components/SolicitarDocumentosModal
 import { ExcluirDocumentoModal } from '../components/ExcluirDocumentoModal';
 import { ExcluirAtividadeModal } from '../components/ExcluirAtividadeModal';
 import { FormulariosTab } from '../components/FormulariosTab';
+import { FichaCompleta } from '../components/FichaCompleta';
+import { useDadosSolicitados } from '../lib/ficha';
 import { SenhaTemporaria } from '../components/SenhaTemporaria';
 import { cepDigits, formatCep } from '../lib/cep';
 import { useCepLookup } from '../lib/useCepLookup';
@@ -1146,10 +1148,11 @@ function CadastroTab({ process, role }: { process: ProcessDetail; role: string |
 }
 
 // ── FichaTab ───────────────────────────────────────────────────────────────────
-// Ficha cadastral completa (FE-20): dados pessoais, renda, financiamento e
-// imóvel numa visão só de leitura, apontando o que ainda falta preencher.
+// Ficha cadastral (FE-20) + ficha completa dos formulários do banco: a equipe
+// edita os dados do cliente, do 2º comprador e do financiamento, pede ao
+// cliente o que falta e gera os formulários; o cliente responde os pedidos.
 
-function FichaTab({ process }: { process: ProcessDetail }) {
+function FichaTab({ process, role }: { process: ProcessDetail; role: string | null }) {
   const { client, unidade, analista } = process;
 
   const { data: participants = [] } = useQuery<Participant[]>({
@@ -1165,7 +1168,8 @@ function FichaTab({ process }: { process: ProcessDetail }) {
   const idade = client.dataNascimento ? ageOn(client.dataNascimento) : null;
 
   // null = campo não preenchido
-  const sections: { title: string; rows: [string, string | null][] }[] = [
+  // para a equipe os dados pessoais estão na ficha completa, logo acima
+  const allSections: { title: string; rows: [string, string | null][] }[] = [
     {
       title: 'Dados pessoais',
       rows: [
@@ -1210,10 +1214,12 @@ function FichaTab({ process }: { process: ProcessDetail }) {
       ],
     },
   ];
+  const sections = role === 'cliente' ? allSections : allSections.filter(s => s.title !== 'Dados pessoais');
   const missing = sections.flatMap(s => s.rows.filter(([, v]) => v === null).map(([k]) => k));
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <FichaCompleta processId={process.id} role={role} />
       {missing.length === 0 ? (
         <div className="ds-alert" style={{ background: 'var(--green-soft)', border: '1px solid var(--green-soft-border)', color: 'var(--green)', borderRadius: 'var(--radius)' }}>
           <Icon.Check size={14} />
@@ -2005,6 +2011,8 @@ interface Props {
 export function ProponenteDetailPage({ processId, onBack, role }: Props) {
   const [tab, setTab] = useState<Tab>('workflow');
   const [showMoverEtapa, setShowMoverEtapa] = useState(false);
+  // ficha completa: dados que a assessoria pediu ao cliente
+  const { data: pedidosDados = [] } = useDadosSolicitados(processId, role === 'cliente');
 
   const { data: process, isLoading, isError } = useQuery<ProcessDetail>({
     queryKey: ['process', processId],
@@ -2150,6 +2158,15 @@ export function ProponenteDetailPage({ processId, onBack, role }: Props) {
         <StageSteps stage={process.stage} />
       </div>
 
+      {pedidosDados.length > 0 && tab !== 'ficha' && (
+        <div className="ds-alert warn" role="status" data-testid="aviso-dados-solicitados"
+          style={{ borderRadius: 'var(--radius)', margin: '12px 0 0', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Icon.AlertTriangle size={14} />
+          <span>Sua assessoria pediu alguns dados para preencher os formulários do banco.</span>
+          <button className="ds-btn accent sm" style={{ marginLeft: 'auto' }} onClick={() => setTab('ficha')}>Responder</button>
+        </div>
+      )}
+
       {/* Tabs */}
       <div style={{
         background: 'var(--bg-card)', border: '1px solid var(--border)', borderTop: 'none',
@@ -2168,7 +2185,7 @@ export function ProponenteDetailPage({ processId, onBack, role }: Props) {
       {/* Tab content */}
       {tab === 'workflow' && <WorkflowTab process={process} docs={docs} isAnalista={isAnalista} onMoverEtapa={() => setShowMoverEtapa(true)} />}
       {tab === 'cadastro' && <CadastroTab process={process} role={role} />}
-      {tab === 'ficha' && <FichaTab process={process} />}
+      {tab === 'ficha' && <FichaTab process={process} role={role} />}
       {tab === 'documentos' && <DocumentosTab processId={processId} role={role} />}
       {tab === 'formularios' && <FormulariosTab processId={processId} docs={docs} role={role} />}
       {tab === 'atividade' && (

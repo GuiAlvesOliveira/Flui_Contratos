@@ -10,6 +10,7 @@ export const NOTIFY_ACTIONS: Record<string, string[]> = {
     'form_submitted',
     'process_deactivated',
     'process_reactivated',
+    'data_request_answered',
   ],
   analista: [
     'stage_change',
@@ -18,10 +19,12 @@ export const NOTIFY_ACTIONS: Record<string, string[]> = {
     'process_deactivated',
     'process_reactivated',
     'profile_update',
+    'data_request_answered',
   ],
   cliente: [
     'stage_change',
     'documents_requested',
+    'data_requested',
     'document_validated',
     'document_rejected',
   ],

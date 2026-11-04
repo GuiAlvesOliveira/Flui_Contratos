@@ -9,6 +9,12 @@ export const ACTION_LABELS: Record<string, string> = {
   process_reactivated: 'Processo reativado',
   document_upload: 'Envio de documento',
   documents_requested: 'Documentos solicitados',
+  // ficha completa e formulários do banco
+  ficha_updated: 'Ficha completa atualizada',
+  data_requested: 'Dados solicitados ao cliente',
+  data_request_answered: 'Cliente enviou os dados pedidos',
+  bank_form_generated: 'Formulário do banco gerado',
+  bank_form_deleted: 'Formulário do banco excluído',
   document_validated: 'Documento validado',
   document_rejected: 'Documento rejeitado',
   document_deleted: 'Documento excluído (LGPD)',

@@ -12,7 +12,8 @@ export type MessageEvent =
   | 'issuance'
   | 'stage_changed'
   | 'document_rejected'
-  | 'process_stalled';
+  | 'process_stalled'
+  | 'data_requested';
 
 export type RecipientRole = 'cliente' | 'analista' | 'gestor';
 
@@ -284,6 +285,26 @@ export function documentsRequestedMessage(
     {
       paragraphs: [
         'Sua assessoria pediu os documentos abaixo. Envie pelo portal:',
+      ],
+      list: labels,
+    },
+    ctx,
+  );
+}
+
+// Ficha completa: dados que o analista pediu ao cliente (só os rótulos)
+export function dataRequestedMessage(
+  client: Recipient,
+  labels: string[],
+  ctx: Context,
+): OutboundMessage {
+  return toClient(
+    'data_requested',
+    client,
+    'dados solicitados',
+    {
+      paragraphs: [
+        'Sua assessoria precisa dos dados abaixo para preencher os formulários do banco. Informe pelo portal:',
       ],
       list: labels,
     },

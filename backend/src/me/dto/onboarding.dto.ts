@@ -8,6 +8,7 @@ import {
   MinLength,
 } from 'class-validator';
 import { IsBirthDate } from '../../common/decorators/is-birth-date.decorator';
+import { UFS } from '../../ficha/ficha-fields';
 import {
   ESTADOS_CIVIS,
   FONTES_RENDA,
@@ -50,6 +51,26 @@ export class OnboardingDto {
   @IsString()
   @MaxLength(255)
   endereco?: string;
+
+  // Ficha completa: o endereço em partes, como os formulários do banco pedem
+  // (quando vem, o texto `endereco` é montado a partir delas)
+  @IsOptional() @IsString() @MaxLength(255)
+  logradouro?: string;
+
+  @IsOptional() @IsString() @MaxLength(20)
+  numero?: string;
+
+  @IsOptional() @IsString() @MaxLength(120)
+  complemento?: string;
+
+  @IsOptional() @IsString() @MaxLength(120)
+  bairro?: string;
+
+  @IsOptional() @IsString() @MaxLength(120)
+  cidade?: string;
+
+  @IsOptional() @IsIn(UFS)
+  uf?: string;
 
   // Ficha do cliente: antes eram pedidos na tela e descartados
   @IsOptional()

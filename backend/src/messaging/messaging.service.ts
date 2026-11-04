@@ -5,6 +5,7 @@ import { primaryFrontendUrl } from '../common/frontend-url';
 import type { ProcessStage } from '../processes/process.entity';
 import {
   documentRejectedMessage,
+  dataRequestedMessage,
   documentsRequestedMessage,
   type OutboundMessage,
   processStalledMessages,
@@ -89,6 +90,19 @@ export class MessagingService {
       n.labels,
       await this.context(manager, n.tenantId),
     );
+    return this.enqueue(manager, n.tenantId, n.processId, [message]);
+  }
+
+  // Ficha completa: o cliente é avisado dos dados pedidos pelo analista
+  async dataRequested(
+    manager: EntityManager,
+    n: { tenantId: string; processId: string; clientId: string; labels: string[] },
+  ): Promise<number> {
+    const client = recipient(
+      (await this.users(manager, n.tenantId, [n.clientId])).get(n.clientId),
+    );
+    if (!client || n.labels.length === 0) return 0;
+    const message = dataRequestedMessage(client, n.labels, await this.context(manager, n.tenantId));
     return this.enqueue(manager, n.tenantId, n.processId, [message]);
   }
 

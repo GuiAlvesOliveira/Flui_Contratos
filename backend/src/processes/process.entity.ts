@@ -144,6 +144,29 @@ export class Process {
   @Column({ type: 'decimal', precision: 15, scale: 2, name: 'comissao_assessoria', nullable: true })
   comissaoAssessoria: number | null;
 
+  // Ficha completa: 2º comprador/cônjuge (um participante) e dados do
+  // financiamento que os formulários do banco pedem
+  @Column({ type: 'uuid', name: 'segundo_comprador_id', nullable: true })
+  segundoCompradorId: string | null;
+
+  @Column({ type: 'boolean', name: 'primeira_compra_sfh', nullable: true })
+  primeiraCompraSfh: boolean | null;
+
+  @Column({ type: 'boolean', name: 'usa_fgts', nullable: true })
+  usaFgts: boolean | null;
+
+  @Column({ type: 'decimal', precision: 5, scale: 2, name: 'percentual_aquisicao_1', nullable: true })
+  percentualAquisicao1: number | null;
+
+  @Column({ type: 'varchar', name: 'banco_agencia', length: 10, nullable: true })
+  bancoAgencia: string | null;
+
+  @Column({ type: 'varchar', name: 'banco_conta', length: 20, nullable: true })
+  bancoConta: string | null;
+
+  @Column({ type: 'varchar', length: 20, nullable: true })
+  seguradora: 'itau' | 'tokio_marine' | null;
+
   // PROD-09: taxa do plano da assessoria congelada na assinatura (fração)
   @Column({ type: 'decimal', precision: 6, scale: 4, name: 'taxa_success_fee', nullable: true })
   taxaSuccessFee: number | null;

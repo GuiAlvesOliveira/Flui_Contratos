@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { api } from '../api/axiosInstance';
 import { cepDigits } from '../lib/cep';
 import { useCepLookup } from '../lib/useCepLookup';
+import { UFS } from '../lib/ficha';
 
 type FonteRenda = 'assalariado' | 'nao_assalariado';
 type EstadoCivil = 'solteiro' | 'casado' | 'divorciado' | 'viuvo' | 'uniao_estavel';
@@ -15,7 +16,12 @@ export function ClienteOnboardingPage() {
     telefone: '',
     dataNascimento: '',
     cep: '',
-    endereco: '',
+    logradouro: '',
+    numero: '',
+    complemento: '',
+    bairro: '',
+    cidade: '',
+    uf: '',
     estadoCivil: '' as EstadoCivil | '',
     fonteRenda: '' as FonteRenda | '',
   });
@@ -46,7 +52,13 @@ export function ClienteOnboardingPage() {
         telefone: form.telefone.trim() || undefined,
         dataNascimento: form.dataNascimento || undefined,
         cep: form.cep.trim() ? cepDigits(form.cep) : undefined,
-        endereco: form.endereco.trim() || undefined,
+        // ficha completa: o endereço em partes (o servidor monta o texto)
+        logradouro: form.logradouro.trim() || undefined,
+        numero: form.numero.trim() || undefined,
+        complemento: form.complemento.trim() || undefined,
+        bairro: form.bairro.trim() || undefined,
+        cidade: form.cidade.trim() || undefined,
+        uf: form.uf || undefined,
         // antes a ficha pedia e não enviava: ficam no cliente e nos processos dele
         estadoCivil: form.estadoCivil,
         fonteRenda: form.fonteRenda,
@@ -151,15 +163,39 @@ export function ClienteOnboardingPage() {
                   onChange={e => {
                     const v = e.target.value;
                     setForm(prev => ({ ...prev, cep: v }));
-                    cep.buscar(v, endereco => setForm(prev => ({ ...prev, endereco })));
+                    cep.buscar(v, (_texto, e) => setForm(prev => ({ ...prev, logradouro: e.logradouro, bairro: e.bairro, cidade: e.cidade, uf: e.uf })));
                   }}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
               <div className="col-span-2">
-                <label htmlFor="onb-endereco" className="block text-sm font-medium text-gray-700 mb-1">Endereço completo</label>
-                <input id="onb-endereco" type="text" maxLength={255} value={form.endereco} onChange={set('endereco')}
-                  placeholder="Rua, número, complemento, bairro, cidade"
+                <label htmlFor="onb-logradouro" className="block text-sm font-medium text-gray-700 mb-1">Logradouro</label>
+                <input id="onb-logradouro" type="text" maxLength={255} value={form.logradouro} onChange={set('logradouro')}
+                  placeholder="Rua, avenida..."
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              {([['numero', 'Número', 20], ['complemento', 'Complemento', 120], ['bairro', 'Bairro', 120]] as const).map(([k, label, max]) => (
+                <div key={k}>
+                  <label htmlFor={`onb-${k}`} className="block text-sm font-medium text-gray-700 mb-1">{label}</label>
+                  <input id={`onb-${k}`} type="text" maxLength={max} value={form[k]} onChange={set(k)}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>
+              ))}
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              <div className="col-span-2">
+                <label htmlFor="onb-cidade" className="block text-sm font-medium text-gray-700 mb-1">Cidade</label>
+                <input id="onb-cidade" type="text" maxLength={120} value={form.cidade} onChange={set('cidade')}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label htmlFor="onb-uf" className="block text-sm font-medium text-gray-700 mb-1">UF</label>
+                <select id="onb-uf" value={form.uf} onChange={set('uf')}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                  <option value="">—</option>
+                  {UFS.map(uf => <option key={uf} value={uf}>{uf}</option>)}
+                </select>
               </div>
             </div>
             {cep.mensagem && (

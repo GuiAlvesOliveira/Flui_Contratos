@@ -14,6 +14,8 @@ import { EscalationModule } from './escalation/escalation.module';
 import { AuthModule } from './auth/auth.module';
 import { PasswordResetModule } from './auth/password-reset.module';
 import { ParticipantsModule } from './participants/participants.module';
+import { FichaModule } from './ficha/ficha.module';
+import { BankFormsModule } from './bank-forms/bank-forms.module';
 import { ProcessParticipant } from './participants/participant.entity';
 import { DocumentsModule } from './documents/documents.module';
 import { EmailModule } from './email/email.module';
@@ -55,6 +57,8 @@ import { AddProcessEscalations1718501600000 } from './database/migrations/171850
 import { AddSuccessFee1718501700000 } from './database/migrations/1718501700000-AddSuccessFee';
 import { AddDocumentVersions1718501800000 } from './database/migrations/1718501800000-AddDocumentVersions';
 import { AddUserCivilStatus1718501900000 } from './database/migrations/1718501900000-AddUserCivilStatus';
+import { AddFichaCompleta1718502000000 } from './database/migrations/1718502000000-AddFichaCompleta';
+import { AddBankFormFiles1718502100000 } from './database/migrations/1718502100000-AddBankFormFiles';
 
 @Module({
   imports: [
@@ -106,6 +110,8 @@ import { AddUserCivilStatus1718501900000 } from './database/migrations/171850190
           AddSuccessFee1718501700000,
           AddDocumentVersions1718501800000,
           AddUserCivilStatus1718501900000,
+          AddFichaCompleta1718502000000,
+          AddBankFormFiles1718502100000,
         ],
         migrationsRun: true,
         synchronize: false,
@@ -132,6 +138,8 @@ import { AddUserCivilStatus1718501900000 } from './database/migrations/171850190
     AuthModule,
     PasswordResetModule,
     ParticipantsModule,
+    FichaModule,
+    BankFormsModule,
     DocumentsModule,
     EmailModule,
     MessagingModule,

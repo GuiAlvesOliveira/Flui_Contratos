@@ -5,6 +5,8 @@ import { RequestUserFull } from '../auth/supabase.guard';
 import { UserContextCache } from '../auth/user-context.cache';
 import { SupabaseAdminService } from '../common/services/supabase-admin.service';
 import { TemporaryPasswordStore } from '../common/services/temporary-password.store';
+import { composeEndereco } from '../ficha/ficha.service';
+import { FichaPessoal } from '../ficha/ficha-pessoal.embedded';
 import { User } from '../users/user.entity';
 import { OnboardingDto } from './dto/onboarding.dto';
 
@@ -40,6 +42,13 @@ export class MeService {
     }
     if (dto.cep !== undefined) update.cep = dto.cep.replace(/\D/g, '');
     if (dto.endereco !== undefined) update.endereco = dto.endereco.trim() || null;
+    const partes = ['logradouro', 'numero', 'complemento', 'bairro', 'cidade', 'uf'] as const;
+    if (partes.some((k) => dto[k] !== undefined)) {
+      const ficha: Partial<FichaPessoal> = {};
+      for (const k of partes) ficha[k] = dto[k]?.trim().replace(/\s+/g, ' ') || null;
+      update.ficha = ficha as FichaPessoal;
+      update.endereco = composeEndereco(ficha);
+    }
 
     // Estado civil e fonte de renda são do cliente: ficam guardados nele e
     // preenchem os processos dele que ainda não têm esses dados — o que a

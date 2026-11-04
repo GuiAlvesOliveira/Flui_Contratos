@@ -9,6 +9,7 @@ import {
 } from 'typeorm';
 import { Tenant } from '../tenants/tenant.entity';
 import type { EstadoCivil, FonteRenda } from '../common/civil-status';
+import { FichaPessoal } from '../ficha/ficha-pessoal.embedded';
 
 export type UserStatus = 'invited' | 'active' | 'disabled';
 
@@ -75,6 +76,10 @@ export class User {
 
   @Column({ type: 'varchar', name: 'fonte_renda', length: 20, nullable: true })
   fonteRenda: FonteRenda | null;
+
+  // Ficha completa (formulários do banco): colunas da própria tabela users
+  @Column(() => FichaPessoal, { prefix: false })
+  ficha: FichaPessoal;
 
   @Column({ name: 'created_by', type: 'uuid', nullable: true })
   createdBy: string | null;

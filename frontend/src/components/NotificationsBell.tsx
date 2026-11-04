@@ -31,6 +31,8 @@ function notificationText(n: NotificationItem): string {
     case 'stage_change': return `Mudou para ${stateLabel(n.toState)}`;
     case 'document_upload': return `Documento enviado: ${n.label ?? 'documento'}`;
     case 'documents_requested': return `Documentos solicitados: ${(n.labels ?? []).join(', ')}`;
+    case 'data_requested': return `Dados solicitados: ${(n.labels ?? []).join(', ')}`;
+    case 'data_request_answered': return 'O cliente enviou os dados pedidos';
     case 'document_validated': return `Documento validado: ${n.label ?? 'documento'}`;
     case 'document_rejected': return `Documento rejeitado: ${n.label ?? 'documento'} — envie de novo`;
     case 'profile_update': return 'Cadastro do proponente atualizado';
