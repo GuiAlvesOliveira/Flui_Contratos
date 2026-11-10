@@ -3,6 +3,7 @@ import {
   ForbiddenException,
   NotFoundException,
   ServiceUnavailableException,
+  UnprocessableEntityException,
 } from '@nestjs/common';
 import { DataSource, Repository } from 'typeorm';
 import { DocumentsService } from './documents.service';
@@ -11,6 +12,7 @@ import { DocumentType } from './document-type.entity';
 import { Process } from '../processes/process.entity';
 import { User } from '../users/user.entity';
 import { RequestUserFull } from '../auth/supabase.guard';
+import { computeValidUntil, todayInSaoPaulo } from './document-validity';
 
 function makeService() {
   const repo = {
@@ -19,7 +21,7 @@ function makeService() {
     create: jest.fn((x: unknown) => x),
     save: jest.fn((x: unknown) => Promise.resolve(x)),
   };
-  const typeRepo = { find: jest.fn() };
+  const typeRepo = { find: jest.fn(), findOne: jest.fn() };
   const processRepo = { findOne: jest.fn() };
   const userRepo = { findOne: jest.fn() };
   const azureStorage = {
@@ -289,8 +291,8 @@ describe('DocumentsService.removeDocument (BE-10, LGPD)', () => {
 });
 
 describe('DocumentsService.update (authorization)', () => {
-  it('FE-22: validating a process document writes it to the activity log', async () => {
-    const { service, repo, dataSource } = makeService();
+  it('FE-22: validating a process document writes it to the activity log, in the same transaction', async () => {
+    const { service, repo, dataSource, manager } = makeService();
     repo.findOne.mockResolvedValue({
       id: 'd1',
       tenantId: 't1',
@@ -299,7 +301,9 @@ describe('DocumentsService.update (authorization)', () => {
       label: 'Holerite (mês 1)',
     });
     await service.update('d1', { status: 'validado' }, caller('analista'));
-    const [sql, params] = dataSource.query.mock.calls[0] as [string, unknown[]];
+    const [sql, params] = manager.query.mock.calls.find(([q]) =>
+      String(q).includes('INSERT INTO audit_logs'),
+    ) as [string, unknown[]];
     expect(sql).toContain('INSERT INTO audit_logs');
     expect(params).toEqual([
       't1',
@@ -308,6 +312,7 @@ describe('DocumentsService.update (authorization)', () => {
       'document_validated',
       JSON.stringify({ docId: 'd1', label: 'Holerite (mês 1)' }),
     ]);
+    expect(dataSource.query).not.toHaveBeenCalled();
   });
 
   it('a rejected document queues an e-mail to its client with the analista note', async () => {
@@ -363,8 +368,12 @@ describe('DocumentsService.update (authorization)', () => {
     });
   });
 
-  it('FE-22: rejection is logged too; personal docs and notes-only edits are not', async () => {
-    const { service, repo, dataSource } = makeService();
+  it('FE-22: rejection is logged too; a personal doc goes to the process on screen; notes-only edits are not logged', async () => {
+    const { service, repo, manager, processRepo } = makeService();
+    const audits = () =>
+      manager.query.mock.calls.filter(([q]) =>
+        String(q).includes('INSERT INTO audit_logs'),
+      ) as [string, unknown[]][];
     repo.findOne.mockResolvedValueOnce({
       id: 'd1',
       tenantId: 't1',
@@ -372,17 +381,47 @@ describe('DocumentsService.update (authorization)', () => {
       label: 'IRPF',
     });
     await service.update('d1', { status: 'rejeitado' }, caller('dono'));
-    expect((dataSource.query.mock.calls[0] as [string, unknown[]])[1][3]).toBe(
-      'document_rejected',
-    );
-    dataSource.query.mockClear();
+    expect(audits()[0][1][3]).toBe('document_rejected');
+
+    // personal doc (serves every process of the client): logged on the process
+    // being viewed, once it is confirmed to be this client's
+    manager.query.mockClear();
     repo.findOne.mockResolvedValueOnce({
       id: 'd2',
       tenantId: 't1',
       processId: null,
+      userId: 'cl1',
       label: 'RG',
     });
-    await service.update('d2', { status: 'validado' }, caller('analista'));
+    processRepo.findOne.mockResolvedValueOnce({ id: 'p9' });
+    await service.update(
+      'd2',
+      { status: 'validado', processId: 'p9' },
+      caller('analista'),
+    );
+    expect(processRepo.findOne).toHaveBeenCalledWith({
+      where: { id: 'p9', tenantId: 't1', clientId: 'cl1' },
+    });
+    expect(audits()[0][1].slice(1, 4)).toEqual(['p9', 'u1', 'document_validated']);
+
+    // a process that is not this client's is not trusted: no process attached
+    manager.query.mockClear();
+    repo.findOne.mockResolvedValueOnce({
+      id: 'd2',
+      tenantId: 't1',
+      processId: null,
+      userId: 'cl1',
+      label: 'RG',
+    });
+    processRepo.findOne.mockResolvedValueOnce(null);
+    await service.update(
+      'd2',
+      { status: 'validado', processId: 'p-de-outro-cliente' },
+      caller('analista'),
+    );
+    expect(audits()[0][1][1]).toBeNull();
+
+    manager.query.mockClear();
     repo.findOne.mockResolvedValueOnce({
       id: 'd3',
       tenantId: 't1',
@@ -390,7 +429,7 @@ describe('DocumentsService.update (authorization)', () => {
       label: 'RG',
     });
     await service.update('d3', { notes: 'ok' }, caller('analista'));
-    expect(dataSource.query).not.toHaveBeenCalled();
+    expect(audits()).toHaveLength(0);
   });
 
   it('forbids a cliente from touching a document that is not theirs', async () => {
@@ -594,5 +633,418 @@ describe('DocumentsService — versões do arquivo (PROD-12)', () => {
     dataSource.query.mockResolvedValueOnce([{ document_id: 'd2', n: 3 }]);
     expect(await service.getForProcess('p1', caller('analista'))).toEqual([{ id: 'd1' }, { id: 'd2', versionCount: 3 }]);
     expect((dataSource.query.mock.calls[0] as [string, unknown[]])[1]).toEqual(['t1', ['d1', 'd2']]);
+  });
+});
+
+// ── Validade pelo mês de referência ─────────────────────────────────────────
+
+const TODAY = todayInSaoPaulo();
+const THIS_MONTH = TODAY.slice(0, 7);
+const shiftMonth = (month: string, n: number) => {
+  const [y, m] = month.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1 + n, 1)).toISOString().slice(0, 7);
+};
+const addDays = (day: string, n: number) =>
+  new Date(Date.parse(`${day}T00:00:00Z`) + n * 86_400_000)
+    .toISOString()
+    .slice(0, 10);
+
+describe('DocumentsService — validade pelo mês de referência', () => {
+  const holerite = (over: Record<string, unknown> = {}) => ({
+    id: 'd1',
+    tenantId: 't1',
+    processId: 'p1',
+    userId: 'cl1',
+    label: 'Holerite (mês 1)',
+    status: 'recebido',
+    documentTypeId: 'ty-hol',
+    referenceMonth: null,
+    ...over,
+  });
+  const setup = (validityMonths: number | null = 3) => {
+    const ctx = makeService();
+    ctx.typeRepo.findOne.mockResolvedValue({
+      id: 'ty-hol',
+      tenantId: 't1',
+      validityMonths,
+    });
+    return ctx;
+  };
+  const auditOf = (manager: { query: jest.Mock }) =>
+    manager.query.mock.calls.find(([q]) =>
+      String(q).includes('INSERT INTO audit_logs'),
+    ) as [string, unknown[]];
+
+  it('bloqueia a aprovação sem mês de referência quando o tipo tem prazo — nada é gravado', async () => {
+    const { service, repo, typeRepo, dataSource, manager } = setup(3);
+    repo.findOne.mockResolvedValue(holerite());
+    await expect(
+      service.update('d1', { status: 'validado' }, caller('analista')),
+    ).rejects.toThrow(
+      new BadRequestException(
+        'Informe o mês de referência do documento (MM/AAAA) para validá-lo',
+      ),
+    );
+    // o prazo vem da lista da assessoria, sempre dentro do tenant
+    expect(typeRepo.findOne).toHaveBeenCalledWith({
+      where: { id: 'ty-hol', tenantId: 't1' },
+    });
+    expect(dataSource.transaction).not.toHaveBeenCalled();
+    expect(manager.update).not.toHaveBeenCalled();
+    expect(repo.save).not.toHaveBeenCalled();
+  });
+
+  it('não aceita mês de referência no futuro', async () => {
+    const { service, repo, manager } = setup(3);
+    repo.findOne.mockResolvedValue(holerite());
+    await expect(
+      service.update(
+        'd1',
+        { status: 'validado', referenceMonth: shiftMonth(THIS_MONTH, 1) },
+        caller('analista'),
+      ),
+    ).rejects.toThrow(
+      new BadRequestException(
+        'O mês de referência não pode ser depois do mês atual',
+      ),
+    );
+    expect(manager.update).not.toHaveBeenCalled();
+  });
+
+  it('não aprova documento que já nasce vencido (o caminho é rejeitar e pedir outro)', async () => {
+    const { service, repo, manager } = setup(3);
+    repo.findOne.mockResolvedValue(holerite());
+    const attempt = () =>
+      service.update(
+        'd1',
+        { status: 'validado', referenceMonth: '01/2020' },
+        caller('analista'),
+      );
+    await expect(attempt()).rejects.toBeInstanceOf(
+      UnprocessableEntityException,
+    );
+    await expect(attempt()).rejects.toThrow('ele valia até 30/04/2020');
+    expect(manager.update).not.toHaveBeenCalled();
+  });
+
+  it('aprovar com o mês grava o vencimento calculado, quem informou e quando — na mesma transação da validação', async () => {
+    const { service, repo, manager } = setup(3);
+    repo.findOne.mockResolvedValue(holerite());
+    const [y, m] = THIS_MONTH.split('-');
+    await service.update(
+      'd1',
+      { status: 'validado', referenceMonth: `${m}/${y}` },
+      caller('analista', 'a1'),
+    );
+    const until = computeValidUntil(THIS_MONTH, 3);
+    expect(manager.update).toHaveBeenCalledWith(
+      Document,
+      { id: 'd1', tenantId: 't1' },
+      expect.objectContaining({
+        status: 'validado',
+        validated: true,
+        validatedBy: 'a1',
+        referenceMonth: `${THIS_MONTH}-01`,
+        validUntil: until,
+        validityMonths: 3,
+        referenceMonthSetBy: 'a1',
+        referenceMonthSetAt: expect.any(Date) as Date,
+        expiredAt: null,
+      }),
+    );
+    const version = manager.query.mock.calls.find(([q]) =>
+      String(q).includes('SET reference_month'),
+    ) as [string, unknown[]];
+    expect(version[1]).toEqual([`${THIS_MONTH}-01`, until, 'd1', 't1']);
+    // um ciclo novo: os avisos do ciclo anterior deixam de ser pendentes
+    const resolved = manager.query.mock.calls.find(([q]) =>
+      String(q).includes('UPDATE notifications SET resolved_at'),
+    ) as [string, unknown[]];
+    expect(resolved[0]).toContain('valid_until IS DISTINCT FROM $3::date');
+    expect(resolved[1]).toEqual(['t1', 'd1', until]);
+    // RN-07: quem informou o mês e quando (ator + data do registro)
+    const [, params] = auditOf(manager);
+    expect(params.slice(0, 4)).toEqual([
+      't1',
+      'p1',
+      'a1',
+      'document_validated',
+    ]);
+    expect(JSON.parse(params[4] as string)).toEqual({
+      docId: 'd1',
+      label: 'Holerite (mês 1)',
+      referenceMonth: THIS_MONTH,
+      validUntil: until,
+      validityMonths: 3,
+    });
+  });
+
+  it('tipo sem prazo (RG, CPF) continua como hoje: aprova sem mês, e um mês enviado é ignorado', async () => {
+    const { service, repo, manager } = setup(null);
+    repo.findOne.mockResolvedValue(
+      holerite({ label: 'RG ou CNH', documentTypeId: 'ty-rg' }),
+    );
+    await service.update('d1', { status: 'validado' }, caller('analista'));
+    expect(manager.update).toHaveBeenCalledWith(
+      Document,
+      { id: 'd1', tenantId: 't1' },
+      expect.objectContaining({
+        status: 'validado',
+        referenceMonth: null,
+        validUntil: null,
+      }),
+    );
+    manager.update.mockClear();
+    await service.update(
+      'd1',
+      { status: 'validado', referenceMonth: '01/2020' },
+      caller('analista'),
+    );
+    expect(manager.update).toHaveBeenCalledWith(
+      Document,
+      { id: 'd1', tenantId: 't1' },
+      expect.objectContaining({ status: 'validado', referenceMonth: null }),
+    );
+    expect(
+      manager.query.mock.calls.some(([q]) =>
+        String(q).includes('SET reference_month'),
+      ),
+    ).toBe(false);
+  });
+
+  it('documento sem item da lista (anterior ao catálogo) ou formulário não pede mês', async () => {
+    const { service, repo, typeRepo, manager } = setup(3);
+    repo.findOne.mockResolvedValue(holerite({ documentTypeId: null }));
+    await service.update('d1', { status: 'validado' }, caller('analista'));
+    repo.findOne.mockResolvedValue(holerite({ formType: 'dps' }));
+    await service.update('d1', { status: 'validado' }, caller('analista'));
+    expect(typeRepo.findOne).not.toHaveBeenCalled();
+    expect(manager.update).toHaveBeenCalledTimes(2);
+  });
+
+  it('só a equipe informa o mês de referência', async () => {
+    const { service, repo } = setup(3);
+    repo.findOne.mockResolvedValue(holerite({ userId: 'c1' }));
+    await expect(
+      service.update(
+        'd1',
+        { referenceMonth: THIS_MONTH },
+        caller('cliente', 'c1'),
+      ),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('rejeitar limpa a validade (o ciclo é da versão validada)', async () => {
+    const { service, repo, manager } = setup(3);
+    repo.findOne.mockResolvedValue(
+      holerite({
+        status: 'validado',
+        referenceMonth: `${THIS_MONTH}-01`,
+        validUntil: '2099-01-31',
+      }),
+    );
+    await service.update(
+      'd1',
+      { status: 'rejeitado', validatedByNotes: 'Ilegível' },
+      caller('analista'),
+    );
+    expect(manager.update).toHaveBeenCalledWith(
+      Document,
+      { id: 'd1', tenantId: 't1' },
+      expect.objectContaining({
+        status: 'rejeitado',
+        referenceMonth: null,
+        validUntil: null,
+        validityMonths: null,
+        expiredAt: null,
+      }),
+    );
+  });
+
+  it('um arquivo novo volta para "recebido" sem a validade do anterior', async () => {
+    const { service, repo, manager } = setup(3);
+    repo.findOne.mockResolvedValue(
+      holerite({
+        status: 'validado',
+        referenceMonth: '2026-01-01',
+        validUntil: '2026-04-30',
+      }),
+    );
+    manager.query
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ version: 2 }])
+      .mockResolvedValue([]);
+    const pdf = {
+      buffer: Buffer.from([0x25, 0x50, 0x44, 0x46, 0x2d]),
+      originalname: 'holerite.pdf',
+      mimetype: 'application/pdf',
+      size: 5,
+    } as unknown as Express.Multer.File;
+    await service.uploadFile('d1', pdf, caller('cliente', 'cl1'));
+    expect(manager.update).toHaveBeenCalledWith(
+      Document,
+      { id: 'd1', tenantId: 't1' },
+      expect.objectContaining({
+        status: 'recebido',
+        referenceMonth: null,
+        validUntil: null,
+        expiredAt: null,
+      }),
+    );
+  });
+
+  it('documento validado antes da regra: o analista informa o mês depois — mesmo vencido — com registro próprio', async () => {
+    const { service, repo, manager } = setup(6);
+    repo.findOne.mockResolvedValue(
+      holerite({
+        status: 'validado',
+        label: 'Extrato Bancário (mês 1)',
+        referenceMonth: null,
+      }),
+    );
+    await service.update(
+      'd1',
+      { referenceMonth: '01/2020' },
+      caller('analista', 'a1'),
+    );
+    expect(manager.update).toHaveBeenCalledWith(
+      Document,
+      { id: 'd1', tenantId: 't1' },
+      expect.objectContaining({
+        status: 'validado',
+        referenceMonth: '2020-01-01',
+        validUntil: '2020-07-31',
+        validityMonths: 6,
+        referenceMonthSetBy: 'a1',
+        expiredAt: null,
+      }),
+    );
+    const [, params] = auditOf(manager);
+    expect(params.slice(0, 4)).toEqual([
+      't1',
+      'p1',
+      'a1',
+      'document_reference_month_set',
+    ]);
+    expect(JSON.parse(params[4] as string)).toEqual({
+      docId: 'd1',
+      label: 'Extrato Bancário (mês 1)',
+      referenceMonth: '2020-01',
+      validUntil: '2020-07-31',
+      validityMonths: 6,
+      previousReferenceMonth: null,
+    });
+    // corrigir: o registro guarda o mês anterior; futuro continua recusado
+    manager.query.mockClear();
+    repo.findOne.mockResolvedValue(
+      holerite({
+        status: 'validado',
+        referenceMonth: '2020-01-01',
+        validUntil: '2020-07-31',
+      }),
+    );
+    await service.update(
+      'd1',
+      { referenceMonth: THIS_MONTH },
+      caller('analista', 'a1'),
+    );
+    expect(JSON.parse(auditOf(manager)[1][4] as string)).toMatchObject({
+      referenceMonth: THIS_MONTH,
+      previousReferenceMonth: '2020-01',
+    });
+    await expect(
+      service.update(
+        'd1',
+        { referenceMonth: shiftMonth(THIS_MONTH, 2) },
+        caller('analista'),
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('o mês sozinho só vale para documento já validado e de tipo com prazo', async () => {
+    const { service, repo, typeRepo } = setup(3);
+    repo.findOne.mockResolvedValue(holerite({ status: 'recebido' }));
+    await expect(
+      service.update('d1', { referenceMonth: THIS_MONTH }, caller('analista')),
+    ).rejects.toBeInstanceOf(UnprocessableEntityException);
+    typeRepo.findOne.mockResolvedValue({
+      id: 'ty-rg',
+      tenantId: 't1',
+      validityMonths: null,
+    });
+    repo.findOne.mockResolvedValue(
+      holerite({ status: 'validado', documentTypeId: 'ty-rg' }),
+    );
+    await expect(
+      service.update('d1', { referenceMonth: THIS_MONTH }, caller('analista')),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('o checklist traz a situação de cada documento: vencendo, vencido e "mês de referência não informado"', async () => {
+    const { service, repo, processRepo, typeRepo } = makeService();
+    processRepo.findOne.mockResolvedValue({ id: 'p1', clientId: 'cl1' });
+    const rg = {
+      id: 'e',
+      status: 'validado',
+      documentTypeId: 'ty-rg',
+      validUntil: null,
+    };
+    repo.find
+      .mockResolvedValueOnce([
+        {
+          id: 'a',
+          status: 'validado',
+          documentTypeId: 'ty-hol',
+          validUntil: addDays(TODAY, 10),
+        },
+        {
+          id: 'b',
+          status: 'validado',
+          documentTypeId: 'ty-ext',
+          validUntil: addDays(TODAY, -3),
+        },
+        { id: 'c', status: 'validado', documentTypeId: 'ty-hol', validUntil: null },
+        { id: 'd', status: 'recebido', documentTypeId: 'ty-hol', validUntil: null },
+        {
+          id: 'f',
+          status: 'validado',
+          documentTypeId: 'ty-ext',
+          validUntil: addDays(TODAY, 40),
+        },
+        rg,
+      ])
+      .mockResolvedValueOnce([]);
+    typeRepo.find.mockResolvedValue([
+      { id: 'ty-hol', validityMonths: 3 },
+      { id: 'ty-ext', validityMonths: 6 },
+      { id: 'ty-rg', validityMonths: null },
+    ]);
+    const res = await service.getForProcess('p1', caller('analista'));
+    expect(res).toEqual([
+      expect.objectContaining({
+        id: 'a',
+        typeValidityMonths: 3,
+        validityStatus: 'vencendo',
+        daysLeft: 10,
+      }),
+      expect.objectContaining({
+        id: 'b',
+        typeValidityMonths: 6,
+        validityStatus: 'vencido',
+        daysLeft: -3,
+      }),
+      expect.objectContaining({
+        id: 'c',
+        typeValidityMonths: 3,
+        validityStatus: 'sem_referencia',
+      }),
+      expect.objectContaining({
+        id: 'd',
+        typeValidityMonths: 3,
+        validityStatus: null,
+      }),
+      expect.objectContaining({ id: 'f', validityStatus: 'valido', daysLeft: 40 }),
+      rg, // tipo sem prazo: igual a hoje
+    ]);
   });
 });

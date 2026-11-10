@@ -40,6 +40,12 @@ export class DocumentType {
   @Column({ type: 'text', nullable: true })
   description: string | null;
 
+  // Prazo de validade em meses, contado do mês de referência do documento
+  // (holerite, extrato...). null = sem validade: a validação não pede o mês.
+  // Mudar o prazo vale para as próximas validações.
+  @Column({ type: 'smallint', name: 'validity_months', nullable: true })
+  validityMonths: number | null;
+
   @Column({ default: true })
   active: boolean;
 
@@ -53,21 +59,24 @@ export class DocumentType {
 
 // Starting catalog for a tenant: the documents the old fixed checklists asked
 // for (personal docs + both income-source lists). The gestor edits it freely.
+// Validity (months from the reference month): holerite and proof of address
+// 3, bank statement 6.
 export const DEFAULT_DOCUMENT_TYPES: {
   label: string;
   category: DocumentCategory;
+  validityMonths?: number;
 }[] = [
   { label: 'RG ou CNH', category: 'pessoal' },
-  { label: 'Comprovante de Endereço', category: 'pessoal' },
+  { label: 'Comprovante de Endereço', category: 'pessoal', validityMonths: 3 },
   { label: 'Certidão de Estado Civil', category: 'pessoal' },
-  { label: 'Holerite (mês 1)', category: 'renda' },
-  { label: 'Holerite (mês 2)', category: 'renda' },
-  { label: 'Holerite (mês 3)', category: 'renda' },
+  { label: 'Holerite (mês 1)', category: 'renda', validityMonths: 3 },
+  { label: 'Holerite (mês 2)', category: 'renda', validityMonths: 3 },
+  { label: 'Holerite (mês 3)', category: 'renda', validityMonths: 3 },
   { label: 'Declaração de IRPF', category: 'renda' },
-  { label: 'Extrato Bancário (mês 1)', category: 'renda' },
-  { label: 'Extrato Bancário (mês 2)', category: 'renda' },
-  { label: 'Extrato Bancário (mês 3)', category: 'renda' },
-  { label: 'Extrato Bancário (mês 4)', category: 'renda' },
-  { label: 'Extrato Bancário (mês 5)', category: 'renda' },
-  { label: 'Extrato Bancário (mês 6)', category: 'renda' },
+  { label: 'Extrato Bancário (mês 1)', category: 'renda', validityMonths: 6 },
+  { label: 'Extrato Bancário (mês 2)', category: 'renda', validityMonths: 6 },
+  { label: 'Extrato Bancário (mês 3)', category: 'renda', validityMonths: 6 },
+  { label: 'Extrato Bancário (mês 4)', category: 'renda', validityMonths: 6 },
+  { label: 'Extrato Bancário (mês 5)', category: 'renda', validityMonths: 6 },
+  { label: 'Extrato Bancário (mês 6)', category: 'renda', validityMonths: 6 },
 ];

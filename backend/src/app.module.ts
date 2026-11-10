@@ -11,6 +11,7 @@ import { SearchModule } from './search/search.module';
 import { TasksModule } from './tasks/tasks.module';
 import { ReportsModule } from './reports/reports.module';
 import { EscalationModule } from './escalation/escalation.module';
+import { DocumentExpiryModule } from './document-expiry/document-expiry.module';
 import { AuthModule } from './auth/auth.module';
 import { PasswordResetModule } from './auth/password-reset.module';
 import { ParticipantsModule } from './participants/participants.module';
@@ -59,6 +60,7 @@ import { AddDocumentVersions1718501800000 } from './database/migrations/17185018
 import { AddUserCivilStatus1718501900000 } from './database/migrations/1718501900000-AddUserCivilStatus';
 import { AddFichaCompleta1718502000000 } from './database/migrations/1718502000000-AddFichaCompleta';
 import { AddBankFormFiles1718502100000 } from './database/migrations/1718502100000-AddBankFormFiles';
+import { AddDocumentValidity1718502200000 } from './database/migrations/1718502200000-AddDocumentValidity';
 
 @Module({
   imports: [
@@ -112,6 +114,7 @@ import { AddBankFormFiles1718502100000 } from './database/migrations/17185021000
           AddUserCivilStatus1718501900000,
           AddFichaCompleta1718502000000,
           AddBankFormFiles1718502100000,
+          AddDocumentValidity1718502200000,
         ],
         migrationsRun: true,
         synchronize: false,
@@ -135,6 +138,7 @@ import { AddBankFormFiles1718502100000 } from './database/migrations/17185021000
     TasksModule,
     ReportsModule,
     EscalationModule,
+    DocumentExpiryModule,
     AuthModule,
     PasswordResetModule,
     ParticipantsModule,

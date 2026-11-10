@@ -330,7 +330,9 @@ describe('ProcessesService.getAuditLog (RN-01)', () => {
     await service.getAuditLog('p1', cliente);
     await service.getAuditLog('p1', caller);
     const [[asClient], [asStaff]] = dataSource.query.mock.calls as [string][];
-    expect(asClient).toContain("al.action NOT IN ('activity_edited', 'activity_deleted', 'commission_updated')");
+    expect(asClient).toContain(
+      "al.action NOT IN ('activity_edited', 'activity_deleted', 'commission_updated', 'document_expiry_notice')",
+    );
     expect(asStaff).not.toContain('NOT IN');
   });
 });

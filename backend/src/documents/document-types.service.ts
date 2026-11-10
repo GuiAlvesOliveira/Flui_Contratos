@@ -68,6 +68,7 @@ export class DocumentTypesService {
       label: dto.label,
       category: dto.category,
       description: dto.description || null,
+      validityMonths: dto.validityMonths ?? null,
     });
     return this.saveUnique(entity);
   }
@@ -86,6 +87,9 @@ export class DocumentTypesService {
     if (dto.category !== undefined) entity.category = dto.category;
     if (dto.description !== undefined)
       entity.description = dto.description || null;
+    // vale para as próximas validações; as já feitas guardam o próprio prazo
+    if (dto.validityMonths !== undefined)
+      entity.validityMonths = dto.validityMonths;
     if (dto.active !== undefined) entity.active = dto.active;
     return this.saveUnique(entity);
   }

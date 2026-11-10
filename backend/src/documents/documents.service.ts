@@ -19,6 +19,33 @@ import { DocumentType } from './document-type.entity';
 import type { DocumentStatus } from './document.entity';
 import { UpdateDocumentDto } from './dto/update-document.dto';
 import { FORM_LABELS, formsAvailable, type FormType } from './document-forms';
+import {
+  computeValidUntil,
+  documentValidity,
+  formatDateBr,
+  formatMonthBr,
+  isFutureMonth,
+  monthStart,
+  parseReferenceMonth,
+  todayInSaoPaulo,
+} from './document-validity';
+
+// A new validity cycle set by the analista (month 'AAAA-MM', last valid day)
+interface ValidityCycle {
+  referenceMonth: string;
+  validUntil: string;
+  validityMonths: number;
+}
+
+// A document that is no longer validated keeps no validity
+const NO_VALIDITY = {
+  referenceMonth: null,
+  validUntil: null,
+  validityMonths: null,
+  referenceMonthSetBy: null,
+  referenceMonthSetAt: null,
+  expiredAt: null,
+};
 
 // ── Upload content validation (magic numbers) ─────────────────────────────────
 
@@ -47,6 +74,8 @@ interface VersionRow {
   status: 'recebido' | 'validado' | 'rejeitado';
   reviewed_at: Date | null;
   review_notes: string | null;
+  reference_month: string | null; // 'AAAA-MM' of the validated version
+  valid_until: string | null;
   downloadable: boolean;
   uploaded_by_name: string | null;
   reviewed_by_name: string | null;
@@ -91,7 +120,32 @@ export class DocumentsService {
       [caller.tenantId, docs.map((d) => d.id)],
     );
     const versions = new Map(counts.map((c) => [c.document_id, c.n]));
-    return docs.map((d) => (versions.has(d.id) ? { ...d, versionCount: versions.get(d.id) } : d));
+    // Validity: whether the type asks for the reference month, and the status
+    // (válido / vencendo / vencido) of the validated ones
+    const deadlines = await this.typeDeadlines(docs, caller.tenantId!);
+    const today = todayInSaoPaulo();
+    return docs.map((d) => {
+      const validity = documentValidity(
+        d,
+        d.documentTypeId && !d.formType ? (deadlines.get(d.documentTypeId) ?? null) : null,
+        today,
+      );
+      if (!versions.has(d.id) && !validity) return d;
+      return {
+        ...d,
+        ...(versions.has(d.id) ? { versionCount: versions.get(d.id) } : {}),
+        ...validity,
+      };
+    });
+  }
+
+  // Validity (months) of the catalog types of these documents, when they have one
+  private async typeDeadlines(docs: Document[], tenantId: string) {
+    const ids = [...new Set(docs.map((d) => d.documentTypeId).filter((id): id is string => !!id))];
+    const types = ids.length ? ((await this.typeRepo.find({ where: { id: In(ids), tenantId } })) ?? []) : [];
+    return new Map(
+      types.filter((t) => t.validityMonths).map((t) => [t.id, t.validityMonths as number]),
+    );
   }
 
   // BE-03: the analista picks, from the assessoria's catalog, which documents
@@ -201,15 +255,7 @@ export class DocumentsService {
       for (const file of files) await this.azureStorage.delete(file);
     }
 
-    // Personal docs have no process of their own: log it on the process the
-    // user was looking at, if it is one of this client's.
-    let auditProcessId = doc.processId;
-    if (!auditProcessId && opts.processId && doc.userId) {
-      const viewed = await this.processRepo.findOne({
-        where: { id: opts.processId, tenantId, clientId: doc.userId },
-      });
-      auditProcessId = viewed?.id ?? null;
-    }
+    const auditProcessId = await this.auditProcessFor(doc, opts.processId);
 
     await this.dataSource.transaction(async (manager) => {
       await manager.delete(Document, { id: docId, tenantId });
@@ -253,7 +299,14 @@ export class DocumentsService {
       if (dto.status && !['recebido'].includes(dto.status)) {
         throw new ForbiddenException('Cliente só pode marcar como recebido');
       }
+      if (dto.referenceMonth !== undefined) {
+        throw new ForbiddenException('Só a equipe da assessoria informa o mês de referência');
+      }
     }
+
+    // Validity by reference month (checked before anything is changed)
+    const validity = await this.validityChange(doc, dto, isAnalista);
+    const previousMonth = doc.referenceMonth;
 
     if (dto.status) doc.status = dto.status as DocumentStatus;
     if (dto.notes !== undefined) doc.notes = dto.notes;
@@ -270,30 +323,103 @@ export class DocumentsService {
       }
     }
 
+    const validityColumns =
+      validity === undefined
+        ? {}
+        : validity === null
+          ? NO_VALIDITY
+          : {
+              referenceMonth: monthStart(validity.referenceMonth),
+              validUntil: validity.validUntil,
+              validityMonths: validity.validityMonths,
+              referenceMonthSetBy: caller.userId,
+              referenceMonthSetAt: new Date(),
+              expiredAt: null,
+            };
+    Object.assign(doc, validityColumns);
+
     // PROD-12: validating or rejecting applies to the current file version,
-    // recorded together with the document
+    // recorded together with the document — and so does the audit entry
+    // (RN-07: who validated, with which reference month, and when). Informing
+    // the month of a document validated before the rule works the same way.
     const reviewed = isAnalista && (dto.status === 'validado' || dto.status === 'rejeitado');
-    const saved = reviewed
-      ? await this.dataSource.transaction(async (manager) => {
-          await manager.update(Document, { id: docId, tenantId: caller.tenantId! }, {
-            status: doc.status,
-            notes: doc.notes,
-            validated: doc.validated,
-            validatedBy: doc.validatedBy,
-            validatedAt: doc.validatedAt,
-            validatedByNotes: doc.validatedByNotes,
-          });
-          await manager.query(
-            `UPDATE document_versions
-                SET status = $1, reviewed_by = $2, reviewed_at = now(), review_notes = $3
-              WHERE id = (SELECT id FROM document_versions
-                           WHERE document_id = $4 AND tenant_id = $5
-                           ORDER BY version DESC LIMIT 1)`,
-            [dto.status, caller.userId, dto.validatedByNotes ?? dto.notes ?? null, docId, caller.tenantId],
-          );
-          return doc;
-        })
-      : await this.repo.save(doc);
+    const monthOnly = isAnalista && !dto.status && !!validity;
+    const auditProcessId =
+      reviewed || monthOnly ? await this.auditProcessFor(doc, dto.processId) : null;
+    const saved =
+      reviewed || monthOnly
+        ? await this.dataSource.transaction(async (manager) => {
+            await manager.update(Document, { id: docId, tenantId: caller.tenantId! }, {
+              status: doc.status,
+              notes: doc.notes,
+              validated: doc.validated,
+              validatedBy: doc.validatedBy,
+              validatedAt: doc.validatedAt,
+              validatedByNotes: doc.validatedByNotes,
+              ...validityColumns,
+            });
+            if (reviewed) {
+              await manager.query(
+                `UPDATE document_versions
+                    SET status = $1, reviewed_by = $2, reviewed_at = now(), review_notes = $3
+                  WHERE id = (SELECT id FROM document_versions
+                               WHERE document_id = $4 AND tenant_id = $5
+                               ORDER BY version DESC LIMIT 1)`,
+                [dto.status, caller.userId, dto.validatedByNotes ?? dto.notes ?? null, docId, caller.tenantId],
+              );
+            }
+            if (validity) {
+              await manager.query(
+                `UPDATE document_versions SET reference_month = $1, valid_until = $2
+                  WHERE id = (SELECT id FROM document_versions
+                               WHERE document_id = $3 AND tenant_id = $4
+                               ORDER BY version DESC LIMIT 1)`,
+                [monthStart(validity.referenceMonth), validity.validUntil, docId, caller.tenantId],
+              );
+              // A new validity cycle: the notices of the previous one stop
+              // being pending (the count starts over from the new month)
+              await manager.query(
+                `UPDATE notifications SET resolved_at = now()
+                  WHERE tenant_id = $1 AND document_id = $2 AND resolved_at IS NULL
+                    AND valid_until IS DISTINCT FROM $3::date`,
+                [caller.tenantId, docId, validity.validUntil],
+              );
+            }
+            const label = doc.label ?? doc.name;
+            const cycle = validity
+              ? {
+                  referenceMonth: validity.referenceMonth,
+                  validUntil: validity.validUntil,
+                  validityMonths: validity.validityMonths,
+                }
+              : {};
+            await manager.query(
+              `INSERT INTO audit_logs (tenant_id, process_id, actor_id, action, metadata)
+               VALUES ($1, $2, $3, $4, $5::jsonb)`,
+              reviewed
+                ? [
+                    caller.tenantId,
+                    auditProcessId,
+                    caller.userId,
+                    dto.status === 'validado' ? 'document_validated' : 'document_rejected',
+                    JSON.stringify({ docId, label, ...cycle }),
+                  ]
+                : [
+                    caller.tenantId,
+                    auditProcessId,
+                    caller.userId,
+                    'document_reference_month_set',
+                    JSON.stringify({
+                      docId,
+                      label,
+                      ...cycle,
+                      previousReferenceMonth: previousMonth ? previousMonth.slice(0, 7) : null,
+                    }),
+                  ],
+            );
+            return doc;
+          })
+        : await this.repo.save(doc);
 
     // The client is told which document to send again, and why. The screen
     // sends the reason as validatedByNotes — it used to be left out of the
@@ -311,29 +437,80 @@ export class DocumentsService {
       );
     }
 
-    // FE-22: validation and rejection show up in the process activity timeline
-    // (RN-07). Personal docs have no process of their own, so they are skipped.
-    if (
-      isAnalista &&
-      doc.processId &&
-      (dto.status === 'validado' || dto.status === 'rejeitado')
-    ) {
-      await this.dataSource.query(
-        `INSERT INTO audit_logs (tenant_id, process_id, actor_id, action, metadata)
-         VALUES ($1, $2, $3, $4, $5::jsonb)`,
-        [
-          caller.tenantId,
-          doc.processId,
-          caller.userId,
-          dto.status === 'validado'
-            ? 'document_validated'
-            : 'document_rejected',
-          JSON.stringify({ docId, label: doc.label ?? doc.name }),
-        ],
+    return saved;
+  }
+
+  // Validity by reference month. undefined = this update does not touch it;
+  // null = cleared (the document is no longer validated, or its type has no
+  // deadline); otherwise the new cycle. Validating a type with a deadline
+  // requires the month, which cannot be in the future nor already expired.
+  // On a document validated before the rule (or to fix a typo) the analista
+  // informs the month alone; then an expired result is accepted — it is a fact
+  // about a document already approved, and it becomes a pendência.
+  private async validityChange(
+    doc: Document,
+    dto: UpdateDocumentDto,
+    isAnalista: boolean,
+    now = new Date(),
+  ): Promise<ValidityCycle | null | undefined> {
+    if (dto.status && dto.status !== 'validado') return null;
+    if (!isAnalista) return undefined;
+    const validating = dto.status === 'validado';
+    if (!validating && dto.referenceMonth === undefined) return undefined;
+
+    const months = await this.typeValidityMonths(doc);
+    if (!validating) {
+      if (doc.status !== 'validado') {
+        throw new UnprocessableEntityException(
+          'O mês de referência é informado ao validar o documento',
+        );
+      }
+      if (!months) {
+        throw new BadRequestException(
+          'Este tipo de documento não tem prazo de validade na lista da assessoria',
+        );
+      }
+    }
+    if (!months) return null;
+
+    const month = parseReferenceMonth(dto.referenceMonth);
+    if (!month) {
+      throw new BadRequestException(
+        'Informe o mês de referência do documento (MM/AAAA) para validá-lo',
       );
     }
+    if (isFutureMonth(month, now)) {
+      throw new BadRequestException('O mês de referência não pode ser depois do mês atual');
+    }
+    const validUntil = computeValidUntil(month, months);
+    if (validating && validUntil < todayInSaoPaulo(now)) {
+      throw new UnprocessableEntityException(
+        `Documento vencido: com o mês de referência ${formatMonthBr(month)}, ele valia até ${formatDateBr(validUntil)}. Rejeite e peça um documento mais recente ao cliente.`,
+      );
+    }
+    return { referenceMonth: month, validUntil, validityMonths: months };
+  }
 
-    return saved;
+  // Validity (months) of the document's type in the assessoria's catalog;
+  // forms and documents created before the catalog have none.
+  private async typeValidityMonths(doc: Document): Promise<number | null> {
+    if (!doc.documentTypeId || doc.formType) return null;
+    const type = await this.typeRepo.findOne({
+      where: { id: doc.documentTypeId, tenantId: doc.tenantId },
+    });
+    return type?.validityMonths ?? null;
+  }
+
+  // A process document is logged on its process. A personal one has no process
+  // of its own (it serves all the client's processes): it goes to the process
+  // the user was looking at, if that is one of this client's.
+  private async auditProcessFor(doc: Document, viewedProcessId?: string) {
+    if (doc.processId) return doc.processId;
+    if (!viewedProcessId || !doc.userId) return null;
+    const viewed = await this.processRepo.findOne({
+      where: { id: viewedProcessId, tenantId: doc.tenantId, clientId: doc.userId },
+    });
+    return viewed?.id ?? null;
   }
 
   async uploadFile(docId: string, file: Express.Multer.File, caller: RequestUserFull) {
@@ -379,7 +556,8 @@ export class DocumentsService {
 
         // The document now points to the new version and waits for validation
         // again — even after a rejection or a validation: the RN-04 gate looks
-        // only at the current version. The older ones stay in the history.
+        // only at the current version. The older ones stay in the history, and
+        // so does their reference month: the new file gets its own when validated.
         const current = {
           blobPath,
           mimeType: file.mimetype,
@@ -390,6 +568,7 @@ export class DocumentsService {
           validatedBy: null,
           validatedAt: null,
           validatedByNotes: null,
+          ...NO_VALIDITY,
         };
         await manager.update(Document, { id: docId, tenantId: caller.tenantId! }, current);
 
@@ -416,6 +595,8 @@ export class DocumentsService {
     const rows = await this.dataSource.query<VersionRow[]>(
       `SELECT v.id, v.version, v.created_at, v.mime_type, v.size_bytes, v.status,
               v.reviewed_at, v.review_notes, v.blob_path NOT LIKE 'local://%' AS downloadable,
+              to_char(v.reference_month, 'YYYY-MM') AS reference_month,
+              v.valid_until::text AS valid_until,
               NULLIF(concat_ws(' ', u.name, u.surname), '') AS uploaded_by_name,
               NULLIF(concat_ws(' ', r.name, r.surname), '') AS reviewed_by_name
          FROM document_versions v
@@ -437,6 +618,8 @@ export class DocumentsService {
       reviewedByName: r.reviewed_by_name,
       reviewedAt: r.reviewed_at,
       reviewNotes: r.review_notes,
+      referenceMonth: r.reference_month ?? null,
+      validUntil: r.valid_until ?? null,
       downloadable: r.downloadable,
     }));
   }

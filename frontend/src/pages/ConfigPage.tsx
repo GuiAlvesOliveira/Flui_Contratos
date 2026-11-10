@@ -136,9 +136,38 @@ interface Draft {
   label: string;
   category: DocumentCategory;
   description: string;
+  validity: string; // meses; vazio = sem prazo de validade
 }
 
-const EMPTY: Draft = { label: '', category: 'pessoal', description: '' };
+const EMPTY: Draft = { label: '', category: 'pessoal', description: '', validity: '' };
+
+// Prazo de validade digitado: inteiro de 1 a 120 meses, ou vazio (sem prazo)
+const validityValue = (v: string) => (v.trim() === '' ? null : Number(v));
+const validityOk = (v: string) => {
+  const n = validityValue(v);
+  return n === null || (Number.isInteger(n) && n >= 1 && n <= 120);
+};
+const validityText = (m: number) => `Validade: ${m} ${m === 1 ? 'mês' : 'meses'}`;
+
+function ValidityInput({ id, value, onChange, label }: { id?: string; value: string; onChange: (v: string) => void; label?: string }) {
+  return (
+    <div className="ds-input">
+      <input
+        id={id}
+        aria-label={label}
+        type="number"
+        min={1}
+        max={120}
+        step={1}
+        inputMode="numeric"
+        placeholder="Sem prazo"
+        value={value}
+        aria-invalid={!validityOk(value)}
+        onChange={e => onChange(e.target.value)}
+      />
+    </div>
+  );
+}
 
 const selectStyle = { flex: 1, border: 'none', outline: 'none', background: 'transparent', fontSize: 13, cursor: 'pointer' } as const;
 
@@ -155,6 +184,8 @@ function CategorySelect({ value, onChange, label }: { value: DocumentCategory; o
 // BE-03: lista de documentos da assessoria. O gestor (dono) altera para a
 // assessoria inteira; o analista só consulta. Itens são desativados, não
 // apagados, para os documentos já solicitados manterem o histórico.
+// A validade (meses a partir do mês de referência) é configurável por item:
+// com prazo, o analista informa o mês do documento ao validar.
 function ListaDocumentos({ canEdit }: { canEdit: boolean }) {
   const qc = useQueryClient();
   const [draft, setDraft] = useState<Draft>(EMPTY);
@@ -173,7 +204,12 @@ function ListaDocumentos({ canEdit }: { canEdit: boolean }) {
 
   const createMut = useMutation({
     mutationFn: (d: Draft) =>
-      api.post('/document-types', { label: d.label.trim(), category: d.category, description: d.description.trim() || undefined }),
+      api.post('/document-types', {
+        label: d.label.trim(),
+        category: d.category,
+        description: d.description.trim() || undefined,
+        validityMonths: validityValue(d.validity) ?? undefined,
+      }),
     onSuccess: () => { setDraft(EMPTY); setError(''); void refresh(); },
     onError,
   });
@@ -196,12 +232,14 @@ function ListaDocumentos({ canEdit }: { canEdit: boolean }) {
         <p style={{ margin: '0 0 12px', fontSize: 12.5, color: 'var(--text-muted)' }}>
           São os únicos documentos que os analistas podem pedir aos clientes, e a lista vale para toda a assessoria.
           {canEdit ? ' Desativar um item tira ele da escolha, mas mantém os documentos já solicitados.' : ' Somente o gestor altera esta lista.'}
+          {' '}Itens com validade pedem o mês de referência na validação (ex.: holerite de 03/2026 com 3 meses vale até 30/06/2026).
+          {canEdit && ' Mudar a validade vale para as próximas validações.'}
         </p>
 
         {canEdit && (
           <form
-            onSubmit={e => { e.preventDefault(); if (draft.label.trim().length >= 2) createMut.mutate(draft); }}
-            style={{ display: 'grid', gridTemplateColumns: 'minmax(180px, 2fr) minmax(150px, 1fr) minmax(180px, 2fr) auto', gap: 8, alignItems: 'end', marginBottom: 14 }}
+            onSubmit={e => { e.preventDefault(); if (draft.label.trim().length >= 2 && validityOk(draft.validity)) createMut.mutate(draft); }}
+            style={{ display: 'grid', gridTemplateColumns: 'minmax(180px, 2fr) minmax(150px, 1fr) minmax(180px, 2fr) 130px auto', gap: 8, alignItems: 'end', marginBottom: 14 }}
             className="ds-doc-form"
           >
             <div className="ds-field" style={{ margin: 0 }}>
@@ -222,7 +260,12 @@ function ListaDocumentos({ canEdit }: { canEdit: boolean }) {
                   onChange={e => setDraft(d => ({ ...d, description: e.target.value }))} />
               </div>
             </div>
-            <button type="submit" className="ds-btn accent sm" style={{ height: 32 }} disabled={draft.label.trim().length < 2 || createMut.isPending}>
+            <div className="ds-field" style={{ margin: 0 }}>
+              <label htmlFor="novo-doc-validade">Validade (meses)</label>
+              <ValidityInput id="novo-doc-validade" value={draft.validity} onChange={v => setDraft(d => ({ ...d, validity: v }))} />
+            </div>
+            <button type="submit" className="ds-btn accent sm" style={{ height: 32 }}
+              disabled={draft.label.trim().length < 2 || !validityOk(draft.validity) || createMut.isPending}>
               <Icon.Plus size={12} /> Adicionar
             </button>
           </form>
@@ -258,8 +301,17 @@ function ListaDocumentos({ canEdit }: { canEdit: boolean }) {
                             <input aria-label="Orientação" value={editing.draft.description} maxLength={500} placeholder="Orientação (opcional)"
                               onChange={e => setEditing({ id: t.id, draft: { ...editing.draft, description: e.target.value } })} />
                           </div>
-                          <button className="ds-btn accent sm" disabled={editing.draft.label.trim().length < 2 || updateMut.isPending}
-                            onClick={() => updateMut.mutate({ id: t.id, body: { label: editing.draft.label.trim(), category: editing.draft.category, description: editing.draft.description.trim() } })}>
+                          <div style={{ flex: '0 1 120px' }}>
+                            <ValidityInput label="Validade em meses" value={editing.draft.validity}
+                              onChange={v => setEditing({ id: t.id, draft: { ...editing.draft, validity: v } })} />
+                          </div>
+                          <button className="ds-btn accent sm" disabled={editing.draft.label.trim().length < 2 || !validityOk(editing.draft.validity) || updateMut.isPending}
+                            onClick={() => updateMut.mutate({ id: t.id, body: {
+                              label: editing.draft.label.trim(),
+                              category: editing.draft.category,
+                              description: editing.draft.description.trim(),
+                              validityMonths: validityValue(editing.draft.validity),
+                            } })}>
                             Salvar
                           </button>
                           <button className="ds-btn ghost sm" onClick={() => setEditing(null)}>Cancelar</button>
@@ -270,11 +322,19 @@ function ListaDocumentos({ canEdit }: { canEdit: boolean }) {
                             <div style={{ fontSize: 13, fontWeight: 500 }}>{t.label}</div>
                             {t.description && <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>{t.description}</div>}
                           </div>
+                          {t.validityMonths ? (
+                            <span className="ds-badge blue" data-testid="validade-tipo"><span className="dot" />{validityText(t.validityMonths)}</span>
+                          ) : null}
                           {!t.active && <span className="ds-badge neutral"><span className="dot" />Inativo</span>}
                           {canEdit && (
                             <>
                               <button className="ds-btn ghost sm" aria-label={`Editar ${t.label}`}
-                                onClick={() => setEditing({ id: t.id, draft: { label: t.label, category: t.category, description: t.description ?? '' } })}>
+                                onClick={() => setEditing({ id: t.id, draft: {
+                                  label: t.label,
+                                  category: t.category,
+                                  description: t.description ?? '',
+                                  validity: t.validityMonths ? String(t.validityMonths) : '',
+                                } })}>
                                 <Icon.Edit size={12} /> Editar
                               </button>
                               <button className="ds-btn ghost sm" disabled={updateMut.isPending}

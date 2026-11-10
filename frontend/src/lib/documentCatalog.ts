@@ -8,6 +8,8 @@ export interface DocumentTypeItem {
   label: string;
   category: DocumentCategory;
   description: string | null;
+  // prazo de validade em meses a partir do mês de referência; null = sem prazo
+  validityMonths: number | null;
   active: boolean;
 }
 

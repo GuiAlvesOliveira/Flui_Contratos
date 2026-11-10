@@ -17,6 +17,10 @@ export const ACTION_LABELS: Record<string, string> = {
   bank_form_deleted: 'Formulário do banco excluído',
   document_validated: 'Documento validado',
   document_rejected: 'Documento rejeitado',
+  // validade pelo mês de referência
+  document_reference_month_set: 'Mês de referência informado',
+  document_expired: 'Documento vencido',
+  document_expiry_notice: 'Aviso de validade enviado',
   document_deleted: 'Documento excluído (LGPD)',
   profile_update: 'Atualização de cadastro',
   processes_exported: 'Exportação de processos (CSV)',

@@ -2,11 +2,15 @@ import { Transform } from 'class-transformer';
 import {
   IsBoolean,
   IsIn,
+  IsInt,
   IsOptional,
   IsString,
   Length,
+  Max,
   MaxLength,
+  Min,
 } from 'class-validator';
+import { MAX_VALIDITY_MONTHS } from '../document-validity';
 import { DOCUMENT_CATEGORIES } from '../document-type.entity';
 import type { DocumentCategory } from '../document-type.entity';
 
@@ -28,6 +32,13 @@ export class CreateDocumentTypeDto {
   @IsString()
   @MaxLength(500)
   description?: string;
+
+  // prazo de validade em meses a partir do mês de referência; vazio = sem prazo
+  @IsOptional()
+  @IsInt({ message: 'a validade deve ser um número inteiro de meses' })
+  @Min(1, { message: 'a validade deve ser de 1 a 120 meses' })
+  @Max(MAX_VALIDITY_MONTHS, { message: 'a validade deve ser de 1 a 120 meses' })
+  validityMonths?: number;
 }
 
 /** PATCH /document-types/:id — edit or (de)activate a catalog entry. */
@@ -47,6 +58,13 @@ export class UpdateDocumentTypeDto {
   @IsString()
   @MaxLength(500)
   description?: string;
+
+  // null tira o prazo (o tipo deixa de pedir mês de referência)
+  @IsOptional()
+  @IsInt({ message: 'a validade deve ser um número inteiro de meses' })
+  @Min(1, { message: 'a validade deve ser de 1 a 120 meses' })
+  @Max(MAX_VALIDITY_MONTHS, { message: 'a validade deve ser de 1 a 120 meses' })
+  validityMonths?: number | null;
 
   @IsOptional()
   @IsBoolean()

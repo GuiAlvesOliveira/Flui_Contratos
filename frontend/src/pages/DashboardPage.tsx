@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../api/axiosInstance';
 import * as Icon from '../components/icons';
+import { DocumentExpiryCard } from '../components/DocumentExpiry';
 import { averageTicket, conversionSummary, funnel, ticketByEmpreendimento } from '../lib/dashboardMetrics';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -333,9 +334,10 @@ function EquipeSlaCard() {
 
 interface DashboardPageProps {
   onNavigate: (page: string) => void;
+  onOpenDocument: (processId: string, documentId: string) => void;
 }
 
-export function DashboardPage({ onNavigate }: DashboardPageProps) {
+export function DashboardPage({ onNavigate, onOpenDocument }: DashboardPageProps) {
   const { data: processes = [], isLoading } = useQuery<ProcessCard[]>({
     queryKey: ['processes'],
     queryFn: () => api.get<ProcessCard[]>('/processes').then(r => r.data),
@@ -578,6 +580,11 @@ export function DashboardPage({ onNavigate }: DashboardPageProps) {
         {/* PROD-10: prazo de atendimento por analista */}
         <div className="ds-col-12">
           <EquipeSlaCard />
+        </div>
+
+        {/* Validade dos documentos: processos da assessoria com documento vencendo ou vencido */}
+        <div className="ds-col-12">
+          <DocumentExpiryCard onOpenDocument={onOpenDocument} />
         </div>
 
         {/* Processos atrasados */}

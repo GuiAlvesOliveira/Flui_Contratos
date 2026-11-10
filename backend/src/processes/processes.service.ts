@@ -15,6 +15,7 @@ import { UpdateProcessDto } from './dto/update-process.dto';
 import { allowedTransitions, LINEAR_STAGES, Process, ProcessStage } from './process.entity';
 import { processesCsv, type ExportRow } from './processes-csv';
 import { financingSql, planRateSql, SUGGESTED_COMMISSION } from '../reports/success-fee';
+import { TODAY_SQL } from '../documents/document-validity';
 
 // RN-04: a process may only move past analise_credito with every document
 // validated. Applies to forward moves starting from analise_credito onward
@@ -255,9 +256,12 @@ export class ProcessesService {
       // The gate covers the process's income docs AND the client's personal
       // docs, which are stored once per client (process_id NULL) and shared by
       // all their processes. `total` counts only the process's own checklist.
-      const [counts] = await this.dataSource.query<[{ total: string; pending: string }]>(
+      // A validated document past its validity (reference month + the type's
+      // deadline) is pending too — whether or not the daily check has run.
+      const [counts] = await this.dataSource.query<[{ total: string; pending: string; expired?: string }]>(
         `SELECT COUNT(*) FILTER (WHERE process_id = $1) AS total,
-                COUNT(*) FILTER (WHERE status != 'validado') AS pending
+                COUNT(*) FILTER (WHERE status != 'validado' OR valid_until < ${TODAY_SQL}) AS pending,
+                COUNT(*) FILTER (WHERE status = 'validado' AND valid_until < ${TODAY_SQL}) AS expired
          FROM documents
          WHERE tenant_id = $2
            AND (process_id = $1 OR (process_id IS NULL AND user_id = $3))`,
@@ -273,18 +277,24 @@ export class ProcessesService {
       }
       if (Number(counts.pending) > 0) {
         const pendingDocs = await this.dataSource.query<{ label: string; status: string }[]>(
-          `SELECT COALESCE(label, name) AS label, status
+          `SELECT COALESCE(label, name) AS label,
+                  CASE WHEN status = 'validado' THEN 'vencido' ELSE status END AS status
            FROM documents
            WHERE tenant_id = $2
              AND (process_id = $1 OR (process_id IS NULL AND user_id = $3))
-             AND status != 'validado'
+             AND (status != 'validado' OR valid_until < ${TODAY_SQL})
            ORDER BY created_at`,
           [id, caller.tenantId, process.clientId],
         );
-        throw new UnprocessableEntityException({
-          message: `${Number(counts.pending)} documento(s) pendente(s) de validação`,
-          pendingDocs,
-        });
+        const expired = Number(counts.expired ?? 0);
+        const toValidate = Number(counts.pending) - expired;
+        const message = [
+          toValidate > 0 ? `${toValidate} documento(s) pendente(s) de validação` : '',
+          expired > 0 ? `${expired} documento(s) vencido(s) — peça um documento mais recente ao cliente` : '',
+        ]
+          .filter(Boolean)
+          .join(' e ');
+        throw new UnprocessableEntityException({ message, pendingDocs });
       }
     }
 
@@ -357,10 +367,11 @@ export class ProcessesService {
 
     // Edits and removals in the Histórico de Atividades are internal to the
     // assessoria (they carry the previous text and the removal reason), and so
-    // is the commission (PROD-09).
+    // is the commission (PROD-09) and the record of who got each expiry notice
+    // (the client reads their own notices in the notifications panel).
     const internal =
       caller.role === 'cliente'
-        ? `AND al.action NOT IN ('activity_edited', 'activity_deleted', 'commission_updated')`
+        ? `AND al.action NOT IN ('activity_edited', 'activity_deleted', 'commission_updated', 'document_expiry_notice')`
         : '';
     return this.dataSource.query<Record<string, unknown>[]>(
       `SELECT al.*, u.name as actor_name

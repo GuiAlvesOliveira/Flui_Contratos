@@ -11,3 +11,6 @@ O processo não pode avançar sem os documentos obrigatórios validados. É uma 
 
 ## Consequências
 A regra vale mesmo para chamadas diretas à API, e a lógica fica centralizada e testada. A interface só reflete o que a API permite.
+
+## Atualização — validade pelo mês de referência
+Um documento validado de tipo com prazo (holerite, extrato, comprovante de endereço) passa a ter um mês de referência e uma data de validade. Depois dessa data ele **conta como pendência** na mesma trava: o avanço é recusado com a lista dos documentos vencidos, calculada pela data na própria API, sem depender da rotina diária. Detalhes em `docs/validade-documentos.md`.

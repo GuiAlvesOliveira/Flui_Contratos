@@ -100,7 +100,55 @@ describe('DocumentTypesService (BE-03 Lista de Documentos)', () => {
       label: 'Matrícula do imóvel',
       category: 'imovel',
       description: null,
+      validityMonths: null,
     });
+  });
+
+  it('validade: o gestor cria o item com prazo em meses e depois altera ou tira o prazo', async () => {
+    const { service, repo } = makeService();
+    await service.create(
+      { label: 'Conta de luz', category: 'pessoal', validityMonths: 3 },
+      dono,
+    );
+    expect(repo.save).toHaveBeenLastCalledWith(
+      expect.objectContaining({ label: 'Conta de luz', validityMonths: 3 }),
+    );
+
+    repo.findOne.mockResolvedValue({
+      id: 'ty1',
+      tenantId: 't1',
+      label: 'Extrato',
+      validityMonths: 6,
+    });
+    await service.update('ty1', { validityMonths: 4 }, dono);
+    expect(repo.save).toHaveBeenLastCalledWith(
+      expect.objectContaining({ validityMonths: 4 }),
+    );
+    await service.update('ty1', { validityMonths: null }, dono);
+    expect(repo.save).toHaveBeenLastCalledWith(
+      expect.objectContaining({ validityMonths: null }),
+    );
+    // sem o campo, o prazo continua como estava
+    repo.findOne.mockResolvedValue({
+      id: 'ty1',
+      tenantId: 't1',
+      label: 'Extrato',
+      validityMonths: 6,
+    });
+    await service.update('ty1', { description: 'últimos meses' }, dono);
+    expect(repo.save).toHaveBeenLastCalledWith(
+      expect.objectContaining({ validityMonths: 6 }),
+    );
+  });
+
+  it('lista inicial: holerite e comprovante de endereço 3 meses, extrato bancário 6, RG sem prazo', () => {
+    const months = (label: string) =>
+      DEFAULT_DOCUMENT_TYPES.find((d) => d.label === label)?.validityMonths;
+    expect(months('Holerite (mês 1)')).toBe(3);
+    expect(months('Comprovante de Endereço')).toBe(3);
+    expect(months('Extrato Bancário (mês 6)')).toBe(6);
+    expect(months('RG ou CNH')).toBeUndefined();
+    expect(months('Declaração de IRPF')).toBeUndefined();
   });
 
   it('answers 409 for a label that already exists in the tenant', async () => {
@@ -172,6 +220,30 @@ describe('BE-03 / BE-10 DTOs', () => {
     expect(
       await errorsFor(UpdateDocumentTypeDto, { active: 'sim', tenantId: 't2' }),
     ).toEqual(['active', 'tenantId']);
+  });
+
+  it('validade do item: inteiro de 1 a 120 meses; null tira o prazo', async () => {
+    const base = { label: 'Holerite', category: 'renda' };
+    expect(
+      await errorsFor(CreateDocumentTypeDto, { ...base, validityMonths: 3 }),
+    ).toEqual([]);
+    expect(
+      await errorsFor(CreateDocumentTypeDto, { ...base, validityMonths: 120 }),
+    ).toEqual([]);
+    for (const bad of [0, 121, 1.5, '3', -1]) {
+      expect(
+        await errorsFor(CreateDocumentTypeDto, {
+          ...base,
+          validityMonths: bad,
+        }),
+      ).toEqual(['validityMonths']);
+    }
+    expect(
+      await errorsFor(UpdateDocumentTypeDto, { validityMonths: null }),
+    ).toEqual([]);
+    expect(
+      await errorsFor(UpdateDocumentTypeDto, { validityMonths: 6 }),
+    ).toEqual([]);
   });
 
   it('request: 1–50 distinct UUIDs', async () => {

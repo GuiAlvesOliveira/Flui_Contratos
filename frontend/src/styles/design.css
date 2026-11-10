@@ -273,6 +273,43 @@ input, select, textarea { font-family: inherit; }
   .ds-notif { position: fixed; top: calc(var(--tb-h) + 4px); left: 16px; right: 16px; width: auto; }
 }
 
+/* Validade de documentos pelo mês de referência */
+.ds-notif-section { padding: 6px 12px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--text-faint); background: var(--bg-subtle); border-bottom: 1px solid var(--border); }
+.ds-notif-alert { position: relative; display: flex; flex-direction: column; gap: 4px; padding: 9px 12px 9px 24px; border-bottom: 1px solid var(--border); font-size: 13px; color: var(--text-muted); cursor: pointer; }
+.ds-notif-alert:hover { background: var(--bg-hover); }
+.ds-notif-alert.unread { background: var(--amber-soft); color: var(--text); }
+.ds-notif-alert.unread.expired { background: var(--red-soft); }
+.ds-notif-alert .ds-notif-dot { background: var(--amber); }
+.ds-notif-alert.expired .ds-notif-dot { background: var(--red); }
+.ds-notif-alert-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+/* .ds-page vem depois neste arquivo: a classe dupla vence o padding de baixo */
+.ds-page.ds-expiry-banner-wrap { padding-bottom: 0; margin-bottom: -8px; }
+.ds-expiry-banner-wrap .ds-expiry-banner { margin: 0; }
+.ds-expiry-banner { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 0 0 16px; padding: 12px 14px; border-radius: var(--radius); background: var(--red-soft); border: 1px solid var(--red-soft-border); color: var(--text); }
+.ds-expiry-banner-icon { width: 30px; height: 30px; border-radius: var(--radius-sm); display: grid; place-items: center; flex: 0 0 30px; background: #fff; color: var(--red); border: 1px solid var(--red-soft-border); }
+.ds-expiry-banner-title { font-size: 13.5px; font-weight: 600; color: var(--red); }
+.ds-expiry-banner-desc { font-size: 12.5px; color: var(--text-muted); margin-top: 2px; }
+.ds-expiry-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; width: 100%; padding: 10px 14px; text-align: left; background: none; border: 0; border-bottom: 1px solid var(--border); cursor: pointer; font: inherit; color: inherit; }
+.ds-expiry-row:hover { background: var(--bg-subtle); }
+.ds-expiry-row:last-child { border-bottom: none; }
+.ds-expiry-row .pr-title { font-size: 13px; font-weight: 500; }
+.ds-expiry-row .pr-sub { font-size: 11.5px; color: var(--text-muted); margin-top: 1px; }
+.ds-expiry-docs { list-style: none; margin: 4px 0 0; padding: 0; font-size: 12px; }
+.ds-expiry-docs li.bad { color: var(--red); }
+.ds-expiry-docs li.warn { color: var(--amber); }
+.ds-ref-month { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; margin: 0 16px 12px 60px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-subtle); }
+.ds-ref-month .ds-field { margin: 0; }
+.ds-ref-month .ds-input { width: 120px; }
+.ds-ref-month-preview { font-size: 12.5px; min-height: 18px; }
+.ds-ref-month-preview.ok { color: var(--green); }
+.ds-ref-month-preview.warn { color: var(--amber); }
+.ds-ref-month-preview.bad { color: var(--red); }
+.ds-doc-focus { animation: ds-doc-focus 2.4s ease-out 1; }
+@keyframes ds-doc-focus { 0%, 60% { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); } 100% { background: transparent; box-shadow: none; } }
+@media (max-width: 640px) {
+  .ds-ref-month { margin-left: 16px; }
+}
+
 /* Busca global da topbar (FE-30) */
 .ds-search-wrap { position: relative; }
 .ds-tb-search input {

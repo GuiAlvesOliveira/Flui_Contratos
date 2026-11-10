@@ -1,4 +1,4 @@
-import { Fragment, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/axiosInstance';
 import * as Icon from '../components/icons';
@@ -18,6 +18,10 @@ import { useDadosSolicitados } from '../lib/ficha';
 import { SenhaTemporaria } from '../components/SenhaTemporaria';
 import { cepDigits, formatCep } from '../lib/cep';
 import { useCepLookup } from '../lib/useCepLookup';
+import {
+  computeValidUntil, currentMonthSp, daysUntil, dueText, formatDay, formatMonth, maskMonth,
+  parseMonthBr, validityBadge, validityStatus, type ValidityStatus,
+} from '../lib/documentValidity';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -72,6 +76,9 @@ interface AuditEntry {
     label?: string; labels?: string[]; fields?: string; reason?: string | null;
     before?: number | null; after?: number | null; // PROD-09: comissão
     version?: number; // PROD-12: versão do arquivo enviado
+    // validade pelo mês de referência
+    referenceMonth?: string; validUntil?: string; previousReferenceMonth?: string | null;
+    kind?: string; recipientRole?: string;
   } | null;
 }
 
@@ -89,7 +96,16 @@ interface Document {
   formType?: 'dps' | 'financiamento' | null; // preenchido na aba Formulários (FE-23)
   formData?: Record<string, unknown> | null;
   versionCount?: number; // PROD-12: arquivos enviados (histórico); ausente = nenhum
+  // Validade pelo mês de referência (ausente = tipo sem prazo)
+  referenceMonth?: string | null; // 'AAAA-MM-01'
+  validUntil?: string | null; // último dia de validade, 'AAAA-MM-DD'
+  typeValidityMonths?: number | null; // prazo do tipo na lista: a validação pede o mês
+  validityStatus?: ValidityStatus | 'sem_referencia' | null;
+  daysLeft?: number | null;
 }
+
+// Validado e dentro da validade — o que conta para o RN-04
+const docOk = (d: Document) => d.status === 'validado' && d.validityStatus !== 'vencido';
 
 // PROD-12: GET /documents/:id/versions (mais nova primeiro)
 interface DocVersion {
@@ -102,6 +118,8 @@ interface DocVersion {
   reviewedByName: string | null;
   reviewedAt: string | null;
   reviewNotes: string | null;
+  referenceMonth?: string | null; // 'AAAA-MM' da versão validada
+  validUntil?: string | null;
   downloadable: boolean;
 }
 
@@ -497,7 +515,7 @@ function WorkflowTab({ process, docs, isAnalista, onMoverEtapa }: {
     queryFn: () => api.get(`/processes/${process.id}/audit`).then(r => r.data),
   });
 
-  const docsValidados = docs.filter(d => d.status === 'validado').length;
+  const docsValidados = docs.filter(docOk).length;
   const currentIdx = LINEAR_STAGES.indexOf(process.stage);
   const nextStage = currentIdx >= 0 && currentIdx < LINEAR_STAGES.length - 1 ? LINEAR_STAGES[currentIdx + 1] : null;
   const isSide = SIDE_STAGES.includes(process.stage);
@@ -1364,7 +1382,7 @@ function DocFileButtons({ docId, label, url }: { docId: string; label: string; u
   );
 }
 
-function UploadButton({ docId, processId, label, replace = false }: { docId: string; processId: string; label: string; replace?: boolean }) {
+function UploadButton({ docId, processId, label, replace = false, text }: { docId: string; processId: string; label: string; replace?: boolean; text?: string }) {
   const qc = useQueryClient();
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
@@ -1383,6 +1401,9 @@ function UploadButton({ docId, processId, label, replace = false }: { docId: str
       void qc.invalidateQueries({ queryKey: ['documents', processId] });
       void qc.invalidateQueries({ queryKey: ['audit', processId] });
       void qc.invalidateQueries({ queryKey: ['doc-versions', docId] });
+      // um arquivo novo tira o documento da lista de vencidos (aguarda validação)
+      void qc.invalidateQueries({ queryKey: ['document-expiry'] });
+      void qc.invalidateQueries({ queryKey: ['notifications'] });
     } catch {
       setError('Falha ao enviar arquivo');
     } finally {
@@ -1400,7 +1421,7 @@ function UploadButton({ docId, processId, label, replace = false }: { docId: str
       <span className="ds-btn ghost sm" style={{ pointerEvents: 'none' }}>
         {uploading ? 'Enviando...' : (
           <>
-            <Icon.Upload size={12} /> {replace ? 'Nova versão' : 'Enviar'}
+            <Icon.Upload size={12} /> {text ?? (replace ? 'Nova versão' : 'Enviar')}
           </>
         )}
       </span>
@@ -1438,6 +1459,9 @@ function VersionHistory({ doc }: { doc: Document }) {
               v.reviewedByName ? ` por ${v.reviewedByName}` : '',
               v.reviewedAt ? ` em ${fmtDate(v.reviewedAt)}` : '',
               v.reviewNotes ? ` · ${v.reviewNotes}` : '',
+              v.status === 'validado' && v.referenceMonth
+                ? ` · mês de referência ${formatMonth(v.referenceMonth)}${v.validUntil ? `, válido até ${formatDay(v.validUntil)}` : ''}`
+                : '',
             ].join('');
             return (
               <li key={v.id} data-testid="doc-version" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '6px 0 6px 12px' }}>
@@ -1469,7 +1493,105 @@ function VersionHistory({ doc }: { doc: Document }) {
   );
 }
 
-function DocumentosTab({ processId, role }: { processId: string; role: string | null }) {
+// Validar um documento de tipo com prazo (holerite, extrato, conta) pede o mês
+// de referência, MM/AAAA. A tela mostra o vencimento calculado assim que o mês
+// é preenchido e só libera "Aprovar" com um mês válido: não futuro e que não
+// deixe o documento já vencido. A API confere tudo de novo. Num documento já
+// validado (inclusive os anteriores à regra, sem mês), o analista informa ou
+// corrige o mês — aí um resultado vencido é aceito e vira pendência.
+function ReferenceMonthPanel({ doc, processId, mode, onClose }: {
+  doc: Document;
+  processId: string;
+  mode: 'validar' | 'informar';
+  onClose: () => void;
+}) {
+  const qc = useQueryClient();
+  const label = doc.label ?? doc.name;
+  const months = doc.typeValidityMonths ?? 0;
+  const [text, setText] = useState(mode === 'informar' && doc.referenceMonth ? formatMonth(doc.referenceMonth) : '');
+  const month = parseMonthBr(text);
+  const future = !!month && month > currentMonthSp();
+  const validUntil = month && !future ? computeValidUntil(month, months) : null;
+  const status = validUntil ? validityStatus(validUntil) : null;
+  const expiredOnApproval = mode === 'validar' && status === 'vencido';
+  const inputId = `mes-referencia-${doc.id}`;
+
+  const mut = useMutation({
+    mutationFn: () => api.patch(`/documents/${doc.id}`, mode === 'validar'
+      ? { status: 'validado', referenceMonth: text, processId }
+      : { referenceMonth: text, processId }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['documents', processId] });
+      void qc.invalidateQueries({ queryKey: ['audit', processId] });
+      void qc.invalidateQueries({ queryKey: ['doc-versions', doc.id] });
+      void qc.invalidateQueries({ queryKey: ['document-expiry'] });
+      void qc.invalidateQueries({ queryKey: ['notifications'] });
+      onClose();
+    },
+  });
+
+  let preview = { text: `Validade de ${months} ${months === 1 ? 'mês' : 'meses'} a partir do mês de referência.`, tone: '' };
+  if (text.length === 7 && !month) preview = { text: 'Mês inválido. Use MM/AAAA, por exemplo 03/2026.', tone: 'bad' };
+  else if (future) preview = { text: 'O mês de referência não pode ser depois do mês atual.', tone: 'bad' };
+  else if (validUntil && expiredOnApproval) {
+    preview = { text: `Com esse mês o documento já está vencido (valia até ${formatDay(validUntil)}). Rejeite e peça um documento mais recente.`, tone: 'bad' };
+  } else if (validUntil && status === 'vencido') {
+    preview = { text: `Vencido: valia até ${formatDay(validUntil)}. O documento passa a ser pendência.`, tone: 'bad' };
+  } else if (validUntil && status === 'vencendo') {
+    preview = { text: `Válido até ${formatDay(validUntil)} — ${dueText(daysUntil(validUntil))}.`, tone: 'warn' };
+  } else if (validUntil) {
+    preview = { text: `Válido até ${formatDay(validUntil)}`, tone: 'ok' };
+  }
+  const canSave = !!validUntil && !expiredOnApproval && !mut.isPending;
+
+  return (
+    <form
+      className="ds-ref-month"
+      aria-label={`Mês de referência de ${label}`}
+      data-testid="painel-mes-referencia"
+      onSubmit={e => { e.preventDefault(); if (canSave) mut.mutate(); }}
+    >
+      <div className="ds-field">
+        <label htmlFor={inputId}>Mês de referência *</label>
+        <div className="ds-input">
+          <input
+            id={inputId}
+            value={text}
+            inputMode="numeric"
+            placeholder="MM/AAAA"
+            maxLength={7}
+            autoFocus
+            required
+            aria-describedby={`${inputId}-previa`}
+            aria-invalid={preview.tone === 'bad'}
+            onChange={e => setText(maskMonth(e.target.value))}
+          />
+        </div>
+      </div>
+      <div style={{ flex: '1 1 220px', minWidth: 0 }}>
+        <div id={`${inputId}-previa`} className={`ds-ref-month-preview ${preview.tone}`} role="status" data-testid="previa-vencimento">
+          {preview.text}
+        </div>
+        <div style={{ fontSize: 11.5, color: 'var(--text-faint)' }}>
+          Mês a que o documento se refere: competência do holerite, mês do extrato ou da conta.
+        </div>
+        {mut.isError && (
+          <div role="alert" style={{ fontSize: 12, color: 'var(--red)', marginTop: 2 }}>
+            {apiErrorMessage(mut.error, 'Não foi possível salvar o mês de referência')}
+          </div>
+        )}
+      </div>
+      <div style={{ display: 'flex', gap: 6 }}>
+        <button type="button" className="ds-btn ghost sm" onClick={onClose}>Cancelar</button>
+        <button type="submit" className="ds-btn accent sm" disabled={!canSave}>
+          {mut.isPending ? 'Salvando...' : mode === 'validar' ? <><Icon.Check size={12} /> Aprovar</> : 'Salvar mês'}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function DocumentosTab({ processId, role, focusDocId = null }: { processId: string; role: string | null; focusDocId?: string | null }) {
   const qc = useQueryClient();
   const isAnalista = role === 'analista' || role === 'dono';
   const isCliente = role === 'cliente';
@@ -1477,19 +1599,30 @@ function DocumentosTab({ processId, role }: { processId: string; role: string | 
   const [showSolicitar, setShowSolicitar] = useState(false);
   const [toDelete, setToDelete] = useState<Document | null>(null);
   const [historyOf, setHistoryOf] = useState<string | null>(null); // PROD-12
+  // documento com o painel do mês de referência aberto
+  const [monthPanel, setMonthPanel] = useState<{ id: string; mode: 'validar' | 'informar' } | null>(null);
 
   const { data: docs = [], isLoading } = useQuery<Document[]>({
     queryKey: ['documents', processId],
     queryFn: () => api.get(`/processes/${processId}/documents`).then(r => r.data),
   });
 
+  // Vindo de um aviso de validade: rola até o documento (a linha fica em destaque)
+  useEffect(() => {
+    if (!focusDocId || isLoading) return;
+    document.getElementById(`doc-${focusDocId}`)?.scrollIntoView({ block: 'center' });
+  }, [focusDocId, isLoading]);
+
   const validateMut = useMutation({
+    // processId: o registro de um documento pessoal vai para o processo aberto
     mutationFn: ({ docId, status, notes }: { docId: string; status: string; notes?: string }) =>
-      api.patch(`/documents/${docId}`, { status, validatedByNotes: notes }),
+      api.patch(`/documents/${docId}`, { status, validatedByNotes: notes, processId }),
     onSuccess: (_data, vars) => {
       void qc.invalidateQueries({ queryKey: ['documents', processId] });
       void qc.invalidateQueries({ queryKey: ['audit', processId] }); // validação entra na Atividade (FE-22)
       void qc.invalidateQueries({ queryKey: ['doc-versions', vars.docId] }); // o resultado vai para a versão atual
+      void qc.invalidateQueries({ queryKey: ['document-expiry'] });
+      void qc.invalidateQueries({ queryKey: ['notifications'] });
     },
   });
 
@@ -1513,7 +1646,7 @@ function DocumentosTab({ processId, role }: { processId: string; role: string | 
       )}
       {validateMut.isError && (
         <div role="alert" style={{ fontSize: 12.5, color: 'var(--red)' }}>
-          Não foi possível atualizar o documento. Tente de novo.
+          {apiErrorMessage(validateMut.error, 'Não foi possível atualizar o documento. Tente de novo.')}
         </div>
       )}
       {docs.length === 0 && !isAnalista && (
@@ -1528,24 +1661,67 @@ function DocumentosTab({ processId, role }: { processId: string; role: string | 
           <div className="ds-card-hdr">{CATEGORY_LABELS[cat]}</div>
           <div className="ds-card-body" style={{ padding: 0 }}>
             {catDocs.map((doc, idx) => {
-              const badge = STATUS_BADGE[doc.status];
+              const label = doc.label ?? doc.name;
+              const expired = doc.status === 'validado' && doc.validityStatus === 'vencido';
+              // validado e vencido é pendência (RN-04): o selo principal diz "Vencido"
+              const badge = expired ? { label: 'Vencido', color: '#dc2626', bg: '#fef2f2' } : STATUS_BADGE[doc.status];
+              const validity = validityBadge(doc.validityStatus, doc.validUntil, doc.daysLeft);
+              // "mês de referência não informado" é para a equipe revisar
+              const showValidity = !!validity && (isAnalista || doc.validityStatus !== 'sem_referencia');
+              const asksMonth = !!doc.typeValidityMonths;
+              // vencendo ou vencido: o cliente já pode mandar um mais recente
+              const needsNewer = doc.status === 'validado' && (doc.validityStatus === 'vencendo' || expired);
               // FE-21: o analista também envia o arquivo pela linha (ex.: recebido por e-mail)
-              const canUpload = (isCliente || isAnalista) && !doc.formType && (doc.status === 'pendente' || doc.status === 'rejeitado');
+              const canUpload = (isCliente || isAnalista) && !doc.formType
+                && (doc.status === 'pendente' || doc.status === 'rejeitado' || needsNewer);
               const versions = doc.versionCount ?? 0;
+              const tone = doc.status === 'rejeitado' || expired ? 'red' : doc.status === 'validado' ? 'green' : 'none';
               return (
-                <div key={doc.id} style={{ borderTop: idx === 0 ? 'none' : '1px solid var(--border)' }}>
+                <div
+                  key={doc.id}
+                  id={`doc-${doc.id}`}
+                  className={doc.id === focusDocId ? 'ds-doc-focus' : undefined}
+                  data-testid="doc-linha"
+                  style={{ borderTop: idx === 0 ? 'none' : '1px solid var(--border)' }}
+                >
                 <div className="ds-proc-doc" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 16px' }}>
                   <div style={{
                     width: 32, height: 32, borderRadius: 6, flexShrink: 0,
-                    background: doc.status === 'validado' ? '#dcfce7' : doc.status === 'rejeitado' ? '#fee2e2' : 'var(--bg-subtle)',
+                    background: tone === 'green' ? '#dcfce7' : tone === 'red' ? '#fee2e2' : 'var(--bg-subtle)',
                     border: '1px solid var(--border)', display: 'grid', placeItems: 'center',
                   }}>
-                    <Icon.FileText size={14} style={{ color: doc.status === 'validado' ? '#16a34a' : doc.status === 'rejeitado' ? '#dc2626' : 'var(--text-faint)' }} />
+                    <Icon.FileText size={14} style={{ color: tone === 'green' ? '#16a34a' : tone === 'red' ? '#dc2626' : 'var(--text-faint)' }} />
                   </div>
                   <div className="ds-proc-doc-info" style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13, fontWeight: 500 }}>{doc.label ?? doc.name}</div>
+                    <div style={{ fontSize: 13, fontWeight: 500 }}>{label}</div>
                     {doc.formType && (
                       <div style={{ fontSize: 11.5, color: 'var(--text-faint)', marginTop: 2 }}>Preenchido na aba Formulários</div>
+                    )}
+                    {showValidity && validity && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
+                        <span className={`ds-badge ${validity.tone}`} data-testid="validade-doc">
+                          <span className="dot" />{validity.label}
+                        </span>
+                        {doc.referenceMonth && (
+                          <span style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>
+                            mês de referência {formatMonth(doc.referenceMonth)}
+                          </span>
+                        )}
+                        {isAnalista && doc.status === 'validado' && asksMonth && (
+                          <button
+                            type="button"
+                            onClick={() => setMonthPanel({ id: doc.id, mode: 'informar' })}
+                            style={{ background: 'none', border: 'none', padding: 0, fontSize: 11.5, color: 'var(--accent)', cursor: 'pointer' }}
+                          >
+                            {doc.validityStatus === 'sem_referencia' ? 'Informar mês' : 'Corrigir mês'}
+                          </button>
+                        )}
+                      </div>
+                    )}
+                    {isAnalista && asksMonth && doc.status === 'recebido' && (
+                      <div style={{ fontSize: 11.5, color: 'var(--text-faint)', marginTop: 2 }}>
+                        Validade de {doc.typeValidityMonths} {doc.typeValidityMonths === 1 ? 'mês' : 'meses'}: informe o mês de referência ao validar
+                      </div>
                     )}
                     {doc.validatedByNotes && (
                       <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 2 }}>{doc.validatedByNotes}</div>
@@ -1565,17 +1741,30 @@ function DocumentosTab({ processId, role }: { processId: string; role: string | 
                     {badge.label}
                   </span>
                   {doc.blobPath && !doc.blobPath.startsWith('local://') && (
-                    <DocFileButtons docId={doc.id} label={doc.label ?? doc.name} />
+                    <DocFileButtons docId={doc.id} label={label} />
                   )}
-                  {canUpload && <UploadButton docId={doc.id} processId={processId} label={doc.label ?? doc.name} replace={versions > 0} />}
+                  {canUpload && (
+                    <UploadButton
+                      docId={doc.id}
+                      processId={processId}
+                      label={label}
+                      replace={versions > 0}
+                      text={needsNewer ? 'Enviar mais recente' : undefined}
+                    />
+                  )}
                   {isAnalista && doc.status === 'recebido' && (
                     <div style={{ display: 'flex', gap: 4 }}>
                       <button className="ds-btn ghost sm" style={{ color: '#16a34a' }}
-                        onClick={() => validateMut.mutate({ docId: doc.id, status: 'validado' })} title="Validar">
+                        onClick={() => (asksMonth
+                          ? setMonthPanel({ id: doc.id, mode: 'validar' })
+                          : validateMut.mutate({ docId: doc.id, status: 'validado' }))}
+                        title={asksMonth ? 'Validar — pede o mês de referência' : 'Validar'}
+                        aria-label={`Validar ${label}`}>
                         <Icon.Check size={13} />
                       </button>
                       <button className="ds-btn ghost sm" style={{ color: '#dc2626' }}
-                        onClick={() => validateMut.mutate({ docId: doc.id, status: 'rejeitado', notes: 'Documento inválido ou ilegível' })} title="Rejeitar">
+                        onClick={() => validateMut.mutate({ docId: doc.id, status: 'rejeitado', notes: 'Documento inválido ou ilegível' })}
+                        title="Rejeitar" aria-label={`Rejeitar ${label}`}>
                         <Icon.X size={13} />
                       </button>
                     </div>
@@ -1586,12 +1775,20 @@ function DocumentosTab({ processId, role }: { processId: string; role: string | 
                       style={{ color: 'var(--text-faint)' }}
                       onClick={() => setToDelete(doc)}
                       title="Excluir documento"
-                      aria-label={`Excluir ${doc.label ?? doc.name}`}
+                      aria-label={`Excluir ${label}`}
                     >
                       <Icon.Trash size={13} />
                     </button>
                   )}
                 </div>
+                {monthPanel?.id === doc.id && (
+                  <ReferenceMonthPanel
+                    doc={doc}
+                    processId={processId}
+                    mode={monthPanel.mode}
+                    onClose={() => setMonthPanel(null)}
+                  />
+                )}
                 {historyOf === doc.id && <VersionHistory doc={doc} />}
                 </div>
               );
@@ -1625,6 +1822,16 @@ function activityDetail(e: AuditEntry): string | null {
   const m = e.metadata;
   if (!m) return null;
   if (m.labels?.length) return m.labels.join(', ');
+  // validade pelo mês de referência
+  if (e.action === 'document_expiry_notice' && m.label) {
+    const who = m.recipientRole === 'cliente' ? 'cliente' : m.recipientRole === 'gestor' ? 'gestor' : 'analista';
+    return `${m.label} · ${m.kind === 'document_expired' ? 'vencido' : 'vencendo'} · aviso para o ${who}`;
+  }
+  if (m.label && m.validUntil && e.action === 'document_expired') return `${m.label} · valia até ${formatDay(m.validUntil)}`;
+  if (m.label && m.referenceMonth && m.validUntil) {
+    const before = m.previousReferenceMonth ? ` (antes ${formatMonth(m.previousReferenceMonth)})` : '';
+    return `${m.label} · mês de referência ${formatMonth(m.referenceMonth)}${before} · válido até ${formatDay(m.validUntil)}`;
+  }
   if (m.label && m.version && m.version > 1) return `${m.label} · versão ${m.version}`;
   if (m.label) return m.reason ? `${m.label} · motivo: ${m.reason}` : m.label;
   if (m.fields) return `Campos: ${m.fields}`;
@@ -2006,10 +2213,12 @@ interface Props {
   processId: string;
   onBack: () => void;
   role: string | null;
+  // aviso de validade: abre na aba Documentos com este documento em destaque
+  focusDocId?: string | null;
 }
 
-export function ProponenteDetailPage({ processId, onBack, role }: Props) {
-  const [tab, setTab] = useState<Tab>('workflow');
+export function ProponenteDetailPage({ processId, onBack, role, focusDocId = null }: Props) {
+  const [tab, setTab] = useState<Tab>(focusDocId ? 'documentos' : 'workflow');
   const [showMoverEtapa, setShowMoverEtapa] = useState(false);
   // ficha completa: dados que a assessoria pediu ao cliente
   const { data: pedidosDados = [] } = useDadosSolicitados(processId, role === 'cliente');
@@ -2039,7 +2248,7 @@ export function ProponenteDetailPage({ processId, onBack, role }: Props) {
 
   const { client, unidade } = process;
   const stageColor = STAGE_COLORS[process.stage];
-  const docsValidados = docs.filter(d => d.status === 'validado').length;
+  const docsValidados = docs.filter(docOk).length;
 
   const TABS: { id: Tab; label: string }[] = [
     { id: 'workflow', label: 'Workflow' },
@@ -2186,7 +2395,7 @@ export function ProponenteDetailPage({ processId, onBack, role }: Props) {
       {tab === 'workflow' && <WorkflowTab process={process} docs={docs} isAnalista={isAnalista} onMoverEtapa={() => setShowMoverEtapa(true)} />}
       {tab === 'cadastro' && <CadastroTab process={process} role={role} />}
       {tab === 'ficha' && <FichaTab process={process} role={role} />}
-      {tab === 'documentos' && <DocumentosTab processId={processId} role={role} />}
+      {tab === 'documentos' && <DocumentosTab processId={processId} role={role} focusDocId={focusDocId} />}
       {tab === 'formularios' && <FormulariosTab processId={processId} docs={docs} role={role} />}
       {tab === 'atividade' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>

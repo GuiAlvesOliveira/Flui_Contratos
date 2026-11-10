@@ -83,6 +83,33 @@ export class Document {
   @Column({ type: 'text', name: 'validated_by_notes', nullable: true })
   validatedByNotes: string | null;
 
+  // Validade pelo mês de referência (document-validity.ts): gravada quando o
+  // analista valida um documento de tipo com prazo. referenceMonth é o dia 1
+  // do mês; validUntil, o último dia de validade (inclusive); validityMonths, o
+  // prazo da lista usado no cálculo. Um arquivo novo ou a rejeição limpam tudo.
+  @Column({ type: 'date', name: 'reference_month', nullable: true })
+  referenceMonth: string | null;
+
+  @Column({ type: 'date', name: 'valid_until', nullable: true })
+  validUntil: string | null;
+
+  @Column({ type: 'smallint', name: 'validity_months', nullable: true })
+  validityMonths: number | null;
+
+  @Column({ type: 'uuid', name: 'reference_month_set_by', nullable: true })
+  referenceMonthSetBy: string | null;
+
+  @Column({
+    type: 'timestamptz',
+    name: 'reference_month_set_at',
+    nullable: true,
+  })
+  referenceMonthSetAt: Date | null;
+
+  // quando a rotina diária registrou o vencimento (pendência + aviso)
+  @Column({ type: 'timestamptz', name: 'expired_at', nullable: true })
+  expiredAt: Date | null;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 

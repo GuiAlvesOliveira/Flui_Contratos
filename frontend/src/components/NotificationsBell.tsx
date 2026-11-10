@@ -18,9 +18,23 @@ export interface NotificationItem {
   read: boolean;
 }
 
+// Aviso guardado para o usuário (documento vencendo ou vencido)
+export interface AlertItem {
+  id: string;
+  kind: 'document_expiring' | 'document_expired' | string;
+  processId: string | null;
+  documentId: string | null;
+  message: string;
+  validUntil: string | null;
+  createdAt: string;
+  read: boolean;
+  resolved: boolean;
+}
+
 interface NotificationsResponse {
   unread: number;
   pendingDocs: number;
+  alerts?: AlertItem[];
   items: NotificationItem[];
 }
 
@@ -53,10 +67,13 @@ function timeAgo(iso: string): string {
 
 // FE-29: sino da topbar com as notificações do usuário (mudanças de etapa e
 // documentos dos processos que ele acompanha), contagem de não lidas e
-// documentos esperando por ele.
-export function NotificationsBell({ isCliente, onOpenProcess }: {
+// documentos esperando por ele. Os avisos de validade (documento vencendo ou
+// vencido) vêm primeiro, com o botão que leva direto ao documento; abrir o
+// aviso marca como lido. A lista se atualiza sozinha a cada minuto.
+export function NotificationsBell({ isCliente, onOpenProcess, onOpenDocument }: {
   isCliente: boolean;
   onOpenProcess: (id: string) => void;
+  onOpenDocument: (processId: string, documentId: string) => void;
 }) {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
@@ -68,14 +85,18 @@ export function NotificationsBell({ isCliente, onOpenProcess }: {
     refetchInterval: 60_000,
   });
   const unread = data?.unread ?? 0;
+  const alerts = Array.isArray(data?.alerts) ? data.alerts : [];
 
   const markRead = useMutation({
     mutationFn: (id: string) => api.post(`/notifications/${id}/read`),
     onMutate: (id) => {
       qc.setQueryData<NotificationsResponse>(KEY, old => old && {
         ...old,
-        unread: Math.max(0, old.unread - (old.items.some(i => i.id === id && !i.read) ? 1 : 0)),
+        unread: Math.max(0, old.unread - (
+          old.items.some(i => i.id === id && !i.read) ||
+          (old.alerts ?? []).some(a => a.id === id && !a.read && !a.resolved) ? 1 : 0)),
         items: old.items.map(i => (i.id === id ? { ...i, read: true } : i)),
+        alerts: (old.alerts ?? []).map(a => (a.id === id ? { ...a, read: true } : a)),
       });
     },
     onSettled: () => qc.invalidateQueries({ queryKey: KEY }),
@@ -104,6 +125,13 @@ export function NotificationsBell({ isCliente, onOpenProcess }: {
     if (!n.read) markRead.mutate(n.id);
     setOpen(false);
     onOpenProcess(n.processId);
+  };
+
+  const openAlert = (a: AlertItem) => {
+    if (!a.read) markRead.mutate(a.id);
+    setOpen(false);
+    if (a.processId && a.documentId) onOpenDocument(a.processId, a.documentId);
+    else if (a.processId) onOpenProcess(a.processId);
   };
 
   return (
@@ -140,9 +168,53 @@ export function NotificationsBell({ isCliente, onOpenProcess }: {
                 : `${data.pendingDocs} documento${data.pendingDocs !== 1 ? 's' : ''} aguardando validação`}
             </div>
           )}
+          {alerts.length > 0 && (
+            <>
+              <div className="ds-notif-section">Validade de documentos</div>
+              <ul className="ds-notif-list" data-testid="notif-alertas">
+                {alerts.map(a => {
+                  const expired = a.kind === 'document_expired';
+                  const pending = !a.resolved;
+                  return (
+                    <li key={a.id}>
+                      <div
+                        role="button"
+                        tabIndex={0}
+                        className={`ds-notif-alert ${!a.read && pending ? 'unread' : ''} ${expired ? 'expired' : ''}`}
+                        onClick={() => openAlert(a)}
+                        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openAlert(a); } }}
+                      >
+                        {!a.read && pending && <span className="ds-notif-dot" aria-label="não lida" />}
+                        <span className="ds-notif-title" style={{ color: expired && pending ? 'var(--red)' : undefined }}>
+                          {expired ? 'Documento vencido' : 'Documento vencendo'}
+                        </span>
+                        <span style={{ fontSize: 12.5, lineHeight: 1.4 }}>{a.message}</span>
+                        <span className="ds-notif-alert-foot">
+                          <span className="ds-notif-sub">
+                            {a.resolved ? 'Resolvido · documento atualizado' : timeAgo(a.createdAt)}
+                          </span>
+                          {pending && a.documentId && (
+                            <button
+                              type="button"
+                              className="ds-btn accent sm"
+                              onClick={e => { e.stopPropagation(); openAlert(a); }}
+                            >
+                              {isCliente ? 'Enviar documento' : 'Ver documento'}
+                            </button>
+                          )}
+                        </span>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+              {data && data.items.length > 0 && <div className="ds-notif-section">Atualizações</div>}
+            </>
+          )}
           {!data ? (
             <div className="ds-notif-empty">Carregando...</div>
           ) : data.items.length === 0 ? (
+            alerts.length > 0 ? null :
             <div className="ds-notif-empty">Nenhuma notificação nos últimos 30 dias</div>
           ) : (
             <ul className="ds-notif-list">

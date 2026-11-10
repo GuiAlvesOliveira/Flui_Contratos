@@ -6,6 +6,7 @@ import { STAGE_LABELS, type ProcessStage } from '../../lib/processStages';
 import { useTenant, useTenantLogo } from '../../lib/useTenant';
 import * as Icon from '../icons';
 import { NotificationsBell } from '../NotificationsBell';
+import { DocumentExpiryBanner } from '../DocumentExpiry';
 import { GlobalSearch } from '../GlobalSearch';
 import { DashboardPage } from '../../pages/DashboardPage';
 import { AnalistaDashboard } from '../AnalistaDashboard';
@@ -28,7 +29,8 @@ type Route =
   | { page: 'empreendimentos' }
   | { page: 'empreendimento-detail'; id: string }
   | { page: 'proponentes' }
-  | { page: 'proponente-detail'; id: string; back?: Route }
+  // focusDoc: abre na aba Documentos com esse documento em destaque (avisos de validade)
+  | { page: 'proponente-detail'; id: string; back?: Route; focusDoc?: string; focusAt?: number }
   | { page: 'workflow' }
   | { page: 'client-processes' }
   | { page: 'logs' }
@@ -247,6 +249,10 @@ export function AppShell() {
   }
 
   const isCliente = role === 'cliente';
+  // Abre o processo direto no documento (aviso de validade): aba Documentos,
+  // com a linha do documento em destaque e o botão de envio à mão.
+  const openDocument = (processId: string, documentId: string, back?: Route) =>
+    navigate({ page: 'proponente-detail', id: processId, back, focusDoc: documentId, focusAt: Date.now() });
   const { data: clientProcesses = [], isLoading: loadingClientProcesses } = useQuery<ClientProcess[]>({
     queryKey: ['processes'],
     queryFn: () => api.get<ClientProcess[]>('/processes').then(r => r.data),
@@ -390,6 +396,8 @@ export function AppShell() {
             onOpenProcess={(id) => navigate(isCliente
               ? { page: 'proponente-detail', id, back: { page: 'client-processes' } }
               : { page: 'proponente-detail', id })}
+            onOpenDocument={(processId, documentId) =>
+              openDocument(processId, documentId, isCliente ? { page: 'client-processes' } : undefined)}
           />
           <button className="ds-tb-icon-btn" title="Ajuda">
             <Icon.Info size={15} />
@@ -398,15 +406,26 @@ export function AppShell() {
 
         {/* Content */}
         <div className="ds-content">
+          {/* Portal do cliente: aviso em destaque enquanto houver documento vencido */}
+          {isCliente && (
+            <DocumentExpiryBanner
+              onOpenDocument={(processId, documentId) =>
+                openDocument(processId, documentId, { page: 'client-processes' })}
+            />
+          )}
           {view.page === 'dashboard' && role === 'analista' && (
             <AnalistaDashboard
               analistaName={name}
               onNavigate={(p) => navigate({ page: p as NavPage })}
               onOpenProcess={(id) => navigate({ page: 'proponente-detail', id, back: { page: 'dashboard' } })}
+              onOpenDocument={(processId, documentId) => openDocument(processId, documentId, { page: 'dashboard' })}
             />
           )}
           {view.page === 'dashboard' && role !== 'analista' && (
-            <DashboardPage onNavigate={(p) => navigate({ page: p as NavPage })} />
+            <DashboardPage
+              onNavigate={(p) => navigate({ page: p as NavPage })}
+              onOpenDocument={(processId, documentId) => openDocument(processId, documentId, { page: 'dashboard' })}
+            />
           )}
           {view.page === 'empreendimentos' && (
             <EmpreendimentosPage
@@ -431,7 +450,9 @@ export function AppShell() {
           )}
           {view.page === 'proponente-detail' && (
             <ProponenteDetailPage
+              key={`${view.id}:${view.focusDoc ?? ''}:${view.focusAt ?? ''}`}
               processId={view.id}
+              focusDocId={view.focusDoc ?? null}
               onBack={() => navigate(view.back ?? (isCliente ? { page: 'client-processes' } : { page: 'workflow' }))}
               role={role}
             />

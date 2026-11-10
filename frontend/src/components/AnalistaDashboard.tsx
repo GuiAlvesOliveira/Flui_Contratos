@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { api } from '../api/axiosInstance';
 import * as Icon from './icons';
 import { SlaCard } from './SlaCard';
+import { DocumentExpiryCard } from './DocumentExpiry';
 import { StageTimeCard } from '../pages/DashboardPage';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -93,9 +94,10 @@ interface Props {
   analistaName: string | null;
   onNavigate: (page: string) => void;
   onOpenProcess: (id: string) => void;
+  onOpenDocument: (processId: string, documentId: string) => void;
 }
 
-export function AnalistaDashboard({ analistaName, onNavigate, onOpenProcess }: Props) {
+export function AnalistaDashboard({ analistaName, onNavigate, onOpenProcess, onOpenDocument }: Props) {
   const { data: processes = [], isLoading } = useQuery<ProcessCard[]>({
     queryKey: ['processes'],
     queryFn: () => api.get<ProcessCard[]>('/processes').then(r => r.data),
@@ -212,6 +214,11 @@ export function AnalistaDashboard({ analistaName, onNavigate, onOpenProcess }: P
               )}
             </div>
           </div>
+        </div>
+
+        {/* Validade dos documentos pelo mês de referência: vencendo (15 dias) ou vencidos */}
+        <div className="ds-col-12">
+          <DocumentExpiryCard onOpenDocument={onOpenDocument} />
         </div>
 
         {/* PROD-10: prazo de atendimento — parados há mais de 7 dias na mesma etapa */}

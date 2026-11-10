@@ -102,3 +102,100 @@ describe('NotificationsService (FE-29)', () => {
     expect(params).toEqual(['t1', 'c1', NOTIFY_ACTIONS.cliente]);
   });
 });
+
+describe('NotificationsService — avisos de validade de documentos', () => {
+  const alert = {
+    id: 'al1',
+    kind: 'document_expiring',
+    process_id: 'p1',
+    document_id: 'd1',
+    message:
+      'Seu documento "Extrato Bancário (mês 1)" vence em 15 dias (30/06/2026). Envie um documento mais recente.',
+    valid_until: '2026-06-30',
+    created_at: new Date('2026-06-15T10:00:00Z'),
+    read_at: null,
+    resolved_at: null,
+    unread_total: '2',
+  };
+
+  it('a lista traz os avisos do próprio usuário, e os não lidos entram no contador', async () => {
+    const { service, dataSource } = make();
+    dataSource.query
+      .mockResolvedValueOnce([]) // eventos
+      .mockResolvedValueOnce([{ unread: '1' }])
+      .mockResolvedValueOnce([{ n: '0' }])
+      .mockResolvedValueOnce([
+        alert,
+        {
+          ...alert,
+          id: 'al2',
+          kind: 'document_expired',
+          read_at: new Date(),
+          resolved_at: new Date(),
+        },
+      ]);
+    const res = await service.list(user('cliente', 'c1'));
+    const [sql, params] = dataSource.query.mock.calls[3] as [string, unknown[]];
+    // só os avisos da assessoria do usuário e endereçados a ele
+    expect(sql).toContain('FROM notifications n');
+    expect(sql).toContain('n.tenant_id = $1 AND n.recipient_id = $2');
+    expect(sql).toContain('p.active = true');
+    expect(params).toEqual(['t1', 'c1']);
+    expect(res.unread).toBe(3); // 1 evento + 2 avisos
+    expect(res.alerts).toEqual([
+      {
+        id: 'al1',
+        kind: 'document_expiring',
+        processId: 'p1',
+        documentId: 'd1',
+        message: alert.message,
+        validUntil: '2026-06-30',
+        createdAt: alert.created_at,
+        read: false,
+        resolved: false,
+      },
+      expect.objectContaining({ id: 'al2', read: true, resolved: true }),
+    ]);
+  });
+
+  it('sem avisos, o contador é só o dos eventos', async () => {
+    const { service, dataSource } = make();
+    dataSource.query
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ unread: '4' }])
+      .mockResolvedValueOnce([{ n: '0' }])
+      .mockResolvedValueOnce([]);
+    const res = await service.list(user('analista', 'a1'));
+    expect(res.unread).toBe(4);
+    expect(res.alerts).toEqual([]);
+  });
+
+  it('o cliente conta como "para enviar" também os validados que venceram', async () => {
+    const { service, dataSource } = make();
+    dataSource.query.mockResolvedValue([{ unread: '0', n: '0' }]);
+    await service.list(user('cliente', 'c1'));
+    const [sql] = dataSource.query.mock.calls[2] as [string];
+    expect(sql).toContain("d.status = 'validado' AND d.valid_until <");
+    expect(sql).toContain("AT TIME ZONE 'America/Sao_Paulo'");
+  });
+
+  it('marcar como lido só alcança aviso do próprio usuário, na assessoria dele', async () => {
+    const { service, dataSource } = make();
+    dataSource.query.mockResolvedValue([]);
+    await service.markRead('al1', user('cliente', 'c1'));
+    const [sql, params] = dataSource.query.mock.calls[1] as [string, unknown[]];
+    expect(sql).toContain('UPDATE notifications SET read_at = now()');
+    expect(sql).toContain('id = $3 AND tenant_id = $1 AND recipient_id = $2');
+    expect(params).toEqual(['t1', 'c1', 'al1']);
+  });
+
+  it('marcar todas também lê os avisos do usuário (e só os dele)', async () => {
+    const { service, dataSource } = make();
+    dataSource.query.mockResolvedValue([]);
+    await service.markAllRead(user('analista', 'a1'));
+    const [sql, params] = dataSource.query.mock.calls[1] as [string, unknown[]];
+    expect(sql).toContain('UPDATE notifications SET read_at = now()');
+    expect(sql).toContain('tenant_id = $1 AND recipient_id = $2');
+    expect(params).toEqual(['t1', 'a1']);
+  });
+});
