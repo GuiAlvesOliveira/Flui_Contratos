@@ -474,14 +474,15 @@ function WorkflowTab({ empId, onOpenProcess }: { empId: string; onOpenProcess: (
           </button>
         </div>
       )}
-      <div className="ds-kanban" style={{ minHeight: 300 }}>
+      {/* Uma linha só (rola para o lado quando não cabe); coluna lotada rola os cards */}
+      <div className="ds-kanban capped" style={{ minHeight: 300 }}>
         {byStage.map(({ stage, cards }) => (
           <div className="ds-kb-col" key={stage} data-stage={stage} {...drag.columnProps(stage)}>
             <div className="ds-kb-hdr">
-              <span className="ds-kb-title">{STAGE_LABELS[stage]}</span>
+              <span className="ds-kb-title" title={STAGE_LABELS[stage]}><span className="name">{STAGE_LABELS[stage]}</span></span>
               <span className="ds-kb-count">{cards.length}</span>
             </div>
-            <div className="ds-kb-body">
+            <div className="ds-kb-list">
               {cards.map(p => (
                 <div
                   className="ds-kb-card"

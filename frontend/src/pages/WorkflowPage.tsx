@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/axiosInstance';
 import * as Icon from '../components/icons';
@@ -81,11 +81,38 @@ const MOTIVO_INATIVIDADE_OPTIONS = [
   { value: 'nao_atendeu', label: 'Não atendeu' },
 ];
 
+// Quantos cards normais cabem na altura de uma coluna do quadro: com mais do
+// que isso em alguma coluna, os cards do quadro ficam compactos.
+const CARD_H = 132; // card normal + espaço até o próximo (px)
+const COLUMN_CHROME = 62; // cabeçalho, respiro e barra de rolagem do quadro (px)
+const ADD_H = 42; // botão "Novo processo" no pé da coluna (analista)
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function initials(name: string | null, email: string): string {
   const src = name ?? email;
   return src.split(/[\s@]/).filter(Boolean).map(w => w[0]).slice(0, 2).join('').toUpperCase();
+}
+
+// O quadro: a altura dele, que acompanha a tela (redimensionar, girar o
+// celular), e como levá-lo até a coluna de uma etapa (barra de etapas)
+function useBoard() {
+  const [height, setHeight] = useState<number | null>(null);
+  const el = useRef<HTMLDivElement | null>(null);
+  const ref = useCallback((node: HTMLDivElement | null) => {
+    el.current = node;
+    if (!node || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(([entry]) => setHeight(Math.round(entry.contentRect.height)));
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+  const scrollTo = useCallback((stage: ProcessStage) => {
+    const board = el.current;
+    const col = board?.querySelector<HTMLElement>(`[data-stage="${stage}"]`);
+    if (!board || !col) return;
+    board.scrollBy({ left: col.getBoundingClientRect().left - board.getBoundingClientRect().left, behavior: 'smooth' });
+  }, []);
+  return [ref, height, scrollTo] as const;
 }
 
 // ── Advance Stage Drawer ──────────────────────────────────────────────────────
@@ -276,6 +303,7 @@ interface KanbanCardProps {
 function KanbanCard({ process, onOpenProcess, canMoveStage, drag }: KanbanCardProps) {
   const [showDrawer, setShowDrawer] = useState(false);
   const clientName = process.client.name ?? process.client.email;
+  const analista = process.analista ? (process.analista.name ?? process.analista.email) : null;
   const progress = STAGE_PROGRESS[process.stage];
   const stageColor = STAGE_COLORS[process.stage];
 
@@ -286,19 +314,16 @@ function KanbanCard({ process, onOpenProcess, canMoveStage, drag }: KanbanCardPr
         {...drag.cardProps(process)}
         onClick={() => onOpenProcess?.(process.id)}
         style={{ cursor: onOpenProcess ? 'pointer' : undefined }}
+        title={clientName}
       >
         <div className="ds-kb-card-hdr">
           <span className="ds-kb-card-id">{process.id.slice(0, 8)}</span>
         </div>
         <div className="ds-kb-card-name">{clientName}</div>
-        {process.valorUnidade && (
-          <div className="ds-kb-card-sub">
-            R$ {Number(process.valorUnidade).toLocaleString('pt-BR')}
-          </div>
-        )}
-        {process.analista && (
-          <div className="ds-docbar">
-            <span className="pill">{process.analista.name ?? process.analista.email}</span>
+        {(process.valorUnidade || analista) && (
+          <div className="ds-kb-card-meta">
+            {process.valorUnidade ? <span className="value">R$ {Number(process.valorUnidade).toLocaleString('pt-BR')}</span> : null}
+            {analista && <span className="pill" title="Analista responsável">{analista}</span>}
           </div>
         )}
         <div className="ds-kb-card-foot">
@@ -311,8 +336,9 @@ function KanbanCard({ process, onOpenProcess, canMoveStage, drag }: KanbanCardPr
           {canMoveStage && allowedTransitions(process.stage, process.stageBeforePendencia).length > 0 && (
             <button
               onClick={(e) => { e.stopPropagation(); setShowDrawer(true); }}
-              className="ds-btn accent sm"
-              style={{ padding: '0 8px', height: 22, fontSize: 11 }}
+              className="ds-btn accent sm ds-kb-move"
+              title="Mover de etapa"
+              aria-label={`Mover ${clientName} de etapa`}
             >
               →
             </button>
@@ -347,15 +373,17 @@ function KanbanColumn({ stage, cards, onOpenProcess, canMoveStage, onAdd, drag }
   return (
     <div className="ds-kb-col" data-stage={stage} {...drag.columnProps(stage)}>
       <div className="ds-kb-hdr">
-        <div className="ds-kb-title">
+        <div className="ds-kb-title" title={STAGE_LABELS[stage]}>
           <span className="dot" style={{ background: color }} />
-          {STAGE_LABELS[stage]}
-          <span className="ds-kb-count">· {cards.length}</span>
+          <span className="name">{STAGE_LABELS[stage]}</span>
         </div>
+        <span className="ds-kb-count" title={`${cards.length} processo${cards.length !== 1 ? 's' : ''}`}>{cards.length}</span>
       </div>
-      {cards.map(p => (
-        <KanbanCard key={p.id} process={p} onOpenProcess={onOpenProcess} canMoveStage={canMoveStage} drag={drag} />
-      ))}
+      <div className="ds-kb-list">
+        {cards.map(p => (
+          <KanbanCard key={p.id} process={p} onOpenProcess={onOpenProcess} canMoveStage={canMoveStage} drag={drag} />
+        ))}
+      </div>
       {onAdd && (
         <button
           className="ds-kb-add"
@@ -400,8 +428,16 @@ export function WorkflowPage({ onOpenProcess }: WorkflowPageProps = {}) {
   const sideCount = SIDE_STAGES.reduce((n, s) => n + byStage(s).length, 0);
   const activeCount = MAIN_STAGES.reduce((n, s) => n + byStage(s).length, 0);
 
+  // O quadro ocupa a altura que sobra na tela e cada coluna rola os próprios
+  // cards. Se alguma coluna tem mais cards do que cabem, todos ficam compactos.
+  const [boardRef, boardHeight, scrollToStage] = useBoard();
+  const fill = activeCount > 0;
+  const maxInColumn = Math.max(0, ...MAIN_STAGES.map(s => byStage(s).length));
+  const room = boardHeight === null ? null : boardHeight - COLUMN_CHROME - (role === 'analista' ? ADD_H : 0);
+  const compact = fill && room !== null && maxInColumn * CARD_H > room;
+
   return (
-    <div className="ds-page">
+    <div className={`ds-page ds-page-board${fill ? ' fill' : ''}`}>
       <div className="ds-page-hdr">
         <div>
           <h1>Workflow</h1>
@@ -436,17 +472,21 @@ export function WorkflowPage({ onOpenProcess }: WorkflowPageProps = {}) {
 
       {!isLoading && !error && (
         <>
-          {/* Stage summary bar */}
-          <div className="ds-stage-bar">
-            {MAIN_STAGES.map((stage, i) => (
-              <div className="ds-stg" key={stage}>
-                <div className="ds-stg-num">Etapa {i + 1}</div>
-                <div className="ds-stg-name">{STAGE_LABELS[stage]}</div>
-                <div className="ds-stg-count">{byStage(stage).length} processos</div>
-                <span className="ds-stg-dot" style={{ background: STAGE_COLORS[stage] }} />
-              </div>
-            ))}
-          </div>
+          {/* Stage summary bar — clicar leva o quadro até a coluna */}
+          <nav className="ds-stage-bar" aria-label="Etapas do pipeline">
+            {MAIN_STAGES.map((stage, i) => {
+              const n = byStage(stage).length;
+              return (
+                <button type="button" className="ds-stg" key={stage} onClick={() => scrollToStage(stage)}
+                  title={`Ir para ${STAGE_LABELS[stage]}`}>
+                  <span className="ds-stg-num">Etapa {i + 1}</span>
+                  <span className="ds-stg-name">{STAGE_LABELS[stage]}</span>
+                  <span className="ds-stg-count">{n} processo{n !== 1 ? 's' : ''}</span>
+                  <span className="ds-stg-dot" style={{ background: STAGE_COLORS[stage] }} />
+                </button>
+              );
+            })}
+          </nav>
 
           {/* Side statuses banner */}
           {sideCount > 0 && (
@@ -473,7 +513,7 @@ export function WorkflowPage({ onOpenProcess }: WorkflowPageProps = {}) {
           )}
 
           {/* Kanban board */}
-          <div className="ds-kanban">
+          <div ref={boardRef} className={`ds-kanban${fill ? ' fit' : ''}${compact ? ' compact' : ''}`}>
             {MAIN_STAGES.map(stage => (
               <KanbanColumn
                 key={stage}
@@ -493,7 +533,7 @@ export function WorkflowPage({ onOpenProcess }: WorkflowPageProps = {}) {
               <div style={{ margin: '24px 0 10px', fontSize: 13, fontWeight: 600, color: 'var(--text-muted)' }}>
                 Clientes fora da progressão padrão
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+              <div className="ds-side-grid">
                 {SIDE_STAGES.map(stage => {
                   const cards = byStage(stage);
                   if (!cards.length) return null;

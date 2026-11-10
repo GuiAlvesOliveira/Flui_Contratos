@@ -715,45 +715,101 @@ input, select, textarea { font-family: inherit; }
 .ds-table tr:last-child td { border-bottom: none; }
 .ds-table tr:hover td { background: var(--bg-subtle); }
 
-/* Kanban */
-.ds-kanban { display: grid; grid-template-columns: repeat(7, minmax(180px, 1fr)); gap: 12px; align-items: start; overflow-x: auto; }
-.ds-stage-bar { display: grid; grid-template-columns: repeat(7, 1fr); background: #fff; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; margin-bottom: 12px; }
-.ds-stg { padding: 12px 14px; border-right: 1px solid var(--border); position: relative; }
+/* Kanban ─────────────────────────────────────────────────────────────────────
+   Uma linha só, qualquer que seja o número de etapas: as colunas dividem a
+   largura (no mínimo --kb-col-min) e, quando não cabem, o quadro rola para o
+   lado, encaixando coluna a coluna. Na página Workflow (.fit) o quadro ocupa a
+   altura que sobra na tela e cada coluna rola os próprios cards; com mais cards
+   do que cabem, eles ficam compactos (.compact). Na aba do empreendimento
+   (.capped) a coluna lotada rola os cards a partir da altura da tela. */
+.ds-kanban {
+  --kb-col-min: 190px;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(var(--kb-col-min), 1fr);
+  gap: 12px;
+  align-items: start;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+  padding-bottom: 6px;
+}
+.ds-kanban > .ds-kb-col { scroll-snap-align: start; }
+.ds-kanban.fit { align-items: stretch; grid-template-rows: minmax(0, 1fr); }
+.ds-kanban.fit > .ds-kb-col { display: flex; flex-direction: column; min-height: 0; }
+/* a lista ocupa o que precisa (até o espaço da coluna) e o "Novo processo" vem logo abaixo */
+.ds-kanban.fit .ds-kb-list { flex: 0 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.ds-kanban.fit .ds-kb-col > .ds-kb-add { flex-shrink: 0; }
+.ds-kanban.capped .ds-kb-list { max-height: max(240px, calc(100dvh - var(--tb-h) - 150px)); overflow-y: auto; overscroll-behavior: contain; }
+.ds-stage-bar {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(120px, 1fr);
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  margin-bottom: 12px;
+}
+.ds-stg { display: block; min-width: 0; padding: 10px 14px; border: 0; border-right: 1px solid var(--border); position: relative; background: none; font: inherit; color: inherit; text-align: left; }
+button.ds-stg { cursor: pointer; }
+button.ds-stg:hover { background: var(--bg-subtle); }
+button.ds-stg:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .ds-stg:last-child { border-right: none; }
-.ds-stg-num { font-family: var(--font-mono); font-size: 10.5px; color: var(--text-faint); }
-.ds-stg-name { font-size: 13px; font-weight: 600; margin-top: 1px; letter-spacing: -0.01em; }
-.ds-stg-count { font-size: 11.5px; color: var(--text-muted); margin-top: 2px; }
-.ds-stg-dot { position: absolute; top: 14px; right: 14px; width: 8px; height: 8px; border-radius: 50%; }
+.ds-stg-num { display: block; font-family: var(--font-mono); font-size: 10.5px; color: var(--text-faint); }
+/* nomes longos quebram em até 2 linhas em vez de cortar */
+.ds-stg-name { padding-right: 12px; font-size: 13px; font-weight: 600; line-height: 1.3; margin-top: 1px; letter-spacing: -0.01em; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.ds-stg-count { display: block; font-size: 11.5px; color: var(--text-muted); margin-top: 2px; white-space: nowrap; }
+.ds-stg-dot { position: absolute; top: 12px; right: 12px; width: 8px; height: 8px; border-radius: 50%; }
 .ds-side-banner { display: flex; align-items: center; gap: 8px; padding: 10px 12px; background: var(--bg-subtle); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 12px; flex-wrap: wrap; }
 .ds-side-pill { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; padding: 4px 10px; border-radius: 99px; border: 1px solid; }
 .ds-side-pill .dot { width: 6px; height: 6px; border-radius: 50%; }
+.ds-side-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+/* Página Workflow: usa a largura toda e a altura da tela; o quadro fica com o
+   espaço que sobra (no mínimo 340 px; numa tela baixa a página rola) */
+.ds-page.ds-page-board { max-width: none; }
+.ds-page.ds-page-board.fill { height: 100%; display: flex; flex-direction: column; padding-bottom: 16px; }
+.ds-page-board.fill > * { flex-shrink: 0; }
+.ds-page-board.fill > .ds-kanban { flex: 1 1 0; min-height: 340px; }
 .ds-kb-col {
   background: var(--bg-sidebar);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 8px 8px 12px;
+  padding: 8px 8px 10px;
   min-height: 380px;
+  min-width: 0;
 }
 .ds-kb-col.dragover { background: var(--accent-soft); border-color: var(--accent-soft-border); }
-.ds-kb-hdr { display: flex; align-items: center; justify-content: space-between; padding: 6px 8px 10px; }
-.ds-kb-title { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 13px; }
+/* cabeçalho com altura de 2 linhas: nomes longos quebram e os cards de todas
+   as colunas começam alinhados */
+.ds-kb-hdr { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 46px; padding: 4px 6px 8px; }
+.ds-kb-title { display: flex; align-items: center; gap: 8px; min-width: 0; font-weight: 600; font-size: 13px; }
+.ds-kb-title .name { overflow: hidden; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .ds-kb-title .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-.ds-kb-count { font-size: 11px; color: var(--text-muted); }
+.ds-kb-count { flex-shrink: 0; min-width: 22px; padding: 0 7px; border: 1px solid var(--border); border-radius: 99px; background: #fff; font-size: 11px; font-weight: 600; line-height: 18px; text-align: center; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 .ds-kb-card {
   background: #fff;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  padding: 10px 11px;
+  padding: 9px 10px;
   margin-bottom: 8px;
   cursor: pointer;
   box-shadow: var(--shadow-sm);
   transition: box-shadow 0.12s, border-color 0.12s;
 }
 .ds-kb-card:hover { border-color: var(--border-strong); box-shadow: var(--shadow); }
-.ds-kb-card-hdr { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.ds-kb-card-hdr { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
 .ds-kb-card-id { font-family: var(--font-mono); font-size: 10.5px; color: var(--text-faint); }
-.ds-kb-card-name { font-size: 13px; font-weight: 500; letter-spacing: -0.005em; margin-bottom: 3px; }
+.ds-kb-card-name {
+  font-size: 13px; font-weight: 500; letter-spacing: -0.005em; margin-bottom: 4px;
+  overflow-wrap: anywhere; overflow: hidden;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+}
 .ds-kb-card-sub { font-size: 11.5px; color: var(--text-muted); margin-bottom: 8px; }
+.ds-kb-card-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; min-width: 0; margin-bottom: 8px; font-size: 11.5px; color: var(--text-muted); }
+.ds-kb-card-meta .value { flex-shrink: 0; }
+.ds-kb-card-meta .pill { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 1px 6px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-subtle); font-family: var(--font-mono); font-size: 10.5px; }
 .ds-kb-card-foot {
   display: flex; align-items: center; gap: 8px;
   font-size: 11px; color: var(--text-muted);
@@ -762,7 +818,24 @@ input, select, textarea { font-family: inherit; }
 }
 .ds-kb-progress { flex: 1; height: 4px; background: var(--bg-hover); border-radius: 99px; overflow: hidden; }
 .ds-kb-progress > span { display: block; height: 100%; }
-.ds-kb-avatar { width: 18px; height: 18px; border-radius: 50%; font-size: 9px; display: grid; place-items: center; color: #fff; font-weight: 600; }
+.ds-kb-avatar { width: 18px; height: 18px; border-radius: 50%; font-size: 9px; display: grid; place-items: center; color: #fff; font-weight: 600; flex-shrink: 0; }
+.ds-kb-move { flex-shrink: 0; height: 22px; padding: 0 8px; font-size: 11px; }
+/* Cards compactos: nome na largura toda; valor (inteiro), analista (abreviado)
+   e o botão na segunda linha; a barra de progresso vira o pé do card */
+.ds-kanban.compact .ds-kb-card {
+  position: relative; overflow: hidden;
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "name name" "meta move";
+  column-gap: 8px; align-items: center;
+  padding: 7px 10px 9px; margin-bottom: 6px;
+}
+.ds-kanban.compact .ds-kb-card-hdr,
+.ds-kanban.compact .ds-kb-card-foot .ds-kb-avatar { display: none; }
+.ds-kanban.compact .ds-kb-card-name { grid-area: name; display: block; white-space: nowrap; text-overflow: ellipsis; margin-bottom: 2px; }
+.ds-kanban.compact .ds-kb-card-meta { grid-area: meta; flex-wrap: nowrap; overflow: hidden; margin-bottom: 0; }
+.ds-kanban.compact .ds-kb-card-meta .pill { min-width: 0; }
+.ds-kanban.compact .ds-kb-card-foot { display: contents; }
+.ds-kanban.compact .ds-kb-progress { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; border-radius: 0; }
+.ds-kanban.compact .ds-kb-move { grid-area: move; }
 .ds-kb-add {
   border: 1px dashed var(--border-strong);
   background: transparent;
@@ -992,6 +1065,10 @@ input, select, textarea { font-family: inherit; }
   .ds-proc-doc-info { flex: 1 1 calc(100% - 44px) !important; }
   .ds-proc-doc-info + * { margin-left: 44px; }
   .ds-doc-history { padding-left: 28px !important; }
+  /* Kanban: uma coluna por vez, a próxima aparece na borda; encaixe por coluna */
+  .ds-kanban { --kb-col-min: min(80vw, 300px); scroll-snap-type: x mandatory; }
+  .ds-stage-bar { grid-auto-columns: minmax(112px, 1fr); }
+  .ds-stg { padding: 8px 10px; }
 }
 .ds-only-mobile { display: none; }
 
