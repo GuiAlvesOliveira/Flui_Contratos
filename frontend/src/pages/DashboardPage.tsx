@@ -49,7 +49,7 @@ const STAGE_COLORS: Record<ProcessStage, string> = {
   cadastro: '#0ea5e9',
   analise_credito: '#f59e0b',
   credito_aprovado: '#22c55e',
-  analise_juridica: '#7c3aed',
+  analise_juridica: '#d9488f',
   juridico_aprovado: '#16a34a',
   cartorio: '#2563eb',
   assinatura: '#059669',

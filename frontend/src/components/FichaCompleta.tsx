@@ -85,7 +85,7 @@ function GroupedInputs({ def, fields, form, set, current, participants, prefix }
         if (list.length === 0) return null;
         return (
           <fieldset key={g.id} style={{ border: 0, padding: 0, margin: '6px 0 0' }}>
-            <legend style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 4 }}>{g.label}</legend>
+            <legend style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--text)', marginBottom: 4 }}>{g.label}</legend>
             {list.map(f => (
               <FichaInput key={f.key} id={`${prefix}-${f.key}`} field={f} value={form[f.key] ?? ''}
                 onChange={v => set(f.key, v)} participants={participants} />
@@ -254,7 +254,7 @@ function FormulariosBancoCard({ processId, onRequest }: { processId: string; onR
                 <span style={{ fontSize: 11.5, color: 'var(--text-faint)' }}>versão {f.version}</span>
                 <span style={{ marginLeft: 'auto', fontSize: 12.5 }}>{f.filled} de {f.total} campos ({pct}%)</span>
               </div>
-              <div style={{ height: 6, background: 'var(--surface-2, #eee)', borderRadius: 3, margin: '6px 0' }} aria-hidden>
+              <div style={{ height: 6, background: 'var(--surface-2)', borderRadius: 3, margin: '6px 0' }} aria-hidden>
                 <div style={{ width: `${pct}%`, height: '100%', background: pct === 100 ? 'var(--green)' : 'var(--accent)', borderRadius: 3 }} />
               </div>
               {f.missing.length > 0 && (
@@ -327,7 +327,7 @@ function PessoaCard({ title, target, def, values, participants, onEdit, extra }:
           if (list.length === 0) return null;
           return (
             <Fragment key={g.id}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', margin: '8px 0 4px' }}>{g.label}</div>
+              <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--text)', margin: '12px 0 4px' }}>{g.label}</div>
               <dl className="ds-kv" style={{ gridTemplateColumns: '190px 1fr' }}>
                 {list.map(f => {
                   const v = displayValue(f, values[f.key] ?? null, participants);

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { api } from '../api/axiosInstance';
 import { supabase } from '../auth/supabaseClient';
+import { AuthLayout } from '../components/AuthLayout';
 
 // Marcado no index.html quando o link do e-mail (convite ou recuperação) já
 // expirou ou foi usado: o Supabase volta com error_code=otp_expired.
@@ -9,10 +10,6 @@ function takeExpiredLinkFlag(): boolean {
   sessionStorage.removeItem('supabase_link_expired');
   return expired;
 }
-
-const inputClass =
-  'border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500';
-const linkClass = 'text-sm text-blue-600 hover:underline self-start cursor-pointer';
 
 export function LoginPage() {
   const [mode, setMode] = useState<'login' | 'forgot'>('login');
@@ -54,89 +51,87 @@ export function LoginPage() {
 
   if (mode === 'forgot') {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <form
-          onSubmit={handleForgot}
-          className="bg-white p-8 rounded-lg shadow-md w-full max-w-sm flex flex-col gap-4"
-        >
-          <h1 className="text-2xl font-bold text-gray-800">Esqueci minha senha</h1>
+      <AuthLayout
+        title="Esqueci minha senha"
+        subtitle={sentMessage ? undefined : 'Informe o e-mail da sua conta. Enviaremos um link para você criar uma nova senha.'}
+      >
+        <form onSubmit={handleForgot} className="ds-auth-form">
           {sentMessage ? (
-            <p role="status" className="text-sm text-gray-700">{sentMessage}</p>
+            <p role="status" className="ds-auth-msg info">{sentMessage}</p>
           ) : (
             <>
-              <p className="text-sm text-gray-500">
-                Informe o e-mail da sua conta. Enviaremos um link para você criar uma nova senha.
-              </p>
-              {error && <p className="text-red-500 text-sm">{error}</p>}
-              <input
-                type="email"
-                placeholder="E-mail"
-                aria-label="E-mail"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                autoFocus
-                className={inputClass}
-              />
-              <button
-                type="submit"
-                disabled={loading}
-                className="bg-blue-600 text-white rounded px-4 py-2 text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
-              >
+              {error && <p role="alert" className="ds-auth-msg error">{error}</p>}
+              <div>
+                <label htmlFor="forgot-email">E-mail</label>
+                <input
+                  id="forgot-email"
+                  type="email"
+                  placeholder="voce@exemplo.com.br"
+                  aria-label="E-mail"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                  autoFocus
+                  className="ds-auth-input"
+                />
+              </div>
+              <button type="submit" disabled={loading} className="ds-auth-btn">
                 {loading ? 'Enviando...' : 'Enviar link'}
               </button>
             </>
           )}
-          <button type="button" className={linkClass} onClick={() => switchMode('login')}>
+          <button type="button" className="ds-auth-link" onClick={() => switchMode('login')}>
             Voltar para o login
           </button>
         </form>
-      </div>
+      </AuthLayout>
     );
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
-      <form
-        onSubmit={handleSubmit}
-        className="bg-white p-8 rounded-lg shadow-md w-full max-w-sm flex flex-col gap-4"
-      >
-        <h1 className="text-2xl font-bold text-gray-800">Flui Contratos</h1>
+    <AuthLayout title="Entrar" subtitle="Acesse o painel da sua assessoria ou acompanhe o seu financiamento.">
+      <form onSubmit={handleSubmit} className="ds-auth-form">
         {linkExpired && (
-          <p role="alert" className="text-sm text-amber-700 bg-amber-50 rounded px-3 py-2">
+          <p role="alert" className="ds-auth-msg warn">
             O link do e-mail expirou ou já foi usado. Peça um novo em "Esqueci minha senha".
           </p>
         )}
-        {error && <p className="text-red-500 text-sm">{error}</p>}
-        <input
-          type="email"
-          placeholder="E-mail"
-          aria-label="E-mail"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          required
-          className={inputClass}
-        />
-        <input
-          type="password"
-          placeholder="Senha"
-          aria-label="Senha"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          required
-          className={inputClass}
-        />
-        <button
-          type="submit"
-          disabled={loading}
-          className="bg-blue-600 text-white rounded px-4 py-2 text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
-        >
+        {error && <p role="alert" className="ds-auth-msg error">{error}</p>}
+        <div>
+          <label htmlFor="login-email">E-mail</label>
+          <input
+            id="login-email"
+            type="email"
+            placeholder="voce@exemplo.com.br"
+            aria-label="E-mail"
+            autoComplete="username"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+            className="ds-auth-input"
+          />
+        </div>
+        <div>
+          <label htmlFor="login-password">Senha</label>
+          <input
+            id="login-password"
+            type="password"
+            placeholder="Sua senha"
+            aria-label="Senha"
+            autoComplete="current-password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+            className="ds-auth-input"
+          />
+        </div>
+        <button type="submit" disabled={loading} className="ds-auth-btn">
           {loading ? 'Entrando...' : 'Entrar'}
         </button>
-        <button type="button" className={linkClass} onClick={() => switchMode('forgot')}>
+        <button type="button" className="ds-auth-link" onClick={() => switchMode('forgot')}>
           Esqueci minha senha
         </button>
       </form>
-    </div>
+    </AuthLayout>
   );
 }

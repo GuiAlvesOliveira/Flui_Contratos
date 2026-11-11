@@ -59,12 +59,7 @@ function StatusBadge({ status }: { status: EmpStatus }) {
 function EmpCard({ emp, onClick, onDelete, deleteError }: EmpCardProps) {
   return (
     <div className="ds-emp-card" onClick={onClick} style={{ cursor: 'pointer', position: 'relative' }}>
-      <div
-        className="ds-emp-cover"
-        style={{
-          background: 'linear-gradient(135deg, #7c3aed1f, #7c3aed08), repeating-linear-gradient(135deg, #f4f4f5 0 12px, #fafafa 12px 24px)',
-        }}
-      >
+      <div className="ds-emp-cover">
         <StatusBadge status={emp.status} />
         {onDelete && (
           <button

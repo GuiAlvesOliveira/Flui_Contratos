@@ -34,6 +34,7 @@ const tenant = (overrides: Partial<Tenant> = {}) =>
     logoPath: null,
     logoMime: null,
     logoUpdatedAt: null,
+    themeColor: 'floresta',
     ...overrides,
   }) as Tenant;
 
@@ -112,6 +113,7 @@ describe('TenantsService — a própria assessoria (PROD-04)', () => {
         mimeType: 'image/png',
         updatedAt: new Date('2026-10-19T12:00:00Z'),
       },
+      themeColor: 'floresta',
     });
     expect(JSON.stringify(view)).not.toContain('branding');
   });
@@ -154,6 +156,63 @@ describe('TenantsService — a própria assessoria (PROD-04)', () => {
     await service.updateMine({ name: 'Assessoria Alfa' }, caller());
     expect(updates).toHaveLength(0);
     expect(queries).toHaveLength(0);
+  });
+});
+
+describe('TenantsService — cor do sistema', () => {
+  it('everyone of the assessoria reads the colour chosen by the gestor', async () => {
+    const { service } = setup(tenant({ themeColor: 'violeta' }));
+    const view = await service.getMine(caller({ role: 'cliente' }));
+    expect(view.themeColor).toBe('violeta');
+  });
+
+  it('a value outside the palette reads as the default colour', async () => {
+    const { service } = setup(
+      tenant({ themeColor: 'neon' as Tenant['themeColor'] }),
+    );
+    expect((await service.getMine(caller())).themeColor).toBe('floresta');
+  });
+
+  it('changing writes the colour and the audit entry in one transaction', async () => {
+    const { service, updates, queries } = setup();
+    const view = await service.updateTheme({ themeColor: 'oceano' }, caller());
+    expect(view.themeColor).toBe('oceano');
+    expect(updates).toEqual([{ id: 't1', values: { themeColor: 'oceano' } }]);
+    expect(queries).toHaveLength(1);
+    expect(queries[0].params).toEqual([
+      't1',
+      'g1',
+      'tenant_theme_updated',
+      'Floresta',
+      'Oceano',
+      JSON.stringify({
+        field: 'themeColor',
+        before: 'floresta',
+        after: 'oceano',
+      }),
+    ]);
+  });
+
+  it('the same colour changes nothing and logs nothing', async () => {
+    const { service, updates, queries } = setup(
+      tenant({ themeColor: 'vinho' }),
+    );
+    await service.updateTheme({ themeColor: 'vinho' }, caller());
+    expect(updates).toHaveLength(0);
+    expect(queries).toHaveLength(0);
+  });
+
+  it('only the caller tenant is changed; without tenant it is 404', async () => {
+    const { service, updates, repo } = setup();
+    await service.updateTheme({ themeColor: 'grafite' }, caller());
+    expect(repo.findOne).toHaveBeenCalledWith({ where: { id: 't1' } });
+    expect(updates[0].id).toBe('t1');
+    await expect(
+      service.updateTheme(
+        { themeColor: 'grafite' },
+        caller({ tenantId: null }),
+      ),
+    ).rejects.toBeInstanceOf(NotFoundException);
   });
 });
 

@@ -146,7 +146,7 @@ const STAGE_COLORS: Record<ProcessStage, string> = {
   cadastro: '#0ea5e9',
   analise_credito: '#f59e0b',
   credito_aprovado: '#22c55e',
-  analise_juridica: '#7c3aed',
+  analise_juridica: '#d9488f',
   juridico_aprovado: '#16a34a',
   cartorio: '#2563eb',
   assinatura: '#059669',
@@ -209,10 +209,10 @@ function validateClientForm(f: Record<ClientFormKey, string>): ClientFormErrors 
 }
 
 const STATUS_BADGE: Record<Document['status'], { label: string; color: string; bg: string }> = {
-  pendente:  { label: 'Pendente',  color: '#71717a', bg: '#f4f4f5' },
-  recebido:  { label: 'Recebido',  color: '#2563eb', bg: '#eff6ff' },
-  validado:  { label: 'Validado',  color: '#16a34a', bg: '#f0fdf4' },
-  rejeitado: { label: 'Rejeitado', color: '#dc2626', bg: '#fef2f2' },
+  pendente:  { label: 'Pendente',  color: 'var(--text-muted)', bg: 'var(--bg-hover)' },
+  recebido:  { label: 'Recebido',  color: 'var(--blue)', bg: 'var(--blue-soft)' },
+  validado:  { label: 'Validado',  color: 'var(--green)', bg: 'var(--green-soft)' },
+  rejeitado: { label: 'Rejeitado', color: 'var(--red)', bg: 'var(--red-soft)' },
 };
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -548,7 +548,7 @@ function WorkflowTab({ process, docs, isAnalista, onMoverEtapa }: {
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0, flexShrink: 0 }}>
                   <div style={{
                     width: 28, height: 28, borderRadius: '50%',
-                    background: '#f0f0f0', display: 'grid', placeItems: 'center', flexShrink: 0,
+                    background: 'var(--bg-hover)', display: 'grid', placeItems: 'center', flexShrink: 0,
                   }}>
                     <Icon.Activity size={12} style={{ color: 'var(--text-muted)' }} />
                   </div>
@@ -563,7 +563,7 @@ function WorkflowTab({ process, docs, isAnalista, onMoverEtapa }: {
                     </span>
                     {entry.from_state && (
                       <span style={{
-                        fontSize: 11, padding: '1px 6px', borderRadius: 4,
+                        fontSize: 11, fontWeight: 600, padding: '1px 8px', borderRadius: 99,
                         background: STAGE_COLORS[entry.from_state as ProcessStage] + '18',
                         color: STAGE_COLORS[entry.from_state as ProcessStage],
                       }}>
@@ -574,7 +574,7 @@ function WorkflowTab({ process, docs, isAnalista, onMoverEtapa }: {
                       <>
                         <span style={{ fontSize: 11, color: 'var(--text-faint)' }}>→</span>
                         <span style={{
-                          fontSize: 11, padding: '1px 6px', borderRadius: 4,
+                          fontSize: 11, fontWeight: 600, padding: '1px 8px', borderRadius: 99,
                           background: STAGE_COLORS[entry.to_state as ProcessStage] + '18',
                           color: STAGE_COLORS[entry.to_state as ProcessStage],
                         }}>
@@ -1431,9 +1431,9 @@ function UploadButton({ docId, processId, label, replace = false, text }: { docI
 }
 
 const VERSION_RESULT: Record<DocVersion['status'], { label: string; color: string }> = {
-  recebido: { label: 'Aguardando validação', color: '#2563eb' },
-  validado: { label: 'Validado', color: '#16a34a' },
-  rejeitado: { label: 'Rejeitado', color: '#dc2626' },
+  recebido: { label: 'Aguardando validação', color: 'var(--blue)' },
+  validado: { label: 'Validado', color: 'var(--green)' },
+  rejeitado: { label: 'Rejeitado', color: 'var(--red)' },
 };
 
 // PROD-12: cada envio do arquivo, do mais novo para o mais antigo — quando e
@@ -1664,7 +1664,7 @@ function DocumentosTab({ processId, role, focusDocId = null }: { processId: stri
               const label = doc.label ?? doc.name;
               const expired = doc.status === 'validado' && doc.validityStatus === 'vencido';
               // validado e vencido é pendência (RN-04): o selo principal diz "Vencido"
-              const badge = expired ? { label: 'Vencido', color: '#dc2626', bg: '#fef2f2' } : STATUS_BADGE[doc.status];
+              const badge = expired ? { label: 'Vencido', color: 'var(--red)', bg: 'var(--red-soft)' } : STATUS_BADGE[doc.status];
               const validity = validityBadge(doc.validityStatus, doc.validUntil, doc.daysLeft);
               // "mês de referência não informado" é para a equipe revisar
               const showValidity = !!validity && (isAnalista || doc.validityStatus !== 'sem_referencia');
@@ -1686,11 +1686,11 @@ function DocumentosTab({ processId, role, focusDocId = null }: { processId: stri
                 >
                 <div className="ds-proc-doc" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 16px' }}>
                   <div style={{
-                    width: 32, height: 32, borderRadius: 6, flexShrink: 0,
-                    background: tone === 'green' ? '#dcfce7' : tone === 'red' ? '#fee2e2' : 'var(--bg-subtle)',
+                    width: 32, height: 32, borderRadius: 10, flexShrink: 0,
+                    background: tone === 'green' ? 'var(--green-soft)' : tone === 'red' ? 'var(--red-soft)' : 'var(--bg-subtle)',
                     border: '1px solid var(--border)', display: 'grid', placeItems: 'center',
                   }}>
-                    <Icon.FileText size={14} style={{ color: tone === 'green' ? '#16a34a' : tone === 'red' ? '#dc2626' : 'var(--text-faint)' }} />
+                    <Icon.FileText size={14} style={{ color: tone === 'green' ? 'var(--green)' : tone === 'red' ? 'var(--red)' : 'var(--text-faint)' }} />
                   </div>
                   <div className="ds-proc-doc-info" style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 13, fontWeight: 500 }}>{label}</div>
@@ -1737,7 +1737,7 @@ function DocumentosTab({ processId, role, focusDocId = null }: { processId: stri
                       </button>
                     )}
                   </div>
-                  <span style={{ fontSize: 11.5, padding: '2px 8px', borderRadius: 4, fontWeight: 500, color: badge.color, background: badge.bg, whiteSpace: 'nowrap' }}>
+                  <span style={{ fontSize: 11.5, padding: '2px 9px', borderRadius: 99, fontWeight: 600, color: badge.color, background: badge.bg, whiteSpace: 'nowrap' }}>
                     {badge.label}
                   </span>
                   {doc.blobPath && !doc.blobPath.startsWith('local://') && (
@@ -1754,7 +1754,7 @@ function DocumentosTab({ processId, role, focusDocId = null }: { processId: stri
                   )}
                   {isAnalista && doc.status === 'recebido' && (
                     <div style={{ display: 'flex', gap: 4 }}>
-                      <button className="ds-btn ghost sm" style={{ color: '#16a34a' }}
+                      <button className="ds-btn ghost sm" style={{ color: 'var(--green)' }}
                         onClick={() => (asksMonth
                           ? setMonthPanel({ id: doc.id, mode: 'validar' })
                           : validateMut.mutate({ docId: doc.id, status: 'validado' }))}
@@ -1762,7 +1762,7 @@ function DocumentosTab({ processId, role, focusDocId = null }: { processId: stri
                         aria-label={`Validar ${label}`}>
                         <Icon.Check size={13} />
                       </button>
-                      <button className="ds-btn ghost sm" style={{ color: '#dc2626' }}
+                      <button className="ds-btn ghost sm" style={{ color: 'var(--red)' }}
                         onClick={() => validateMut.mutate({ docId: doc.id, status: 'rejeitado', notes: 'Documento inválido ou ilegível' })}
                         title="Rejeitar" aria-label={`Rejeitar ${label}`}>
                         <Icon.X size={13} />
@@ -1879,7 +1879,7 @@ function AtividadeTab({ processId }: { processId: string }) {
           const detail = activityDetail(entry);
           return (
             <div key={entry.id} data-testid="atividade" style={{ display: 'flex', gap: 14, padding: '12px 20px', borderTop: idx === 0 ? 'none' : '1px solid var(--border)' }}>
-              <div style={{ width: 28, height: 28, borderRadius: '50%', background: '#f0f0f0', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+              <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'var(--bg-hover)', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
                 <Icon.Activity size={12} style={{ color: 'var(--text-muted)' }} />
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
@@ -2108,7 +2108,7 @@ function HistoricoAtividadesCard({ processId, role, currentStage, analistaName }
             const isEditing = editing?.id === a.id;
             return (
               <li key={a.id} data-testid="historico-atividade" style={{ display: 'flex', gap: 14, padding: '12px 20px', borderTop: idx === 0 ? 'none' : '1px solid var(--border)' }}>
-                <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'var(--accent-soft, #eff6ff)', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+                <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'var(--accent-soft)', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
                   <Icon.ClipboardList size={13} style={{ color: 'var(--accent)' }} />
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -2265,15 +2265,15 @@ export function ProponenteDetailPage({ processId, onBack, role, focusDocId = nul
   return (
     <div className="ds-page">
       {/* Hero card */}
-      <div className="ds-card" style={{ marginBottom: 0, borderRadius: 'var(--radius) var(--radius) 0 0', borderBottom: 'none' }}>
+      <div className="ds-card" style={{ marginBottom: 0, borderRadius: 'var(--radius-lg) var(--radius-lg) 0 0', borderBottom: 'none' }}>
         <div className="ds-card-body" style={{ padding: '20px 24px' }}>
           <div className="ds-proc-hero" style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
             {/* Avatar */}
             <div style={{
               width: 52, height: 52, borderRadius: '50%', flexShrink: 0,
-              background: 'linear-gradient(135deg, #c084fc, #7c3aed)',
+              background: 'var(--primary)',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: 17, fontWeight: 700, color: '#fff',
+              fontSize: 17, fontWeight: 700, color: 'var(--on-primary-hl)',
             }}>
               {initials(client.name)}
             </div>
@@ -2281,7 +2281,7 @@ export function ProponenteDetailPage({ processId, onBack, role, focusDocId = nul
             {/* Info */}
             <div className="ds-proc-hero-info" style={{ flex: 1, minWidth: 0 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
-                <span style={{ fontSize: 11.5, color: 'var(--text-faint)', fontFamily: 'var(--font-mono)' }}>
+                <span style={{ fontSize: 11.5, fontWeight: 500, color: 'var(--text-faint)', fontVariantNumeric: 'tabular-nums' }}>
                   {shortId(process.id)}
                 </span>
                 <span style={{
@@ -2319,7 +2319,7 @@ export function ProponenteDetailPage({ processId, onBack, role, focusDocId = nul
             <div className="ds-proc-hero-stats" style={{ display: 'flex', gap: 28, flexShrink: 0, alignItems: 'flex-start' }}>
               {process.valorUnidade && (
                 <div>
-                  <div style={{ fontSize: 10, color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 3 }}>
+                  <div style={{ fontSize: 11.5, fontWeight: 500, color: 'var(--text-faint)', marginBottom: 3 }}>
                     Valor da Unidade
                   </div>
                   <div style={{ fontSize: 15, fontWeight: 700, letterSpacing: '-0.3px' }}>
@@ -2329,7 +2329,7 @@ export function ProponenteDetailPage({ processId, onBack, role, focusDocId = nul
               )}
               {process.valorEmAberto && (
                 <div>
-                  <div style={{ fontSize: 10, color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 3 }}>
+                  <div style={{ fontSize: 11.5, fontWeight: 500, color: 'var(--text-faint)', marginBottom: 3 }}>
                     Em Aberto
                   </div>
                   <div style={{ fontSize: 15, fontWeight: 700, letterSpacing: '-0.3px' }}>
@@ -2339,7 +2339,7 @@ export function ProponenteDetailPage({ processId, onBack, role, focusDocId = nul
               )}
               {unidade?.empreendimento?.bancoFinanciador && (
                 <div>
-                  <div style={{ fontSize: 10, color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 3 }}>
+                  <div style={{ fontSize: 11.5, fontWeight: 500, color: 'var(--text-faint)', marginBottom: 3 }}>
                     Banco
                   </div>
                   <div style={{ fontSize: 14, fontWeight: 600 }}>
@@ -2379,7 +2379,7 @@ export function ProponenteDetailPage({ processId, onBack, role, focusDocId = nul
       {/* Tabs */}
       <div style={{
         background: 'var(--bg-card)', border: '1px solid var(--border)', borderTop: 'none',
-        borderRadius: '0 0 var(--radius) var(--radius)',
+        borderRadius: '0 0 var(--radius-lg) var(--radius-lg)',
         marginBottom: 20,
       }}>
         <div className="ds-tabs" style={{ padding: '0 20px', borderBottom: '1px solid var(--border)', marginBottom: 0 }}>

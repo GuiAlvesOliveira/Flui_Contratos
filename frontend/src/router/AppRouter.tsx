@@ -9,8 +9,9 @@ import { SetPasswordPage } from '../pages/SetPasswordPage';
 import { AppShell } from '../components/layout/AppShell';
 
 const Loading = () => (
-  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', color: 'var(--text-muted)', fontSize: 13, fontFamily: 'var(--font)' }}>
-    Carregando...
+  <div className="ds-state" role="status">
+    <span className="ds-spinner" aria-hidden="true" />
+    <p>Carregando...</p>
   </div>
 );
 

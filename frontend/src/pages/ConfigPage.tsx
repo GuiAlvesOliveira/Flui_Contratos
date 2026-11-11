@@ -9,6 +9,7 @@ import {
 } from '../lib/documentCatalog';
 import { isValidCpf, onlyDigits } from '../lib/validators';
 import { LOGO_MAX_BYTES, LOGO_TYPES, useTenant, useTenantLogo, type TenantInfo } from '../lib/useTenant';
+import { applyTheme, DEFAULT_THEME, isThemeId, THEMES, type ThemeId } from '../lib/theme';
 
 // PROD-04: nome e logo da assessoria. O gestor altera; o analista só consulta
 // (a API recusa o PATCH com 403). O logo aparece no menu lateral e no portal
@@ -51,6 +52,17 @@ function AssessoriaCard({ canEdit }: { canEdit: boolean }) {
     onError,
   });
 
+  // Cor do sistema: a tela muda na hora; se a API recusar, volta à cor salva.
+  const themeMut = useMutation({
+    mutationFn: (themeColor: ThemeId) => api.put<TenantInfo>('/tenants/me/theme', { themeColor }).then(r => r.data),
+    onMutate: (themeColor) => { applyTheme(themeColor); },
+    onSuccess: done('Cor do sistema atualizada.'),
+    onError: (err) => { applyTheme(tenant?.themeColor); onError(err); },
+  });
+  const currentTheme: ThemeId = themeMut.isPending && themeMut.variables
+    ? themeMut.variables
+    : isThemeId(tenant?.themeColor) ? tenant.themeColor : DEFAULT_THEME;
+
   function escolherLogo(e: ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0];
     e.target.value = '';
@@ -63,7 +75,7 @@ function AssessoriaCard({ canEdit }: { canEdit: boolean }) {
 
   const valorNome = nome ?? tenant?.name ?? '';
   const nomeValido = valorNome.trim().length >= 2 && valorNome.trim().length <= 100;
-  const busy = nameMut.isPending || logoMut.isPending || removeMut.isPending;
+  const busy = nameMut.isPending || logoMut.isPending || removeMut.isPending || themeMut.isPending;
 
   return (
     <div className="ds-card" style={{ marginBottom: 16 }}>
@@ -120,6 +132,27 @@ function AssessoriaCard({ canEdit }: { canEdit: boolean }) {
                     </span>
                   )}
                   <span style={{ fontSize: 11.5, color: 'var(--text-faint)' }}>PNG ou JPG, até 1 MB.</span>
+                </div>
+              )}
+              {canEdit && (
+                <div style={{ marginTop: 18 }}>
+                  <div className="ds-section-label" id="assessoria-cor">Cor do sistema</div>
+                  <div style={{ fontSize: 12.5, color: 'var(--text-muted)', margin: '-4px 0 10px' }}>
+                    Vale para a equipe e para os clientes da assessoria.
+                  </div>
+                  <div className="ds-palette" role="radiogroup" aria-labelledby="assessoria-cor">
+                    {THEMES.map(t => (
+                      <button key={t.id} type="button" role="radio" aria-checked={currentTheme === t.id}
+                        data-theme={t.id} className={`ds-swatch ${currentTheme === t.id ? 'active' : ''}`}
+                        disabled={busy} onClick={() => { if (t.id !== currentTheme) themeMut.mutate(t.id); }}>
+                        <span className="ds-swatch-chip" aria-hidden="true" />
+                        <span className="ds-swatch-name">
+                          {t.label}
+                          {currentTheme === t.id && <Icon.Check size={13} />}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
                 </div>
               )}
               {error && <div role="alert" style={{ fontSize: 12.5, color: 'var(--red)', marginTop: 10 }}>{error}</div>}

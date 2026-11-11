@@ -373,7 +373,7 @@ export function ProponentesPage({ onOpenProcess }: Props) {
                               <div style={{ fontWeight: 500, fontSize: 13 }}>
                                 {p.client.name ?? p.client.email}
                                 {group.length > 1 && (
-                                  <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--text-faint)', background: 'var(--bg-subtle)', padding: '1px 5px', borderRadius: 4 }}>
+                                  <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--text-faint)', background: 'var(--bg-hover)', padding: '1px 7px', borderRadius: 99 }}>
                                     {group.length}×
                                   </span>
                                 )}

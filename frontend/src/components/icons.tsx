@@ -62,3 +62,9 @@ export const Trash = (p: IconProps) => <I {...p}><polyline points="3 6 5 6 21 6"
 export const RotateCcw = (p: IconProps) => <I {...p}><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4.36"/></I>;
 export const Menu = (p: IconProps) => <I {...p}><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></I>;
 export const ClipboardList = (p: IconProps) => <I {...p}><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/><line x1="9" y1="12" x2="15" y2="12"/><line x1="9" y1="16" x2="13" y2="16"/></I>;
+export const LogOut = (p: IconProps) => <I {...p}><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></I>;
+
+// Marca da Flui Contratos (public/flui-logo.png): a mesma imagem do ícone da aba.
+export function FluiMark({ size = 28 }: { size?: number }) {
+  return <img className="ds-flui-mark" src="/flui-logo.png" width={size} height={size} alt="" aria-hidden="true" />;
+}

@@ -16,6 +16,13 @@ import {
 import { Tenant } from './tenant.entity';
 import { CreateTenantDto } from './dto/create-tenant.dto';
 import { UpdateTenantDto } from './dto/update-tenant.dto';
+import { UpdateTenantThemeDto } from './dto/update-tenant-theme.dto';
+import {
+  DEFAULT_TENANT_THEME,
+  isTenantTheme,
+  TENANT_THEME_LABELS,
+  type TenantTheme,
+} from './tenant-theme';
 
 export const LOGO_MAX_BYTES = 1024 * 1024;
 
@@ -26,6 +33,7 @@ export interface TenantView {
   name: string;
   slug: string;
   logo: { mimeType: string; updatedAt: Date } | null;
+  themeColor: TenantTheme;
 }
 
 // The real bytes decide the type, never the declared Content-Type (as for
@@ -88,6 +96,29 @@ export class TenantsService {
       );
     });
     return view({ ...tenant, name: dto.name });
+  }
+
+  // Cor do sistema: uma das cores da paleta, para toda a assessoria (equipe e
+  // clientes). A troca fica no Log de Ações com o nome das cores.
+  async updateTheme(
+    dto: UpdateTenantThemeDto,
+    caller: RequestUserFull,
+  ): Promise<TenantView> {
+    const tenant = await this.mine(caller);
+    const before = themeOf(tenant);
+    if (dto.themeColor === before) return view(tenant);
+
+    await this.dataSource.transaction(async (manager) => {
+      await manager.update(Tenant, tenant.id, { themeColor: dto.themeColor });
+      await audit(
+        manager,
+        caller,
+        'tenant_theme_updated',
+        { field: 'themeColor', before, after: dto.themeColor },
+        [TENANT_THEME_LABELS[before], TENANT_THEME_LABELS[dto.themeColor]],
+      );
+    });
+    return view({ ...tenant, themeColor: dto.themeColor });
   }
 
   // The new file gets a new key, so a browser never shows the old image from
@@ -186,6 +217,12 @@ export class TenantsService {
   }
 }
 
+// A value outside the palette (an old row, a colour removed later) reads as
+// the default one instead of breaking the screen.
+function themeOf(t: Tenant): TenantTheme {
+  return isTenantTheme(t.themeColor) ? t.themeColor : DEFAULT_TENANT_THEME;
+}
+
 function view(t: Tenant): TenantView {
   return {
     id: t.id,
@@ -195,6 +232,7 @@ function view(t: Tenant): TenantView {
       t.logoPath && t.logoMime && t.logoUpdatedAt
         ? { mimeType: t.logoMime, updatedAt: t.logoUpdatedAt }
         : null,
+    themeColor: themeOf(t),
   };
 }
 

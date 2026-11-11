@@ -36,11 +36,18 @@ const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0]);
 
 describe('Assessoria — /tenants/me (e2e, PROD-04)', () => {
   let app: INestApplication<App>;
-  const view = { id: 't1', name: 'Alfa', slug: 'alfa', logo: null };
+  const view = {
+    id: 't1',
+    name: 'Alfa',
+    slug: 'alfa',
+    logo: null,
+    themeColor: 'floresta',
+  };
   const service = {
     create: jest.fn(),
     getMine: jest.fn().mockResolvedValue(view),
     updateMine: jest.fn().mockResolvedValue(view),
+    updateTheme: jest.fn().mockResolvedValue(view),
     uploadLogo: jest.fn().mockResolvedValue(view),
     removeLogo: jest.fn().mockResolvedValue(view),
     getLogo: jest.fn(() =>
@@ -116,6 +123,41 @@ describe('Assessoria — /tenants/me (e2e, PROD-04)', () => {
       .send(body)
       .expect(400);
     expect(service.updateMine).not.toHaveBeenCalled();
+  });
+
+  it('only the gestor changes the colour of the system', async () => {
+    for (const as of ['analista', 'cliente']) {
+      await http()
+        .put('/tenants/me/theme')
+        .set('x-as', as)
+        .send({ themeColor: 'violeta' })
+        .expect(403);
+    }
+    expect(service.updateTheme).not.toHaveBeenCalled();
+    await http()
+      .put('/tenants/me/theme')
+      .set('x-as', 'dono')
+      .send({ themeColor: 'violeta' })
+      .expect(200);
+    expect(service.updateTheme).toHaveBeenCalledWith(
+      { themeColor: 'violeta' },
+      users.dono,
+    );
+  });
+
+  it.each([
+    ['without colour', {}],
+    ['a colour outside the palette', { themeColor: 'neon' }],
+    ['a free hex', { themeColor: '#ff0000' }],
+    ['a value that is not text', { themeColor: 7 }],
+    ['another field (plan)', { themeColor: 'violeta', plano: 'escala' }],
+  ])('rejects a colour change with %s (400)', async (_c, body) => {
+    await http()
+      .put('/tenants/me/theme')
+      .set('x-as', 'dono')
+      .send(body)
+      .expect(400);
+    expect(service.updateTheme).not.toHaveBeenCalled();
   });
 
   it('only the gestor uploads or removes the logo', async () => {

@@ -1,9 +1,10 @@
-import { Fragment, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '../../auth/useAuth';
 import { api } from '../../api/axiosInstance';
 import { STAGE_LABELS, type ProcessStage } from '../../lib/processStages';
-import { useTenant, useTenantLogo } from '../../lib/useTenant';
+import { useTenant, useTenantLogoState } from '../../lib/useTenant';
+import { applyTheme } from '../../lib/theme';
 import * as Icon from '../icons';
 import { NotificationsBell } from '../NotificationsBell';
 import { DocumentExpiryBanner } from '../DocumentExpiry';
@@ -273,7 +274,12 @@ export function AppShell() {
   const crumbs = breadcrumb(view, isCliente);
   // PROD-04: nome e logo da assessoria no menu lateral (e na topbar do cliente)
   const { data: tenant } = useTenant();
-  const tenantLogo = useTenantLogo(tenant);
+  const { url: tenantLogo, failed: logoFailed } = useTenantLogoState(tenant);
+  // a assessoria tem logo e a imagem veio (ou ainda está vindo)
+  const hasLogo = !!tenant?.logo && !logoFailed;
+  // Cor do sistema: a que o gestor escolheu na paleta, para toda a assessoria
+  const themeColor = tenant?.themeColor;
+  useEffect(() => { if (themeColor) applyTheme(themeColor); }, [themeColor]);
 
   return (
     <div className="ds-app">
@@ -285,18 +291,29 @@ export function AppShell() {
 
       {/* Sidebar */}
       <aside id="ds-sidebar" className={`ds-sidebar ${navOpen ? 'open' : ''}`} aria-label="Menu principal">
-        <div className="ds-sb-brand" onClick={() => navigate({ page: 'dashboard' })}>
-          <div className="ds-sb-logo"><span>F</span></div>
-          <div>
-            <div className="ds-sb-brand-name">Flui Contratos</div>
-            <div className="ds-sb-brand-sub" title={tenant?.name}>{tenant?.name ?? 'Assessoria Imobiliária'}</div>
-          </div>
+        {/* O topo do menu: o logo que a assessoria enviou em Configurações; sem
+            logo, a marca da Flui com o nome da assessoria. Com o logo da
+            assessoria no topo, a Flui assina discretamente no rodapé. */}
+        <div
+          className={`ds-sb-brand ${hasLogo ? 'has-logo' : ''}`}
+          title={tenant?.name}
+          onClick={() => navigate({ page: 'dashboard' })}
+        >
+          {tenantLogo ? (
+            <img className="ds-sb-brand-logo" src={tenantLogo} alt={`Logo de ${tenant?.name ?? 'sua assessoria'}`} />
+          ) : hasLogo ? (
+            <div className="ds-sb-brand-skeleton" aria-hidden="true" />
+          ) : (
+            <>
+              <Icon.FluiMark size={40} />
+              <div className="ds-sb-brand-text">
+                <div className="ds-sb-brand-name">Flui Contratos</div>
+                <div className="ds-sb-brand-sub">{tenant?.name ?? 'Assessoria Imobiliária'}</div>
+              </div>
+            </>
+          )}
         </div>
-        {tenantLogo && (
-          <div className="ds-sb-tenant">
-            <img src={tenantLogo} alt={`Logo de ${tenant?.name ?? 'sua assessoria'}`} />
-          </div>
-        )}
+        <div className="ds-sb-rule" aria-hidden="true" />
 
         {role !== 'cliente' && NAV_SECTIONS.map((section, idx) => (
           <div className="ds-sb-section" key={idx}>
@@ -335,6 +352,13 @@ export function AppShell() {
           </div>
         )}
 
+        <div className="ds-sb-spacer" />
+        {hasLogo && (
+          <div className="ds-sb-powered">
+            <Icon.FluiMark size={18} />
+            <span>feito com <b>Flui Contratos</b></span>
+          </div>
+        )}
         <div className="ds-sb-footer">
           <div className="ds-avatar">{initials(name)}</div>
           <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
@@ -343,8 +367,8 @@ export function AppShell() {
             </div>
             <div className="ds-sb-user-role">{roleLabel(role)}</div>
           </div>
-          <button className="ds-btn ghost sm" title="Sair" onClick={logout}>
-            <Icon.X size={13} />
+          <button className="ds-btn ghost sm" title="Sair" aria-label="Sair" onClick={logout}>
+            <Icon.LogOut size={14} />
           </button>
         </div>
       </aside>

@@ -4,9 +4,10 @@ interface ComingSoonProps {
 
 export function ComingSoon({ module }: ComingSoonProps) {
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center gap-4">
-      <h1 className="text-2xl font-semibold text-gray-800">Módulo {module}</h1>
-      <p className="text-gray-500">Em breve</p>
+    <div className="ds-state">
+      <span className="ds-state-code neutral">Em breve</span>
+      <h1>Módulo {module}</h1>
+      <p>Em breve</p>
     </div>
   );
 }

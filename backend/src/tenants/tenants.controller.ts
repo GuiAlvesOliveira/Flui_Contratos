@@ -19,6 +19,7 @@ import { RequestUserFull } from '../auth/supabase.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CreateTenantDto } from './dto/create-tenant.dto';
 import { UpdateTenantDto } from './dto/update-tenant.dto';
+import { UpdateTenantThemeDto } from './dto/update-tenant-theme.dto';
 import { LOGO_MAX_BYTES, TenantsService } from './tenants.service';
 
 @Controller('tenants')
@@ -45,6 +46,16 @@ export class TenantsController {
     @Request() req: { user: RequestUserFull },
   ) {
     return this.tenantsService.updateMine(dto, req.user);
+  }
+
+  // Cor do sistema: o gestor escolhe uma das cores da paleta
+  @Put('me/theme')
+  @Roles('dono')
+  updateTheme(
+    @Body() dto: UpdateTenantThemeDto,
+    @Request() req: { user: RequestUserFull },
+  ) {
+    return this.tenantsService.updateTheme(dto, req.user);
   }
 
   // Logo: PNG ou JPG até 1 MB, no container privado (o serviço confere os bytes)

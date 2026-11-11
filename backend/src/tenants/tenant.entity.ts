@@ -4,6 +4,7 @@ import {
   Entity,
   PrimaryGeneratedColumn,
 } from 'typeorm';
+import type { TenantTheme } from './tenant-theme';
 
 @Entity('tenants')
 export class Tenant {
@@ -28,6 +29,15 @@ export class Tenant {
 
   @Column({ type: 'timestamptz', name: 'logo_updated_at', nullable: true })
   logoUpdatedAt: Date | null;
+
+  // Cor do sistema escolhida pelo gestor na paleta (ver tenant-theme.ts)
+  @Column({
+    type: 'varchar',
+    name: 'theme_color',
+    length: 20,
+    default: 'floresta',
+  })
+  themeColor: TenantTheme;
 
   // PROD-09: plano contratado (taxa do success fee); só o Super Admin altera
   @Column({ type: 'varchar', length: 20, default: 'essencial' })

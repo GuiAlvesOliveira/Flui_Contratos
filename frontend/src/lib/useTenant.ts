@@ -9,6 +9,8 @@ export interface TenantInfo {
   name: string;
   slug: string;
   logo: { mimeType: string; updatedAt: string } | null;
+  // cor do sistema escolhida pelo gestor (ver lib/theme.ts)
+  themeColor: string;
 }
 
 export const LOGO_MAX_BYTES = 1024 * 1024;
@@ -33,8 +35,14 @@ function blobToDataUrl(blob: Blob): Promise<string> {
 }
 
 export function useTenantLogo(tenant: TenantInfo | undefined): string | null {
+  return useTenantLogoState(tenant).url;
+}
+
+// Para quem precisa saber também se a imagem não veio (armazenamento fora do
+// ar): o menu lateral volta para a marca padrão em vez de esperar para sempre.
+export function useTenantLogoState(tenant: TenantInfo | undefined): { url: string | null; failed: boolean } {
   const updatedAt = tenant?.logo?.updatedAt ?? null;
-  const { data } = useQuery<string>({
+  const { data, isError } = useQuery<string>({
     queryKey: ['tenant', 'logo', updatedAt],
     queryFn: async () => {
       const r = await api.get<Blob>('/tenants/me/logo', { responseType: 'blob' });
@@ -43,5 +51,5 @@ export function useTenantLogo(tenant: TenantInfo | undefined): string | null {
     enabled: !!updatedAt,
     staleTime: Infinity,
   });
-  return updatedAt ? data ?? null : null;
+  return { url: updatedAt ? data ?? null : null, failed: !!updatedAt && isError };
 }

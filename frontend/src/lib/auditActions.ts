@@ -34,6 +34,7 @@ export const ACTION_LABELS: Record<string, string> = {
   tenant_updated: 'Nome da assessoria alterado',
   tenant_logo_updated: 'Logo da assessoria alterado',
   tenant_logo_removed: 'Logo da assessoria removido',
+  tenant_theme_updated: 'Cor do sistema alterada',
   user_status_changed: 'Acesso de usuário alterado',
   invite_resent: 'Convite reenviado',
   // PROD-09: success fee
