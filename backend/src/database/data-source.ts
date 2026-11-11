@@ -33,6 +33,7 @@ import { AddFichaCompleta1718502000000 } from './migrations/1718502000000-AddFic
 import { AddBankFormFiles1718502100000 } from './migrations/1718502100000-AddBankFormFiles';
 import { AddDocumentValidity1718502200000 } from './migrations/1718502200000-AddDocumentValidity';
 import { AddTenantThemeColor1718502300000 } from './migrations/1718502300000-AddTenantThemeColor';
+import { AddMessagingControl1718502400000 } from './migrations/1718502400000-AddMessagingControl';
 
 // Standalone DataSource for the `typeorm migration:*` CLI. The running app builds
 // its own connection from ConfigService (app.module) and runs migrations on boot
@@ -82,6 +83,7 @@ export const AppDataSource = new DataSource({
     AddBankFormFiles1718502100000,
     AddDocumentValidity1718502200000,
     AddTenantThemeColor1718502300000,
+    AddMessagingControl1718502400000,
   ],
   installExtensions: false, // same as app.module: gen_random_uuid() is built in
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: true } : false,

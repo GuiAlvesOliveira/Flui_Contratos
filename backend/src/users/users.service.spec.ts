@@ -812,6 +812,8 @@ describe('UsersService — Equipe em Configurações (PROD-04)', () => {
       'ana@exemplo.dev',
       'Ana',
       'https://supabase.test/verify?type=recovery',
+      // shown on the gestor's E-mails screen (without the link)
+      { tenantId: 't1', recipientRole: 'analista', actorId: 'u1' },
     );
     const [, updates] = userRepo.update.mock.calls[0] as [string, object];
     expect(Object.keys(updates)).toEqual(['invitedAt']);

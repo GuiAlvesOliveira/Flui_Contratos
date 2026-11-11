@@ -162,11 +162,21 @@ export class MessagingService {
     processId: string | null,
     messages: OutboundMessage[],
   ): Promise<number> {
+    if (messages.length === 0) return 0;
+    // The message is always queued (RN-08). Whether it leaves by itself is the
+    // gestor's choice: it only goes straight to the worker when the assessoria
+    // is explicitly on 'auto'. Otherwise (manual, or mode unknown) it waits as
+    // 'held' until released on the E-mails screen of the Log de Ações.
+    const [tenant] = await manager.query<{ email_mode?: string }[]>(
+      `SELECT email_mode FROM tenants WHERE id = $1`,
+      [tenantId],
+    );
+    const status = tenant?.email_mode === 'auto' ? 'pending' : 'held';
     for (const m of messages) {
       await manager.query(
         `INSERT INTO message_outbox
-           (tenant_id, process_id, event_type, recipient_role, recipient, subject, html, text)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+           (tenant_id, process_id, event_type, recipient_role, recipient, subject, html, text, status)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
         [
           tenantId,
           processId,
@@ -176,12 +186,13 @@ export class MessagingService {
           m.subject,
           m.html,
           m.text,
+          status,
         ],
       );
     }
     // The caller's transaction commits right after this returns; the worker
     // picks the messages up in a moment instead of waiting for its next poll.
-    if (messages.length > 0) this.worker.soon();
+    if (status === 'pending') this.worker.soon();
     return messages.length;
   }
 

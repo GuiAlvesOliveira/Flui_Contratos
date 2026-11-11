@@ -27,6 +27,8 @@ const ana: Partial<User> = {
   email: 'ana@exemplo.dev',
   name: 'Ana',
   status: 'active',
+  tenantId: 't1',
+  role: 'cliente',
 };
 
 describe('PasswordResetService (BE-08)', () => {
@@ -51,6 +53,8 @@ describe('PasswordResetService (BE-08)', () => {
       'ana@exemplo.dev',
       'Ana',
       'https://supabase.test/verify?token=t&type=recovery',
+      // shown on the gestor's E-mails screen (without the link)
+      { tenantId: 't1', recipientRole: 'cliente', actorId: null },
     );
   });
 

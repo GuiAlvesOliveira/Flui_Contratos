@@ -1,7 +1,16 @@
-import { BadRequestException, Body, Controller, HttpCode, Post } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  HttpCode,
+  Post,
+  Request,
+} from '@nestjs/common';
 import { IsEmail } from 'class-validator';
+import { RequestUserFull } from '../auth/supabase.guard';
 import { Roles } from '../common/decorators/roles.decorator';
-import { EmailService } from './email.service';
+import { DirectSendContext, EmailService } from './email.service';
+import { smtpFailureReason } from './smtp-failure';
 
 class TestEmailDto {
   @IsEmail()
@@ -15,11 +24,35 @@ export class EmailController {
   @Post('test')
   @Roles('dono')
   @HttpCode(200)
-  async test(@Body() dto: TestEmailDto) {
+  async test(
+    @Body() dto: TestEmailDto,
+    @Request() req: { user: RequestUserFull },
+  ) {
+    const subject = 'Flui Contratos — teste de e-mail';
+    // o teste conta no limite diário e fica na tela de E-mails, como os demais
+    const ctx: DirectSendContext = {
+      tenantId: req.user.tenantId ?? null,
+      recipientRole: 'gestor',
+      actorId: req.user.userId ?? null,
+    };
+    const report = (error: string | null) =>
+      this.email.reportDirect({
+        ...ctx,
+        eventType: 'test_email',
+        to: dto.to,
+        subject,
+        ok: error === null,
+        error,
+      });
+    const refusal = await this.email.directRefusal(ctx);
+    if (refusal) {
+      report(refusal);
+      throw new BadRequestException(refusal);
+    }
     try {
       await this.email.sendOrThrow(
         dto.to,
-        'Flui Contratos — teste de e-mail',
+        subject,
         `
         <div style="font-family:sans-serif;max-width:560px;margin:0 auto;color:#18181b">
           <div style="background:#2563eb;padding:24px 28px;border-radius:8px 8px 0 0">
@@ -33,8 +66,13 @@ export class EmailController {
         `,
       );
     } catch (err: unknown) {
-      throw new BadRequestException(err instanceof Error ? err.message : 'Falha no envio');
+      // o motivo em português, do jeito que o gestor consegue agir (senha,
+      // rede, remetente ou bloqueio de IP do provedor)
+      const reason = smtpFailureReason(err);
+      report(reason);
+      throw new BadRequestException(reason);
     }
-    return { ok: true, to: dto.to };
+    report(null);
+    return { ok: true, to: dto.to, from: this.email.sender };
   }
 }

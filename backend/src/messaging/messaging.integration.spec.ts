@@ -165,9 +165,11 @@ const people = [
   { id: 'an1', tenant_id: TENANT, name: 'Rafael', email: 'rafael@exemplo.dev' },
 ];
 
-function database(processStage: () => ProcessStage) {
+function database(processStage: () => ProcessStage, mode: 'auto' | 'manual') {
   const outbox: OutboxRecord[] = [];
   const audit: unknown[][] = [];
+  // what the worker records in the Log de Ações for each dispatch
+  const dispatches: unknown[][] = [];
   const query = (sql: string, params: unknown[] = []): Promise<unknown> => {
     if (sql.includes('FROM users')) {
       const ids = params[1] as string[];
@@ -175,8 +177,32 @@ function database(processStage: () => ProcessStage) {
         people.filter((p) => p.tenant_id === params[0] && ids.includes(p.id)),
       );
     }
+    // worker: which assessorias have something due, and their daily limit
+    if (sql.includes('outbox:quota')) {
+      const sent = outbox.filter((m) => m.status === 'sent').length;
+      return Promise.resolve(
+        outbox.some((m) => m.status === 'pending' && m.due)
+          ? [
+              {
+                tenant_id: TENANT,
+                daily_limit: 100,
+                sent_today: sent,
+                sent_today_all: sent,
+              },
+            ]
+          : [],
+      );
+    }
+    if (sql.includes('outbox:expire') || sql.includes('outbox:postpone'))
+      return Promise.resolve([[], 0]);
+    if (sql.includes('outbox:audit')) {
+      dispatches.push(params);
+      return Promise.resolve([]);
+    }
     if (sql.includes('FROM tenants'))
-      return Promise.resolve([{ name: 'Assessoria Exemplo' }]);
+      return Promise.resolve([
+        { name: 'Assessoria Exemplo', email_mode: mode },
+      ]);
     if (sql.includes('INSERT INTO message_outbox')) {
       const [
         tenant_id,
@@ -187,6 +213,7 @@ function database(processStage: () => ProcessStage) {
         subject,
         html,
         text,
+        status,
       ] = params as string[];
       outbox.push({
         id: `m${outbox.length + 1}`,
@@ -198,7 +225,7 @@ function database(processStage: () => ProcessStage) {
         subject,
         html,
         text,
-        status: 'pending',
+        status,
         attempts: 0,
         due: true,
         last_error: null,
@@ -211,7 +238,9 @@ function database(processStage: () => ProcessStage) {
     }
     if (sql.includes('FOR UPDATE SKIP LOCKED')) {
       const due = outbox
-        .filter((m) => m.status === 'pending' && m.due)
+        .filter(
+          (m) => m.status === 'pending' && m.due && m.tenant_id === params[2],
+        )
         .slice(0, params[0] as number);
       due.forEach((m) => {
         m.attempts++;
@@ -259,7 +288,7 @@ function database(processStage: () => ProcessStage) {
     query: jest.fn(query),
     transaction: jest.fn((cb: (m: EntityManager) => unknown) => cb(manager)),
   } as unknown as DataSource;
-  return { outbox, audit, dataSource };
+  return { outbox, audit, dispatches, dataSource };
 }
 
 function config(values: Record<string, string>) {
@@ -268,9 +297,9 @@ function config(values: Record<string, string>) {
   } as unknown as ConfigService;
 }
 
-function system(stage: ProcessStage) {
+function system(stage: ProcessStage, mode: 'auto' | 'manual' = 'auto') {
   let current = stage;
-  const db = database(() => current);
+  const db = database(() => current, mode);
   const cfg = config({
     SMTP_HOST: '127.0.0.1',
     SMTP_PORT: String(port),
@@ -385,8 +414,31 @@ describe('in-house messaging, end to end over SMTP', () => {
       expect(header(inbox[0].data, 'Subject')).toBe(subject);
       expect(inbox[0].from).toBe('noreply@fluicontratos.com.br');
       expect(s.outbox.every((m) => m.status === 'sent')).toBe(true);
+      // each dispatch is recorded for the gestor
+      expect(s.dispatches).toEqual(
+        s.outbox.map((m) => [m.id, 'email_sent', null]),
+      );
     },
   );
+
+  it('manual mode: the message is queued but nothing reaches the inbox until the gestor releases it', async () => {
+    const s = system('cadastro', 'manual');
+    await s.move('processo_pendencia');
+    expect(s.outbox.map((m) => m.status)).toEqual(['held', 'held']);
+    await expect(s.worker.drain()).resolves.toEqual({
+      sent: 0,
+      retried: 0,
+      failed: 0,
+    });
+    expect(inbox).toHaveLength(0);
+    expect(s.dispatches).toHaveLength(0);
+
+    // the gestor releases one of them on the E-mails screen (held → pending)
+    s.outbox[0].status = 'pending';
+    await expect(s.worker.drain()).resolves.toMatchObject({ sent: 1 });
+    expect(inbox.map((m) => m.to[0])).toEqual(['helena@exemplo.dev']);
+    expect(s.outbox.map((m) => m.status)).toEqual(['sent', 'held']);
+  });
 
   it('the e-mail is multipart (HTML + text) and reads correctly', async () => {
     const s = system('cadastro');

@@ -298,7 +298,12 @@ export class UsersService {
     }
 
     await this.userRepo.update(saved.id, { externalId });
-    this.email.sendInvite(dto.email, dto.name, inviteLink);
+    // o envio fica na tela de E-mails do gestor (sem o link)
+    this.email.sendInvite(dto.email, dto.name, inviteLink, {
+      tenantId: tenantId ?? null,
+      recipientRole: inviteRole(dto.role),
+      actorId: createdBy ?? null,
+    });
     return this.toResponse({ ...saved, externalId });
   }
 
@@ -549,7 +554,11 @@ export class UsersService {
     if (!user.externalId && link.externalId)
       updates.externalId = link.externalId;
     await this.userRepo.update(id, updates);
-    this.email.sendInvite(user.email, user.name ?? user.email, link.url);
+    this.email.sendInvite(user.email, user.name ?? user.email, link.url, {
+      tenantId: user.tenantId ?? null,
+      recipientRole: inviteRole(user.role),
+      actorId: caller.userId ?? null,
+    });
     await this.dataSource.query(
       `INSERT INTO audit_logs (tenant_id, actor_id, action, metadata)
        VALUES ($1, $2, 'invite_resent', $3::jsonb)`,
@@ -602,4 +611,10 @@ export class UsersService {
       createdAt: user.createdAt,
     };
   }
+}
+
+// Como o destinatário de um convite aparece na tela de E-mails do gestor.
+function inviteRole(role: string): 'gestor' | 'analista' | 'cliente' {
+  if (role === 'analista' || role === 'cliente') return role;
+  return 'gestor';
 }

@@ -8,7 +8,8 @@ const people = {
   an1: { id: 'an1', name: 'Rafael', email: 'rafael@exemplo.dev' },
 };
 
-function makeService() {
+// `mode` is the assessoria's tenants.email_mode ('auto' sends by itself).
+function makeService(mode: string | null = 'auto') {
   const inserts: unknown[][] = [];
   const manager = {
     query: jest.fn((sql: string, params: unknown[]) => {
@@ -18,6 +19,8 @@ function makeService() {
           Object.values(people).filter((p) => ids.includes(p.id)),
         );
       }
+      if (sql.includes('SELECT email_mode FROM tenants'))
+        return Promise.resolve(mode === null ? [] : [{ email_mode: mode }]);
       if (sql.includes('FROM tenants'))
         return Promise.resolve([{ name: 'Assessoria Exemplo' }]);
       if (sql.includes('INSERT INTO message_outbox')) inserts.push(params);
@@ -75,7 +78,44 @@ describe('MessagingService (BE-09_v2)', () => {
     expect(text).toContain('https://app.exemplo.dev');
     expect(text).not.toContain('www.exemplo.dev');
     expect(manager.query).toHaveBeenCalled();
+    expect(inserts[0][8]).toBe('pending');
     expect(worker.soon).toHaveBeenCalledTimes(1);
+  });
+
+  describe('the gestor controls the sending', () => {
+    const move = (service: MessagingService, em: EntityManager) =>
+      service.stageChanged(em, {
+        ...notice,
+        fromStage: 'cadastro',
+        toStage: 'processo_pendencia',
+      });
+
+    it("manual mode: every message is queued (RN-08) but as 'held', and the worker is not woken", async () => {
+      const { service, em, inserts, worker } = makeService('manual');
+      await expect(move(service, em)).resolves.toBe(2);
+      expect(inserts.map((p) => p[8])).toEqual(['held', 'held']);
+      expect(worker.soon).not.toHaveBeenCalled();
+    });
+
+    it.each([[null], ['qualquer-coisa']])(
+      'mode unknown (%s): held, never sent by default',
+      async (mode) => {
+        const { service, em, inserts, worker } = makeService(mode);
+        await move(service, em);
+        expect(inserts.map((p) => p[8])).toEqual(['held', 'held']);
+        expect(worker.soon).not.toHaveBeenCalled();
+      },
+    );
+
+    it('the mode is read from the tenant of the event, inside the caller transaction', async () => {
+      const { service, em, manager } = makeService('manual');
+      await move(service, em);
+      const call = manager.query.mock.calls.find(([s]) =>
+        s.includes('SELECT email_mode FROM tenants'),
+      ) as [string, unknown[]];
+      expect(call[0]).toContain('WHERE id = $1');
+      expect(call[1]).toEqual([TENANT]);
+    });
   });
 
   it('RN-10: a pendência queues two messages, client and analista', async () => {

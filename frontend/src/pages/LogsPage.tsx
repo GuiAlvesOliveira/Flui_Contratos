@@ -3,6 +3,9 @@ import { keepPreviousData, useQuery, useMutation, useQueryClient } from '@tansta
 import { api } from '../api/axiosInstance';
 import * as Icon from '../components/icons';
 import { ACTION_LABELS, stateLabel } from '../lib/auditActions';
+import { apiErrorMessage } from '../lib/documentCatalog';
+import { EmailsPanel } from '../components/EmailsPanel';
+import { ROLE_LABELS } from '../lib/emailOutbox';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -19,6 +22,8 @@ interface AuditLog {
   process_active: boolean | null;
   client_name: string | null;
   client_email: string | null;
+  // nos registros de e-mail (email_*): o assunto e o papel de quem recebe
+  metadata?: { subject?: string; recipientRole?: string; error?: string } | null;
   // Total de eventos que atendem aos filtros, repetido em cada linha (BE-07)
   total_count?: number;
 }
@@ -38,7 +43,7 @@ function fmtDate(iso: string) {
 }
 
 function actionColor(action: string): string {
-  if (action === 'process_deactivated' || action === 'document_deleted') return 'var(--red)';
+  if (action === 'process_deactivated' || action === 'document_deleted' || action === 'email_failed') return 'var(--red)';
   if (action === 'process_reactivated') return 'var(--green, #22c55e)';
   if (action.endsWith('_undo')) return 'var(--amber, #f59e0b)';
   return 'var(--text-muted)';
@@ -52,11 +57,14 @@ interface Props {
 
 export function LogsPage({ onOpenProcess }: Props) {
   const qc = useQueryClient();
+  // Ações = o log de auditoria; E-mails = o controle do envio pelo gestor
+  const [tab, setTab] = useState<'acoes' | 'emails'>('acoes');
   const [undoErrors, setUndoErrors] = useState<Record<string, string>>({});
   const [undoSuccess, setUndoSuccess] = useState<Record<string, true>>({});
   const [showEmailTest, setShowEmailTest] = useState(false);
   const [testEmail, setTestEmail] = useState('');
   const [testResult, setTestResult] = useState<'ok' | 'error' | null>(null);
+  const [testDetail, setTestDetail] = useState<{ to?: string; from?: string; error?: string }>({});
   const [page, setPage] = useState(0);
   const [actionFilter, setActionFilter] = useState('');
   const [fromDate, setFromDate] = useState('');
@@ -72,10 +80,27 @@ export function LogsPage({ onOpenProcess }: Props) {
   const invalidPeriod = !!(fromDate && toDate && fromDate > toDate);
 
   const emailTestMut = useMutation({
-    mutationFn: (to: string) => api.post('/email/test', { to }).then(r => r.data),
-    onSuccess: () => { setTestResult('ok'); },
-    onError: () => { setTestResult('error'); },
+    mutationFn: (to: string) => api.post<{ ok: boolean; to: string; from?: string }>('/email/test', { to }).then(r => r.data),
+    onSuccess: (data) => { setTestDetail({ to: data.to, from: data.from }); setTestResult('ok'); },
+    onError: (err) => {
+      setTestDetail({ error: apiErrorMessage(err, 'Falha no envio — o servidor não informou o motivo.') });
+      setTestResult('error');
+    },
+    // o teste também aparece na tela de E-mails e no log
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: ['messaging-outbox'] });
+      void qc.invalidateQueries({ queryKey: ['messaging-settings'] });
+      void qc.invalidateQueries({ queryKey: ['audit-logs'] });
+    },
   });
+
+  // quantos e-mails esperam a liberação do gestor (mesma consulta da aba E-mails)
+  const { data: emailSettings } = useQuery<{ held: number }>({
+    queryKey: ['messaging-settings'],
+    queryFn: () => api.get<{ held: number }>('/messaging/settings').then(r => r.data),
+    refetchInterval: 15_000,
+  });
+  const heldEmails = emailSettings?.held ?? 0;
 
   const { data: logs = [], isLoading, isError, refetch } = useQuery<AuditLog[]>({
     queryKey: ['audit-logs', { page, actionFilter, fromDate, toDate }],
@@ -130,9 +155,11 @@ export function LogsPage({ onOpenProcess }: Props) {
         <div>
           <h1>Log de Ações</h1>
           <p>
-            {isLoading
-              ? 'Carregando...'
-              : `${total} evento${total !== 1 ? 's' : ''} ${hasFilters ? 'encontrado' : 'registrado'}${total !== 1 ? 's' : ''}`}
+            {tab === 'emails'
+              ? 'Os e-mails da assessoria: o que saiu, o que falhou e o que espera a sua liberação'
+              : isLoading
+                ? 'Carregando...'
+                : `${total} evento${total !== 1 ? 's' : ''} ${hasFilters ? 'encontrado' : 'registrado'}${total !== 1 ? 's' : ''}`}
           </p>
         </div>
         <div className="actions">
@@ -140,10 +167,12 @@ export function LogsPage({ onOpenProcess }: Props) {
             <Icon.Mail size={13} />
             Testar e-mail
           </button>
-          <button className="ds-btn ghost sm" onClick={() => refetch()}>
-            <Icon.RotateCcw size={13} />
-            Atualizar
-          </button>
+          {tab === 'acoes' && (
+            <button className="ds-btn ghost sm" onClick={() => refetch()}>
+              <Icon.RotateCcw size={13} />
+              Atualizar
+            </button>
+          )}
         </div>
       </div>
 
@@ -167,20 +196,39 @@ export function LogsPage({ onOpenProcess }: Props) {
             >
               {emailTestMut.isPending ? 'Enviando...' : 'Enviar'}
             </button>
-            {testResult === 'ok' && (
-              <span style={{ fontSize: 12.5, color: 'var(--green, #22c55e)', fontWeight: 500 }}>
-                ✓ E-mail enviado com sucesso
-              </span>
-            )}
-            {testResult === 'error' && (
-              <span style={{ fontSize: 12.5, color: 'var(--red)' }}>
-                ✗ Falha no envio — verifique as variáveis SMTP no servidor
-              </span>
-            )}
           </div>
+          {/* o servidor diz o motivo (senha, rede, remetente, IP bloqueado no provedor) */}
+          {testResult === 'ok' && (
+            <div role="status" style={{ fontSize: 12.5, color: 'var(--green)', fontWeight: 500, marginTop: 10 }}>
+              ✓ O servidor de e-mail aceitou a mensagem{testDetail.to ? ` para ${testDetail.to}` : ''}.
+              <span style={{ display: 'block', color: 'var(--text-muted)', fontWeight: 400, marginTop: 2 }}>
+                {testDetail.from ? `Remetente: ${testDetail.from}. ` : ''}
+                Se não chegar em alguns minutos, olhe a caixa de spam e confira se esse remetente está validado na conta do provedor.
+              </span>
+            </div>
+          )}
+          {testResult === 'error' && (
+            <div role="alert" style={{ fontSize: 12.5, color: 'var(--red)', marginTop: 10 }}>
+              ✗ {testDetail.error}
+            </div>
+          )}
         </div>
       )}
 
+      <div className="ds-tabs" role="tablist" aria-label="Log de Ações">
+        <button role="tab" aria-selected={tab === 'acoes'} className={`ds-tab${tab === 'acoes' ? ' active' : ''}`} onClick={() => setTab('acoes')}>
+          Ações
+        </button>
+        <button role="tab" aria-selected={tab === 'emails'} className={`ds-tab${tab === 'emails' ? ' active' : ''}`} onClick={() => setTab('emails')}>
+          E-mails
+          {heldEmails > 0 && <span className="count" title="Aguardando a sua liberação">{heldEmails}</span>}
+        </button>
+      </div>
+
+      {tab === 'emails' ? (
+        <EmailsPanel onOpenProcess={onOpenProcess} />
+      ) : (
+      <>
       {/* Filtros */}
       <div className="ds-list-toolbar" style={{ flexWrap: 'wrap', gap: 10 }}>
         <div className="ds-input" style={{ flex: '0 0 230px' }}>
@@ -299,6 +347,13 @@ export function LogsPage({ onOpenProcess }: Props) {
                         <span style={{ fontSize: 12.5, color: actionColor(log.action) }}>
                           {ACTION_LABELS[log.action] ?? log.action}
                         </span>
+                        {/* cada disparo de e-mail: qual aviso e para quem (papel) */}
+                        {log.action.startsWith('email_') && log.metadata?.subject && (
+                          <div style={{ fontSize: 11.5, color: 'var(--text-faint)', marginTop: 2, maxWidth: 320, overflowWrap: 'anywhere' }}>
+                            {log.metadata.subject}
+                            {log.metadata.recipientRole && ` · para ${(ROLE_LABELS[log.metadata.recipientRole] ?? log.metadata.recipientRole).toLowerCase()}`}
+                          </div>
+                        )}
                       </td>
                       <td style={{ fontSize: 12, color: 'var(--text-muted)' }}>
                         {log.from_state || log.to_state ? (
@@ -355,6 +410,8 @@ export function LogsPage({ onOpenProcess }: Props) {
             )}
           </div>
         </div>
+      )}
+      </>
       )}
     </div>
   );

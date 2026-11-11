@@ -368,10 +368,12 @@ export class ProcessesService {
     // Edits and removals in the Histórico de Atividades are internal to the
     // assessoria (they carry the previous text and the removal reason), and so
     // is the commission (PROD-09) and the record of who got each expiry notice
-    // (the client reads their own notices in the notifications panel).
+    // (the client reads their own notices in the notifications panel). The
+    // record of each e-mail dispatch (email_*) is the gestor's control, too.
     const internal =
       caller.role === 'cliente'
-        ? `AND al.action NOT IN ('activity_edited', 'activity_deleted', 'commission_updated', 'document_expiry_notice')`
+        ? `AND al.action NOT IN ('activity_edited', 'activity_deleted', 'commission_updated', 'document_expiry_notice')
+           AND left(al.action, 6) <> 'email_'`
         : '';
     return this.dataSource.query<Record<string, unknown>[]>(
       `SELECT al.*, u.name as actor_name

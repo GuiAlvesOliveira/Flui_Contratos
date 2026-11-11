@@ -62,6 +62,7 @@ import { AddFichaCompleta1718502000000 } from './database/migrations/17185020000
 import { AddBankFormFiles1718502100000 } from './database/migrations/1718502100000-AddBankFormFiles';
 import { AddDocumentValidity1718502200000 } from './database/migrations/1718502200000-AddDocumentValidity';
 import { AddTenantThemeColor1718502300000 } from './database/migrations/1718502300000-AddTenantThemeColor';
+import { AddMessagingControl1718502400000 } from './database/migrations/1718502400000-AddMessagingControl';
 
 @Module({
   imports: [
@@ -117,6 +118,7 @@ import { AddTenantThemeColor1718502300000 } from './database/migrations/17185023
           AddBankFormFiles1718502100000,
           AddDocumentValidity1718502200000,
           AddTenantThemeColor1718502300000,
+          AddMessagingControl1718502400000,
         ],
         migrationsRun: true,
         synchronize: false,

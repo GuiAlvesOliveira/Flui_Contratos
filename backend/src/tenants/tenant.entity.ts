@@ -39,6 +39,19 @@ export class Tenant {
   })
   themeColor: TenantTheme;
 
+  // Envio de e-mails: 'manual' = o gestor libera cada mensagem; 'auto' = sai sozinho
+  @Column({
+    type: 'varchar',
+    name: 'email_mode',
+    length: 10,
+    default: 'manual',
+  })
+  emailMode: 'manual' | 'auto';
+
+  // Teto de e-mails por dia da assessoria
+  @Column({ type: 'int', name: 'email_daily_limit', default: 100 })
+  emailDailyLimit: number;
+
   // PROD-09: plano contratado (taxa do success fee); só o Super Admin altera
   @Column({ type: 'varchar', length: 20, default: 'essencial' })
   plano: 'essencial' | 'profissional' | 'escala';

@@ -14,8 +14,30 @@ export function escapeHtml(value: string): string {
     .replace(/'/g, '&#39;');
 }
 
+// Envio direto (convite, redefinição de senha): não passa pela fila porque o
+// link não pode ficar guardado, mas o gestor também precisa enxergar que saiu.
+// Quem chama diz de qual assessoria e para quem; a mensageria registra.
+export interface DirectSendContext {
+  tenantId: string | null;
+  recipientRole: 'gestor' | 'analista' | 'cliente';
+  actorId?: string | null;
+}
+
+// Devolve o motivo da recusa (limite diário atingido) ou null se pode enviar.
+export type DirectGate = (ctx: DirectSendContext) => Promise<string | null>;
+
+export interface DirectSend extends DirectSendContext {
+  eventType: 'invite' | 'password_reset' | 'test_email';
+  to: string;
+  subject: string;
+  ok: boolean;
+  error: string | null;
+}
+
 @Injectable()
 export class EmailService {
+  private directListener: ((sent: DirectSend) => void) | null = null;
+  private directGate: DirectGate | null = null;
   private readonly logger = new Logger(EmailService.name);
   private readonly transporter: Transporter | null;
   private readonly from: string;
@@ -25,7 +47,10 @@ export class EmailService {
     const port = this.config.get<number>('SMTP_PORT', 587);
     const user = this.config.get<string>('SMTP_USER');
     const pass = this.config.get<string>('SMTP_PASS');
-    this.from = this.config.get<string>('SMTP_FROM', 'Flui Contratos <noreply@fluicontratos.com.br>');
+    this.from = this.config.get<string>(
+      'SMTP_FROM',
+      'Flui Contratos <noreply@fluicontratos.com.br>',
+    );
 
     if (host && user && pass) {
       this.transporter = nodemailer.createTransport({
@@ -47,18 +72,85 @@ export class EmailService {
   }
 
   async send(to: string, subject: string, html: string): Promise<void> {
-    if (!this.transporter) return;
+    await this.deliver(to, subject, html);
+  }
+
+  // Never throws: tells whether the message left and, if not, why.
+  private async deliver(
+    to: string,
+    subject: string,
+    html: string,
+  ): Promise<{ ok: boolean; error: string | null }> {
+    if (!this.transporter) return { ok: false, error: 'SMTP não configurado' };
 
     try {
       await this.transporter.sendMail({ from: this.from, to, subject, html });
+      return { ok: true, error: null };
     } catch (err: unknown) {
-      this.logger.error(`Email to ${to} failed: ${err instanceof Error ? err.message : String(err)}`);
+      const error = err instanceof Error ? err.message : String(err);
+      this.logger.error(`Email to ${to} failed: ${error}`);
+      return { ok: false, error };
     }
+  }
+
+  /** The messaging module records every direct send for the gestor. */
+  onDirectSend(listener: (sent: DirectSend) => void): void {
+    this.directListener = listener;
+  }
+
+  /** Direct sends count against the same daily limits as the queue. */
+  setDirectGate(gate: DirectGate): void {
+    this.directGate = gate;
+  }
+
+  /** Why a direct send to this assessoria may not leave now (null = it may). */
+  async directRefusal(ctx: DirectSendContext): Promise<string | null> {
+    if (!this.directGate) return null;
+    try {
+      return await this.directGate(ctx);
+    } catch (err: unknown) {
+      // The limit could not be checked (database down): nothing is sent blind.
+      this.logger.error(
+        `Limite diário não verificado: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return 'Não foi possível conferir o limite diário de e-mails; tente de novo em instantes';
+    }
+  }
+
+  /** Records a direct send made outside this service (the e-mail test). */
+  reportDirect(sent: DirectSend): void {
+    try {
+      this.directListener?.(sent);
+    } catch {
+      /* recording is best-effort */
+    }
+  }
+
+  private async direct(
+    eventType: DirectSend['eventType'],
+    to: string,
+    subject: string,
+    html: string,
+    ctx?: DirectSendContext,
+  ): Promise<void> {
+    const refusal = ctx ? await this.directRefusal(ctx) : null;
+    if (refusal)
+      this.logger.warn(`E-mail direto (${eventType}) não enviado: ${refusal}`);
+    const outcome = refusal
+      ? { ok: false, error: refusal }
+      : await this.deliver(to, subject, html);
+    if (ctx) this.reportDirect({ ...ctx, eventType, to, subject, ...outcome });
   }
 
   // The outbox worker (BE-09_v2) only runs when there is a transport to use.
   get isConfigured(): boolean {
     return this.transporter !== null;
+  }
+
+  // The "From" of every e-mail (SMTP_FROM). The e-mail test shows it: with
+  // Brevo, a sender that is not validated in the account is silently dropped.
+  get sender(): string {
+    return this.from;
   }
 
   async sendOrThrow(
@@ -68,12 +160,25 @@ export class EmailService {
     text?: string,
   ): Promise<void> {
     if (!this.transporter) {
-      throw new Error('SMTP não configurado — defina SMTP_HOST, SMTP_USER e SMTP_PASS no .env.local');
+      throw new Error(
+        'SMTP não configurado — defina SMTP_HOST, SMTP_USER e SMTP_PASS no .env.local',
+      );
     }
-    await this.transporter.sendMail({ from: this.from, to, subject, html, text });
+    await this.transporter.sendMail({
+      from: this.from,
+      to,
+      subject,
+      html,
+      text,
+    });
   }
 
-  sendInvite(email: string, name: string, inviteLink: string): void {
+  sendInvite(
+    email: string,
+    name: string,
+    inviteLink: string,
+    ctx?: DirectSendContext,
+  ): void {
     const subject = 'Bem-vindo ao Flui Contratos — configure sua senha';
     const html = `
       <div style="font-family:sans-serif;max-width:560px;margin:0 auto;color:#18181b">
@@ -95,7 +200,7 @@ export class EmailService {
         </div>
       </div>
     `;
-    this.send(email, subject, html).catch(() => {/* already logged inside send() */});
+    void this.direct('invite', email, subject, html, ctx);
   }
 
   // BE-08: link de recuperação gerado pelo Supabase, enviado pelo SMTP (Brevo)
@@ -103,6 +208,7 @@ export class EmailService {
     email: string,
     name: string,
     resetLink: string,
+    ctx?: DirectSendContext,
   ): Promise<void> {
     const subject = 'Flui Contratos — redefinição de senha';
     const html = `
@@ -125,6 +231,6 @@ export class EmailService {
         </div>
       </div>
     `;
-    return this.send(email, subject, html);
+    return this.direct('password_reset', email, subject, html, ctx);
   }
 }

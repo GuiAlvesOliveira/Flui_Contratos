@@ -52,6 +52,15 @@ export class PasswordResetService {
       user.email,
       user.name ?? user.email,
       link,
+      // aparece na tela de E-mails do gestor da assessoria (sem o link)
+      {
+        tenantId: user.tenantId ?? null,
+        recipientRole:
+          user.role === 'analista' || user.role === 'cliente'
+            ? user.role
+            : 'gestor',
+        actorId: null,
+      },
     );
   }
 }

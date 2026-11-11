@@ -40,6 +40,14 @@ export const ACTION_LABELS: Record<string, string> = {
   // PROD-09: success fee
   commission_updated: 'Comissão da assessoria alterada',
   success_fee_exported: 'Exportação do success fee (CSV)',
+  // E-mails sob controle do gestor (tela E-mails do Log de Ações)
+  email_sent: 'E-mail enviado',
+  email_failed: 'E-mail não enviado (falha)',
+  email_released: 'E-mail liberado pelo gestor',
+  email_cancelled: 'E-mail cancelado pelo gestor',
+  email_resent: 'E-mail reenviado pelo gestor',
+  email_expired: 'E-mail vencido sem envio',
+  email_settings_updated: 'Configuração de e-mails alterada',
 };
 
 export const actionLabel = (action: string) => ACTION_LABELS[action] ?? action;
